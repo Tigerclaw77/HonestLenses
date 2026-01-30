@@ -12,27 +12,24 @@ export async function POST(
 ) {
   const { id: orderId } = await context.params;
 
-  // 1️⃣ Load order
-  const { data } = await supabaseServer
+  const { data, error } = await supabaseServer
     .from("orders")
-    // .select("id, status, payment_intent_id, verification_required")
     .select("*")
-
     .eq("id", orderId);
 
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
   if (!data || data.length === 0) {
-    return NextResponse.json(
-      { error: "Order not found" },
-      { status: 404 },
-    );
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
   const order = data[0];
 
-  // 2️⃣ Enforce state
   if (order.status !== "authorized") {
     return NextResponse.json(
-      { error: "Order is not capturable" },
+      { error: "Order is not cancellable" },
       { status: 400 },
     );
   }
@@ -44,15 +41,11 @@ export async function POST(
     );
   }
 
-  // 3️⃣ Capture PaymentIntent
-  await stripe.paymentIntents.capture(order.payment_intent_id);
+  await stripe.paymentIntents.cancel(order.payment_intent_id);
 
-  // 4️⃣ Advance order state
   const { error: updateError } = await supabaseServer
     .from("orders")
-    .update({
-      status: "captured",
-    })
+    .update({ status: "cancelled" })
     .eq("id", orderId);
 
   if (updateError) {
