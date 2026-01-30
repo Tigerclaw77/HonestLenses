@@ -1,66 +1,153 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+"use client";
 
-export default function Home() {
+import Image from "next/image";
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import Header from "../components/Header";
+import Footer from "../components/Footer";
+import FindDoctorModal from "../components/FindDoctorModal";
+
+export default function HomePage() {
+  const [isFindDoctorOpen, setIsFindDoctorOpen] = useState(false);
+
+  useEffect(() => {
+    document.body.style.overflow = isFindDoctorOpen ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isFindDoctorOpen]);
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>To get started, edit the page.tsx file.</h1>
+    <main>
+      <Header variant="home" />
+
+      {/* ==================================================
+          HERO
+      ================================================== */}
+      <section className="hero-wix">
+        <div className="hero-image">
+          <h1 className="upper">
+            Contact Lenses
+            <br />
+            For Your Family
+          </h1>
+          <Link href="/shop" className="hero-btn">
+            Shop Now
+          </Link>
+        </div>
+      </section>
+
+      {/* ==================================================
+          ASSURANCE STRIP
+      ================================================== */}
+      <section className="assurance">
+        <ul>
+          <li>Valid prescription required</li>
+          <li>Manufacturer-direct fulfillment</li>
+          <li>No gray market lenses</li>
+        </ul>
+      </section>
+
+      {/* ==================================================
+          HOW IT WORKS
+      ================================================== */}
+      <section className="how-it-works">
+        <div className="how-grid">
+          <div>
+            <h3>1. Place your order</h3>
+            <p>
+              Enter your prescription details or upload a valid prescription
+              during checkout.
+            </p>
+          </div>
+          <div>
+            <h3>2. We verify</h3>
+            <p>
+              Prescriptions are verified prior to fulfillment in accordance with
+              federal law.
+            </p>
+          </div>
+          <div>
+            <h3>3. Ships to you</h3>
+            <p>
+              Lenses ship directly from authorized manufacturers or
+              distributors.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ==================================================
+          IMAGE BAND
+      ================================================== */}
+      <section className="prescription-cta section-soft">
+        <div className="prescription-inner">
+          <h2 className="upper">Need a prescription?</h2>
+
           <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
+            Contact lenses require a valid prescription. We can help you find a
+            licensed eye care professional near you.
           </p>
-        </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+
+          <button
+            className="primary-btn"
+            onClick={() => setIsFindDoctorOpen(true)}
           >
+            Find a Doctor
+          </button>
+        </div>
+      </section>
+
+      <section className="about-honest">
+        <div className="about-inner">
+          <div className="about-text">
+            <h2 className="upper">About Honest Lenses</h2>
+
+            <p>
+              Honest Lenses is a trusted contact lens seller. We ship lenses
+              directly from authorized manufacturers and distributors, ensuring
+              the highest standards of safety and authenticity.
+            </p>
+
+            <p>
+              When you order from Honest Lenses, you can be confident that your
+              family receives only legitimate, properly verified contact lenses.
+            </p>
+          </div>
+
+          <div className="about-image">
             <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+              src="/cl.png"
+              alt="Life with clear vision"
+              width={1200}
+              height={800}
+              sizes="(max-width: 768px) 100vw, 50vw"
+              style={{ width: "100%", height: "auto" }}
             />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          </div>
         </div>
-      </main>
-    </div>
+      </section>
+
+      {/* ==================================================
+          CTA
+      ================================================== */}
+      <section className="cta">
+        <h2>Ready to order?</h2>
+        <Link href="/order" className="primary-btn">
+          Order Contacts
+        </Link>
+      </section>
+
+      <Link href="/order" className="sticky-order-cta">
+        Order Contacts
+      </Link>
+
+      <Footer />
+
+      <FindDoctorModal
+        isOpen={isFindDoctorOpen}
+        onClose={() => setIsFindDoctorOpen(false)}
+      />
+    </main>
   );
 }

@@ -1,0 +1,27 @@
+{
+  "files.exclude": {
+    "**/.next": true,
+    "**/node_modules": true,
+
+    "**/next-env.d.ts": true,
+    "**/.gitignore": true,
+
+    "**/eslint.config.mjs": true,
+    "**/tsconfig.json": false,
+
+    "**/package-lock.json": false,
+
+    "src/types": true,
+
+    "public/next.svg": true,
+    "public/vercel.svg": true,
+    "public/file.svg": true,
+    "public/globe.svg": true,
+    "public/window.svg": true
+  },
+
+  "search.exclude": {
+    "**/.next": true,
+    "**/node_modules": true
+  }
+}
