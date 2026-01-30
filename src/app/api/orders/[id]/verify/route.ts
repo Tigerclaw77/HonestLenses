@@ -2,19 +2,32 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
+import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 
 export async function POST(
-  _req: Request,
+  req: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  // 1️⃣ Require authenticated user
+  const user = await getUserFromRequest(req);
+
+  if (!user) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 },
+    );
+  }
+
   const { id: orderId } = await context.params;
 
+  // 2️⃣ Update only if the order belongs to this user
   const { data, error } = await supabaseServer
     .from("orders")
     .update({
       verification_required: false,
     })
     .eq("id", orderId)
+    .eq("user_id", user.id)
     .select("id");
 
   if (error) {
@@ -26,7 +39,7 @@ export async function POST(
 
   if (!data || data.length === 0) {
     return NextResponse.json(
-      { error: "Order not found" },
+      { error: "Order not found or not owned by user" },
       { status: 404 },
     );
   }

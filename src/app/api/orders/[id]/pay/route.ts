@@ -3,21 +3,30 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseServer } from "../../../../../lib/supabase-server";
+import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 export async function POST(
-  _req: Request,
+  req: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  // 1️⃣ Require authenticated user
+  const user = await getUserFromRequest(req);
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   // ✅ FIX: params must be awaited
   const { id: orderId } = await context.params;
 
-  // 🔎 Load order
+  // 🔎 Load order (must belong to user)
   const { data, error } = await supabaseServer
     .from("orders")
-    .select("id, status, total_amount_cents, currency")
-    .eq("id", orderId);
+    .select("id, user_id, status, total_amount_cents, currency")
+    .eq("id", orderId)
+    .eq("user_id", user.id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -29,7 +38,7 @@ export async function POST(
 
   const order = data[0];
 
-  // 1️⃣ Enforce state
+  // 2️⃣ Enforce state
   if (order.status !== "draft") {
     return NextResponse.json(
       { error: "Order is not payable" },
@@ -55,6 +64,7 @@ export async function POST(
   //     },
   //   });
 
+  // 3️⃣ Create Stripe PaymentIntent (AUTHORIZE ONLY)
   const paymentIntent = await stripe.paymentIntents.create({
     amount: order.total_amount_cents,
     currency: order.currency.toLowerCase(),
@@ -67,20 +77,21 @@ export async function POST(
     },
   });
 
-  // 3️⃣ Persist Stripe ID + advance order state
+  // 4️⃣ Persist Stripe ID + advance order state
   const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
       payment_intent_id: paymentIntent.id,
       status: "authorized",
     })
-    .eq("id", orderId);
+    .eq("id", orderId)
+    .eq("user_id", user.id);
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
-  // 4️⃣ Return client secret
+  // 5️⃣ Return client secret
   return NextResponse.json({
     clientSecret: paymentIntent.client_secret,
   });

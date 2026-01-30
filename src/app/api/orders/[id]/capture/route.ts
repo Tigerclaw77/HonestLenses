@@ -3,29 +3,43 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseServer } from "../../../../../lib/supabase-server";
+import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 export async function POST(
-  _req: Request,
+  req: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  // 1️⃣ Require authenticated user
+  const user = await getUserFromRequest(req);
+
+  if (!user) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 },
+    );
+  }
+
   const { id: orderId } = await context.params;
 
-  // 1️⃣ Load order
+  // 2️⃣ Load order (must belong to user)
   const { data } = await supabaseServer
     .from("orders")
-    .select("id, status, payment_intent_id, verification_required")
-
-    .eq("id", orderId);
+    .select("id, user_id, status, payment_intent_id, verification_required")
+    .eq("id", orderId)
+    .eq("user_id", user.id);
 
   if (!data || data.length === 0) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    return NextResponse.json(
+      { error: "Order not found" },
+      { status: 404 },
+    );
   }
 
   const order = data[0];
 
-  // 2️⃣ Enforce state
+  // 3️⃣ Enforce state
   if (order.status !== "authorized") {
     return NextResponse.json(
       { error: "Order is not capturable" },
@@ -47,28 +61,33 @@ export async function POST(
     );
   }
 
-  // 3️⃣ Capture PaymentIntent
-  // await stripe.paymentIntents.capture(order.payment_intent_id);
+  // 4️⃣ Capture PaymentIntent
   try {
     await stripe.paymentIntents.capture(order.payment_intent_id);
   } catch (err: unknown) {
     if (err instanceof Stripe.errors.StripeError) {
-      return NextResponse.json({ error: err.message }, { status: 400 });
+      return NextResponse.json(
+        { error: err.message },
+        { status: 400 },
+      );
     }
-
     throw err;
   }
 
-  // 4️⃣ Advance order state
+  // 5️⃣ Advance order state
   const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
       status: "captured",
     })
-    .eq("id", orderId);
+    .eq("id", orderId)
+    .eq("user_id", user.id);
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    return NextResponse.json(
+      { error: updateError.message },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ ok: true });

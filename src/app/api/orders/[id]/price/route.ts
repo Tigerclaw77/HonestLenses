@@ -2,11 +2,22 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
+import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 
 export async function POST(
   req: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  // 1️⃣ Require authenticated user
+  const user = await getUserFromRequest(req);
+
+  if (!user) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 },
+    );
+  }
+
   const { id: orderId } = await context.params;
   const body = await req.json();
 
@@ -29,7 +40,7 @@ export async function POST(
     );
   }
 
-  // Only allow pricing on draft orders
+  // 2️⃣ Only allow pricing on *own* draft orders
   const { data, error } = await supabaseServer
     .from("orders")
     .update({
@@ -37,6 +48,7 @@ export async function POST(
       currency: currency.toUpperCase(),
     })
     .eq("id", orderId)
+    .eq("user_id", user.id)
     .eq("status", "draft")
     .select("id");
 
@@ -49,7 +61,7 @@ export async function POST(
 
   if (!data || data.length === 0) {
     return NextResponse.json(
-      { error: "Order not found or not in draft state" },
+      { error: "Order not found, not owned by user, or not in draft state" },
       { status: 400 },
     );
   }
