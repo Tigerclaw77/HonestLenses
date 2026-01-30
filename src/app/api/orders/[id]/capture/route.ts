@@ -9,15 +9,14 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 export async function POST(
   req: Request,
-  context: { params: Promise<{ id: string }> },
+  context: { params: Promise<{ id: string }> }
 ) {
   // 1️⃣ Require authenticated user
   const user = await getUserFromRequest(req);
-
   if (!user) {
     return NextResponse.json(
       { error: "Unauthorized" },
-      { status: 401 },
+      { status: 401 }
     );
   }
 
@@ -26,14 +25,16 @@ export async function POST(
   // 2️⃣ Load order (must belong to user)
   const { data } = await supabaseServer
     .from("orders")
-    .select("id, user_id, status, payment_intent_id, verification_required")
+    .select(
+      "id, user_id, status, payment_intent_id, verification_status"
+    )
     .eq("id", orderId)
     .eq("user_id", user.id);
 
   if (!data || data.length === 0) {
     return NextResponse.json(
       { error: "Order not found" },
-      { status: 404 },
+      { status: 404 }
     );
   }
 
@@ -43,21 +44,21 @@ export async function POST(
   if (order.status !== "authorized") {
     return NextResponse.json(
       { error: "Order is not capturable" },
-      { status: 400 },
+      { status: 400 }
     );
   }
 
   if (!order.payment_intent_id) {
     return NextResponse.json(
       { error: "Missing payment_intent_id" },
-      { status: 400 },
+      { status: 400 }
     );
   }
 
-  if (order.verification_required) {
+  if (!["verified", "altered"].includes(order.verification_status)) {
     return NextResponse.json(
-      { error: "Prescription verification required before capture" },
-      { status: 400 },
+      { error: "Prescription not verified" },
+      { status: 400 }
     );
   }
 
@@ -68,7 +69,7 @@ export async function POST(
     if (err instanceof Stripe.errors.StripeError) {
       return NextResponse.json(
         { error: err.message },
-        { status: 400 },
+        { status: 400 }
       );
     }
     throw err;
@@ -86,7 +87,7 @@ export async function POST(
   if (updateError) {
     return NextResponse.json(
       { error: updateError.message },
-      { status: 500 },
+      { status: 500 }
     );
   }
 

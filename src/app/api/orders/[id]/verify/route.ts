@@ -6,41 +6,53 @@ import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 
 export async function POST(
   req: Request,
-  context: { params: Promise<{ id: string }> },
+  context: { params: Promise<{ id: string }> }
 ) {
   // 1️⃣ Require authenticated user
   const user = await getUserFromRequest(req);
-
   if (!user) {
     return NextResponse.json(
       { error: "Unauthorized" },
-      { status: 401 },
+      { status: 401 }
+    );
+  }
+
+  // 2️⃣ Admin-only authorization check
+  const { data: profile, error: profileError } = await supabaseServer
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profileError || profile?.role !== "admin") {
+    return NextResponse.json(
+      { error: "Forbidden" },
+      { status: 403 }
     );
   }
 
   const { id: orderId } = await context.params;
 
-  // 2️⃣ Update only if the order belongs to this user
+  // 3️⃣ Mark order as verified (ADMIN ACTION — no ownership check)
   const { data, error } = await supabaseServer
     .from("orders")
     .update({
-      verification_required: false,
+      verification_status: "verified",
     })
     .eq("id", orderId)
-    .eq("user_id", user.id)
     .select("id");
 
   if (error) {
     return NextResponse.json(
       { error: error.message },
-      { status: 500 },
+      { status: 500 }
     );
   }
 
   if (!data || data.length === 0) {
     return NextResponse.json(
-      { error: "Order not found or not owned by user" },
-      { status: 404 },
+      { error: "Order not found" },
+      { status: 404 }
     );
   }
 

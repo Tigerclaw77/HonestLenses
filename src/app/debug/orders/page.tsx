@@ -8,12 +8,14 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+type VerificationStatus = "pending" | "verified" | "altered" | "rejected";
+
 type Order = {
   id: string;
   status: string;
   total_amount_cents: number | null;
   currency: string | null;
-  verification_required: boolean;
+  verification_status: VerificationStatus;
   rx_data: unknown | null;
   created_at: string;
 };
@@ -104,7 +106,12 @@ export default function OrdersDebugPage() {
                   : "—"}
               </td>
               <td>{o.rx_data ? "✅" : "—"}</td>
-              <td>{o.verification_required ? "⚠️" : "—"}</td>
+              <td>
+                {o.verification_status === "pending" && "⏳"}
+                {o.verification_status === "verified" && "✅"}
+                {o.verification_status === "altered" && "✏️"}
+                {o.verification_status === "rejected" && "❌"}
+              </td>
               <td style={{ fontSize: 12 }}>
                 {new Date(o.created_at).toLocaleString()}
               </td>
