@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 type Order = {
   id: string;
@@ -12,22 +18,53 @@ type Order = {
   created_at: string;
 };
 
+type OrdersListResponse = {
+  orders: Order[];
+};
+
 export default function OrdersDebugPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/orders/list")
-      .then((res) => res.json())
-      .then((data) => {
-        setOrders(data.orders || []);
+    async function loadOrders() {
+      try {
+        // 1️⃣ Get active session
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!session) {
+          throw new Error("Not logged in");
+        }
+
+        // 2️⃣ Authenticated request
+        const res = await fetch("/api/orders/list", {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
+
+        if (!res.ok) {
+          const body: { error?: string } = await res.json();
+          throw new Error(body.error ?? "Failed to load orders");
+        }
+
+        const data: OrdersListResponse = await res.json();
+        setOrders(data.orders);
+      } catch (err: unknown) {
+        if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError("Failed to load orders");
+        }
+      } finally {
         setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message || "Failed to load orders");
-        setLoading(false);
-      });
+      }
+    }
+
+    loadOrders();
   }, []);
 
   if (loading) return <div style={{ padding: 24 }}>Loading…</div>;

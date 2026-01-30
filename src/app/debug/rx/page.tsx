@@ -1,6 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function RxDebugPage() {
   const [orderId, setOrderId] = useState("");
@@ -17,16 +23,38 @@ export default function RxDebugPage() {
     setResult(null);
 
     try {
+      // 1️⃣ Get active session
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        throw new Error("Not logged in");
+      }
+
+      // 2️⃣ Authenticated request
       const res = await fetch(`/api/orders/${orderId}/rx`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: rxJson,
       });
 
       const text = await res.text();
+
+      if (!res.ok) {
+        throw new Error(text || "Request failed");
+      }
+
       setResult(text);
     } catch (err: unknown) {
-      setResult(err instanceof Error ? err.message : "Request failed");
+      if (err instanceof Error) {
+        setResult(err.message);
+      } else {
+        setResult("Request failed");
+      }
     } finally {
       setLoading(false);
     }
@@ -70,6 +98,7 @@ export default function RxDebugPage() {
             padding: 12,
             background: "#111",
             color: "#0f0",
+            whiteSpace: "pre-wrap",
           }}
         >
           {result}
