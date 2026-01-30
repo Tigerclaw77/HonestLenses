@@ -9,11 +9,20 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+type Order = {
+  id: string;
+  total_amount_cents: number;
+  revised_total_amount_cents: number | null;
+  verification_status: string;
+  price_reason: string | null;
+};
+
 export default function CheckoutPage() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [orderId, setOrderId] = useState<string | null>(null);
+  const [order, setOrder] = useState<Order | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,6 +66,14 @@ export default function CheckoutPage() {
     });
   }
 
+  async function refreshOrder(id: string) {
+    const res = await authFetch(`/api/orders/${id}`);
+    const body = await res.json();
+    if (res.ok) {
+      setOrder(body.order);
+    }
+  }
+
   async function createOrder() {
     setError(null);
     append('→ Creating order');
@@ -70,6 +87,7 @@ export default function CheckoutPage() {
 
       setOrderId(body.orderId);
       append(`✓ Order created: ${body.orderId}`);
+      await refreshOrder(body.orderId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Create failed');
     }
@@ -89,10 +107,9 @@ export default function CheckoutPage() {
         }),
       });
 
-      const body: { ok?: boolean; error?: string } = await res.json();
-      if (!res.ok) throw new Error(body.error || 'Price failed');
-
+      if (!res.ok) throw new Error('Price failed');
       append('✓ Price set ($24.99)');
+      await refreshOrder(orderId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Price failed');
     }
@@ -113,10 +130,9 @@ export default function CheckoutPage() {
         }),
       });
 
-      const text = await res.text();
-      if (!res.ok) throw new Error(text || 'Rx failed');
-
+      if (!res.ok) throw new Error('Rx failed');
       append('✓ Rx attached (verification required)');
+      await refreshOrder(orderId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Rx failed');
     }
@@ -131,13 +147,11 @@ export default function CheckoutPage() {
         method: 'POST',
       });
 
-      const body: { clientSecret?: string; error?: string } = await res.json();
+      const body = await res.json();
       if (!res.ok) throw new Error(body.error || 'Authorize failed');
 
       append('✓ Payment authorized (Stripe hold)');
-      if (body.clientSecret) {
-        append(`  clientSecret: ${body.clientSecret.slice(0, 16)}…`);
-      }
+      await refreshOrder(orderId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Authorize failed');
     }
@@ -145,24 +159,32 @@ export default function CheckoutPage() {
 
   async function verifyRx() {
     if (!orderId) return;
-    append('→ Verifying Rx (manual/admin)');
+    append('→ Verifying Rx (admin)');
 
     try {
       const res = await authFetch(`/api/orders/${orderId}/verify`, {
         method: 'POST',
       });
 
-      const body: { ok?: boolean; error?: string } = await res.json();
-      if (!res.ok) throw new Error(body.error || 'Verify failed');
-
-      append('✓ Rx verified (verification cleared)');
+      if (!res.ok) throw new Error('Verify failed');
+      append('✓ Rx verification complete');
+      await refreshOrder(orderId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Verify failed');
     }
   }
 
   async function capture() {
-    if (!orderId) return;
+    if (!orderId || !order) return;
+
+    if (
+      order.verification_status === 'altered' &&
+      order.revised_total_amount_cents !== null
+    ) {
+      setError('Order price changed — reauthorization required');
+      return;
+    }
+
     append('→ Capturing payment');
 
     try {
@@ -170,9 +192,7 @@ export default function CheckoutPage() {
         method: 'POST',
       });
 
-      const body: { ok?: boolean; error?: string } = await res.json();
-      if (!res.ok) throw new Error(body.error || 'Capture failed');
-
+      if (!res.ok) throw new Error('Capture failed');
       append('✓ Payment captured');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Capture failed');
@@ -181,9 +201,44 @@ export default function CheckoutPage() {
 
   if (loading) return <div>Loading…</div>;
 
+  const requiresReauth =
+    order?.verification_status === 'altered' &&
+    order.revised_total_amount_cents !== null;
+
   return (
     <div style={{ padding: 24, maxWidth: 900 }}>
       <h1>Dumb Checkout (MVP)</h1>
+
+      {requiresReauth && order && (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: 12,
+            border: '1px solid #f5c26b',
+            background: '#fff8eb',
+            borderRadius: 6,
+          }}
+        >
+          <strong>Prescription adjusted</strong>
+          <p>Your order price has changed after verification.</p>
+
+          {order.price_reason && (
+            <p>
+              <em>Reason:</em> {order.price_reason}
+            </p>
+          )}
+
+          <p>
+            Original: ${(order.total_amount_cents / 100).toFixed(2)} <br />
+            Revised:{' '}
+            ${(order.revised_total_amount_cents / 100).toFixed(2)}
+          </p>
+
+          <p>
+            Please re-authorize payment to continue.
+          </p>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button onClick={createOrder}>1. Create Order</button>
@@ -194,12 +249,15 @@ export default function CheckoutPage() {
           3. Attach Rx
         </button>
         <button onClick={authorizePayment} disabled={!orderId}>
-          4. Authorize Payment (hold only)
+          4. Authorize Payment
         </button>
         <button onClick={verifyRx} disabled={!orderId}>
           5. Verify Rx
         </button>
-        <button onClick={capture} disabled={!orderId}>
+        <button
+          onClick={capture}
+          disabled={!orderId || requiresReauth}
+        >
           6. Capture
         </button>
       </div>
