@@ -25,8 +25,8 @@ export default function RxDebugPage() {
 
       const text = await res.text();
       setResult(text);
-    } catch (err: any) {
-      setResult(err.message || "Request failed");
+    } catch (err: unknown) {
+      setResult(err instanceof Error ? err.message : "Request failed");
     } finally {
       setLoading(false);
     }

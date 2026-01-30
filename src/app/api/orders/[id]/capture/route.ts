@@ -15,16 +15,12 @@ export async function POST(
   // 1️⃣ Load order
   const { data } = await supabaseServer
     .from("orders")
-    // .select("id, status, payment_intent_id, verification_required")
-    .select("*")
+    .select("id, status, payment_intent_id, verification_required")
 
     .eq("id", orderId);
 
   if (!data || data.length === 0) {
-    return NextResponse.json(
-      { error: "Order not found" },
-      { status: 404 },
-    );
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
   const order = data[0];
@@ -44,8 +40,24 @@ export async function POST(
     );
   }
 
+  if (order.verification_required) {
+    return NextResponse.json(
+      { error: "Prescription verification required before capture" },
+      { status: 400 },
+    );
+  }
+
   // 3️⃣ Capture PaymentIntent
-  await stripe.paymentIntents.capture(order.payment_intent_id);
+  // await stripe.paymentIntents.capture(order.payment_intent_id);
+  try {
+    await stripe.paymentIntents.capture(order.payment_intent_id);
+  } catch (err: unknown) {
+    if (err instanceof Stripe.errors.StripeError) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
+
+    throw err;
+  }
 
   // 4️⃣ Advance order state
   const { error: updateError } = await supabaseServer
@@ -56,10 +68,7 @@ export async function POST(
     .eq("id", orderId);
 
   if (updateError) {
-    return NextResponse.json(
-      { error: updateError.message },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });
