@@ -875,10 +875,22 @@ main {
   justify-content: center;
 }
 
+/* ===== Modal Overlay (Shared) ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 10000;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* ===== MODAL CARD ===== */
-.modal-card {
+/* .modal-card {
   background: #fff7f0;
-  max-width: 640px; /* smaller */
+  max-width: 640px;
   width: calc(100% - 40px);
   padding: 36px;
   border-radius: 12px;
@@ -887,6 +899,37 @@ main {
   box-shadow:
     0 10px 30px rgba(0, 0, 0, 0.25),
     0 2px 8px rgba(0, 0, 0, 0.1);
+} */
+
+/* ===== Modal Card (Shared) ===== */
+.modal-card {
+  background: #0f0f0f;
+  color: #fff;
+
+  border-radius: 14px;
+  padding: 28px;
+
+  max-width: 520px;
+  width: calc(100% - 32px);
+
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
+  outline: none;
+}
+
+/* ===== Entrance Animation ===== */
+.modal-animate {
+  animation: modal-in 180ms ease-out both;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 /* ===== CLOSE BUTTON ===== */
@@ -1263,4 +1306,26 @@ main {
   .sticky-order-cta {
     display: inline-flex;
   }
+}
+
+/* ===== Shop Intent Modal ===== */
+
+.shop-intent-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 10000; /* must beat header + sticky CTA */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shop-intent-card {
+  background: #0f0f0f;
+  color: #fff;
+  border-radius: 14px;
+  padding: 28px;
+  max-width: 480px;
+  width: calc(100% - 32px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
 }

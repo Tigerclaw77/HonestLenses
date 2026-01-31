@@ -3,23 +3,36 @@
 import Image from "next/image";
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+
 import Header from "../components/Header";
 import Footer from "../components/Footer";
 import FindDoctorModal from "../components/FindDoctorModal";
+import ShopIntentModal from "../components/ShopIntentModal";
 
 export default function HomePage() {
-  const [isFindDoctorOpen, setIsFindDoctorOpen] = useState(false);
+  const router = useRouter();
 
+  const [isFindDoctorOpen, setIsFindDoctorOpen] = useState(false);
+  const [isShopIntentOpen, setIsShopIntentOpen] = useState(true);
+
+  // Lock body scroll when ANY modal is open
   useEffect(() => {
-    document.body.style.overflow = isFindDoctorOpen ? "hidden" : "";
+    const shouldLock = isFindDoctorOpen || isShopIntentOpen;
+    document.body.style.overflow = shouldLock ? "hidden" : "";
+
     return () => {
       document.body.style.overflow = "";
     };
-  }, [isFindDoctorOpen]);
+  }, [isFindDoctorOpen, isShopIntentOpen]);
 
   return (
     <main>
-      <Header variant="home" />
+      {/* HEADER */}
+      <Header
+        variant="home"
+        onShopIntent={() => setIsShopIntentOpen(true)}
+      />
 
       {/* ==================================================
           HERO
@@ -31,9 +44,13 @@ export default function HomePage() {
             <br />
             For Your Family
           </h1>
-          <Link href="/shop" className="hero-btn">
+
+          <button
+            className="hero-btn"
+            onClick={() => setIsShopIntentOpen(true)}
+          >
             Shop Now
-          </Link>
+          </button>
         </div>
       </section>
 
@@ -98,6 +115,9 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ==================================================
+          ABOUT
+      ================================================== */}
       <section className="about-honest">
         <div className="about-inner">
           <div className="about-text">
@@ -144,9 +164,25 @@ export default function HomePage() {
 
       <Footer />
 
+      {/* ==================================================
+          MODALS
+      ================================================== */}
       <FindDoctorModal
         isOpen={isFindDoctorOpen}
         onClose={() => setIsFindDoctorOpen(false)}
+      />
+
+      <ShopIntentModal
+        isOpen={isShopIntentOpen}
+        onClose={() => setIsShopIntentOpen(false)}
+        onJustLooking={() => {
+          setIsShopIntentOpen(false);
+          router.push("/shop");
+        }}
+        onHasPrescription={() => {
+          setIsShopIntentOpen(false);
+          router.push("/order");
+        }}
       />
     </main>
   );
