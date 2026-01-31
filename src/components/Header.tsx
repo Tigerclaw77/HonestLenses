@@ -7,97 +7,96 @@ type HeaderVariant = "home" | "shop" | "about" | "content";
 
 type HeaderProps = {
   variant?: HeaderVariant;
+  onShopIntent?: () => void;
 };
 
-export default function Header({ variant = "home" }: HeaderProps) {
+export default function Header({
+  variant = "home",
+  onShopIntent,
+}: HeaderProps) {
   const [isNavOpen, setIsNavOpen] = useState(false);
 
   const isHome = variant === "home";
-
-  // Desktop links (>= 900px, because .header-nav is hidden under that)
   const showShop = variant !== "shop";
   const showAbout = variant !== "about";
+
+  const handleShopClick = (
+    e: React.MouseEvent<HTMLElement>
+  ) => {
+    e.preventDefault();
+    setIsNavOpen(false);
+    onShopIntent?.();
+  };
 
   return (
     <>
       <header className="header">
         <div className="header-inner">
-          {/* Logo */}
-          <Link href="/" className="logo-link" aria-label="Go to homepage">
+          <Link href="/" className="logo-link">
             <div className="logo">
-              <div>
-                <span className="logo-honest">HONEST</span>
-                <span className="logo-lenses">LENSES</span>
-              </div>
-              <div className="logo-tagline upper">See clearly. Pay fairly.</div>
+              <span className="logo-honest">HONEST</span>
+              <span className="logo-lenses">LENSES</span>
             </div>
           </Link>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-            {/* Hamburger ONLY on home (mobile nav drawer behavior) */}
+          <div style={{ display: "flex", gap: 16 }}>
             {isHome && (
               <button
                 className="nav-toggle"
-                aria-label="Open menu"
-                aria-expanded={isNavOpen}
                 onClick={() => setIsNavOpen(true)}
               >
                 ☰
               </button>
             )}
 
-            {/* Always-visible CTA (important for mobile on non-home pages) */}
-            <Link href="/order" className="header-order-btn header-cta">
+            <button
+              className="header-order-btn header-cta"
+              onClick={handleShopClick}
+            >
               Order Contacts
-            </Link>
+            </button>
 
-            {/* Desktop nav (hidden on mobile via your CSS) */}
-            <nav className="header-nav" aria-label="Primary navigation">
-              {showShop && <Link href="/shop">Shop</Link>}
+            <nav className="header-nav">
+              {showShop && (
+                <a href="/shop" onClick={handleShopClick}>
+                  Shop
+                </a>
+              )}
               {showAbout && <Link href="/about">About</Link>}
             </nav>
           </div>
         </div>
       </header>
 
-      {/* Mobile drawer — home only */}
-      {isHome && (
+      {isHome && isNavOpen && (
         <>
-          <div className={`nav-drawer ${isNavOpen ? "open" : ""}`}>
+          <div className="nav-drawer open">
             <button
               className="drawer-close"
-              aria-label="Close menu"
               onClick={() => setIsNavOpen(false)}
             >
               ✕
             </button>
 
-            <nav className="drawer-nav" aria-label="Mobile navigation">
-              <Link href="/shop" onClick={() => setIsNavOpen(false)}>
+            <nav className="drawer-nav">
+              <a href="/shop" onClick={handleShopClick}>
                 Shop
-              </Link>
-              <Link href="/about" onClick={() => setIsNavOpen(false)}>
-                About
-              </Link>
+              </a>
+              <Link href="/about">About</Link>
             </nav>
 
-            <div className="drawer-spacer" />
-
-            <Link
-              href="/order"
+            <button
               className="drawer-cta"
-              onClick={() => setIsNavOpen(false)}
+              onClick={handleShopClick}
             >
               Order Contacts
-            </Link>
+            </button>
           </div>
 
-          {isNavOpen && (
-            <div
-              className="drawer-backdrop"
-              onClick={() => setIsNavOpen(false)}
-            />
-          )}
+          <div
+            className="drawer-backdrop"
+            onClick={() => setIsNavOpen(false)}
+          />
         </>
       )}
     </>
