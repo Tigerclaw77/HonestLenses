@@ -1,68 +1,166 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
+import Header from "../../components/Header";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+);
+
+const LS_ORDER_ID = "rx_upload_order_id";
+const LS_FILENAME = "rx_upload_filename";
 
 export default function UploadPrescriptionPage() {
   const router = useRouter();
+
+  const [file, setFile] = useState<File | null>(null);
+  const [existingOrderId, setExistingOrderId] = useState<string | null>(null);
+  const [existingFilename, setExistingFilename] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submitRx() {
+  // 🔁 Restore local state on mount
+  useEffect(() => {
+    const savedOrderId = localStorage.getItem(LS_ORDER_ID);
+    const savedFilename = localStorage.getItem(LS_FILENAME);
+
+    if (savedOrderId) setExistingOrderId(savedOrderId);
+    if (savedFilename) setExistingFilename(savedFilename);
+  }, []);
+
+  async function submitUpload() {
+    if (!file || loading) return;
+
     setLoading(true);
     setError(null);
 
     try {
-      const rxData = {
-        right: { sphere: -2.25, cyl: -0.75, axis: 180 },
-        left: { sphere: -2.0, cyl: -0.5, axis: 170 },
-        expires: "2026-05-01",
-      };
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-      // 1️⃣ Create or reuse draft order
-      const orderRes = await fetch("/api/orders", {
-        method: "POST",
-      });
-
-      const orderBody = await orderRes.json();
-      if (!orderRes.ok || !orderBody.orderId) {
-        throw new Error(orderBody.error || "Order creation failed");
+      if (!session) {
+        router.push("/login");
+        return;
       }
 
-      const orderId = orderBody.orderId;
+      // 1️⃣ Create or reuse order
+      let orderId = existingOrderId;
 
-      // 2️⃣ Attach Rx to that order
-      const rxRes = await fetch(`/api/orders/${orderId}/rx`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(rxData),
-      });
+      if (!orderId) {
+        const orderRes = await fetch("/api/orders", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
 
-      if (!rxRes.ok) {
-        const body = await rxRes.json();
-        throw new Error(body.error || "Rx attach failed");
+        const orderBody = await orderRes.json();
+
+        if (!orderRes.ok || !orderBody.orderId) {
+          throw new Error(orderBody.error || "Order creation failed");
+        }
+
+        orderId = orderBody.orderId;
+
+        if (!orderId) {
+          throw new Error("orderId missing when attempting to persist");
+        }
+
+        localStorage.setItem(LS_ORDER_ID, orderId);
       }
 
-      // 3️⃣ Go to checkout
+      // 2️⃣ Upload file
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const uploadRes = await fetch(`/api/orders/${orderId}/rx-upload`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: formData,
+      });
+
+      if (!uploadRes.ok) {
+        const body = await uploadRes.json();
+        throw new Error(body.error || "Upload failed");
+      }
+
+      // 3️⃣ Persist success + clear transient state
+      localStorage.setItem(LS_FILENAME, file.name);
+
+      // Optional: clear after success so repeat visits are clean
+      // localStorage.removeItem(LS_ORDER_ID);
+      // localStorage.removeItem(LS_FILENAME);
+
       router.push("/checkout");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed");
+      setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <main style={{ padding: 24, maxWidth: 600 }}>
-      <h1>Upload prescription</h1>
+    <>
+      <Header variant="shop" />
 
-      <p>This will automatically select the correct lenses.</p>
+      <main>
+        <section className="content-shell">
+          <h1 className="upper content-title">Upload Prescription</h1>
 
-      <button onClick={submitRx} disabled={loading}>
-        {loading ? "Processing…" : "Continue to checkout"}
-      </button>
+          <p className="content-lead">
+            Upload a photo or PDF of your valid contact lens prescription. We’ll
+            verify it before fulfillment.
+          </p>
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
-    </main>
+          <div className="order-card">
+            {existingFilename && !file && (
+              <p style={{ marginBottom: 12, opacity: 0.85 }}>
+                Previously selected: <strong>{existingFilename}</strong>
+              </p>
+            )}
+
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={(e) => {
+                const selected = e.target.files?.[0] ?? null;
+                setFile(selected);
+                if (selected) {
+                  localStorage.setItem(LS_FILENAME, selected.name);
+                }
+              }}
+            />
+
+            <button
+              className="primary-btn"
+              onClick={submitUpload}
+              disabled={!file || loading}
+            >
+              {loading ? "Uploading…" : "Continue to checkout"}
+            </button>
+
+            {error && <p className="order-error">{error}</p>}
+          </div>
+
+          <p className="order-fineprint">
+            Uploaded prescriptions are reviewed for accuracy before lenses ship.
+          </p>
+
+          <div className="order-actions">
+            <Link href="/enter-prescription" className="ghost-link">
+              Enter prescription manually instead
+            </Link>
+          </div>
+        </section>
+      </main>
+    </>
   );
 }
