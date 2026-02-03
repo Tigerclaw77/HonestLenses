@@ -9,6 +9,8 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
 );
 
+const LS_ORDER_ID = "hl_active_order_id";
+
 type Order = {
   id: string;
   total_amount_cents: number;
@@ -30,21 +32,68 @@ export default function CheckoutPage() {
     setLog((l) => [...l, msg]);
   }
 
+  /**
+   * Auth + cart presence gate
+   * - not logged in → /login
+   * - logged in, empty cart → /shop
+   */
   useEffect(() => {
-    async function checkAuth() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+    async function initCheckout() {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      if (!session) {
-        router.replace("/login");
-        return;
+        if (!session) {
+          router.replace("/login");
+          return;
+        }
+
+        // 1️⃣ Check cart first
+        const cartRes = await fetch("/api/cart/has-items", {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
+
+        const cartBody = await cartRes.json();
+
+        if (!cartBody.hasItems) {
+          router.replace("/shop");
+          return;
+        }
+
+        // 2️⃣ Use existing order if present (same order the Rx page used)
+        let existing = localStorage.getItem(LS_ORDER_ID);
+
+        if (!existing) {
+          const orderRes = await authFetch("/api/orders", { method: "POST" });
+          const orderBody = await orderRes.json();
+
+          if (!orderRes.ok || !orderBody.orderId) {
+            throw new Error("Failed to create order");
+          }
+
+          const newOrderId = orderBody.orderId as string;
+          localStorage.setItem(LS_ORDER_ID, newOrderId);
+          existing = newOrderId;
+        }
+
+        setOrderId(existing);
+        await refreshOrder(existing);
+
+        // 3️⃣ Done
+        setLoading(false);
+      } catch (err) {
+        console.error(err);
+        setError(
+          err instanceof Error ? err.message : "Checkout initialization failed",
+        );
+        setLoading(false);
       }
-
-      setLoading(false);
     }
 
-    checkAuth();
+    initCheckout();
   }, [router]);
 
   async function authFetch(
@@ -74,24 +123,25 @@ export default function CheckoutPage() {
     }
   }
 
-  async function createOrder() {
-    setError(null);
-    append("→ Creating order");
+  // save in case needed later
+  // async function createOrder() {
+  //   setError(null);
+  //   append("→ Creating order");
 
-    try {
-      const res = await authFetch("/api/orders", { method: "POST" });
-      const body: { orderId?: string; error?: string } = await res.json();
+  //   try {
+  //     const res = await authFetch("/api/orders", { method: "POST" });
+  //     const body: { orderId?: string; error?: string } = await res.json();
 
-      if (!res.ok) throw new Error(body.error || "Create failed");
-      if (!body.orderId) throw new Error("Missing orderId");
+  //     if (!res.ok) throw new Error(body.error || "Create failed");
+  //     if (!body.orderId) throw new Error("Missing orderId");
 
-      setOrderId(body.orderId);
-      append(`✓ Order created: ${body.orderId}`);
-      await refreshOrder(body.orderId);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Create failed");
-    }
-  }
+  //     setOrderId(body.orderId);
+  //     append(`✓ Order created: ${body.orderId}`);
+  //     await refreshOrder(body.orderId);
+  //   } catch (err: unknown) {
+  //     setError(err instanceof Error ? err.message : "Create failed");
+  //   }
+  // }
 
   async function setPrice() {
     if (!orderId) return;
@@ -177,14 +227,6 @@ export default function CheckoutPage() {
   async function capture() {
     if (!orderId || !order) return;
 
-    if (
-      order.verification_status === "altered" &&
-      order.revised_total_amount_cents !== null
-    ) {
-      setError("Order price changed — reauthorization required");
-      return;
-    }
-
     append("→ Capturing payment");
 
     try {
@@ -193,8 +235,13 @@ export default function CheckoutPage() {
       });
 
       if (!res.ok) throw new Error("Capture failed");
+
+      // ✅ CLEAR RX DRAFT HERE
+      localStorage.removeItem("hl_rx_draft_v1");
+
       append("✓ Payment captured");
-    } catch (err: unknown) {
+      router.push("/checkout/success");
+    } catch (err) {
       setError(err instanceof Error ? err.message : "Capture failed");
     }
   }
@@ -207,7 +254,7 @@ export default function CheckoutPage() {
 
   return (
     <div style={{ padding: 24, maxWidth: 900 }}>
-      <h1>Dumb Checkout (MVP)</h1>
+      <h1>Checkout (Order & Payment Gate)</h1>
 
       {requiresReauth && order && (
         <div
@@ -228,36 +275,39 @@ export default function CheckoutPage() {
             </p>
           )}
 
-          {requiresReauth &&
-            order?.verification_status === "altered" &&
-            order.revised_total_amount_cents !== null && (
-              <p>
-                Original: ${(order.total_amount_cents / 100).toFixed(2)} <br />
-                Revised: ${(order.revised_total_amount_cents / 100).toFixed(2)}
-              </p>
-            )}
+          <p>
+            Original: ${(order.total_amount_cents / 100).toFixed(2)} <br />
+            Revised: ${(order.revised_total_amount_cents! / 100).toFixed(2)}
+          </p>
+
           <p>Please re-authorize payment to continue.</p>
         </div>
       )}
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button onClick={createOrder}>1. Create Order</button>
         <button onClick={setPrice} disabled={!orderId}>
-          2. Set Price
+          1. Set Price
         </button>
         <button onClick={attachRx} disabled={!orderId}>
-          3. Attach Rx
+          2. Attach Rx
         </button>
         <button onClick={authorizePayment} disabled={!orderId}>
-          4. Authorize Payment
+          3. Authorize Payment
         </button>
         <button onClick={verifyRx} disabled={!orderId}>
-          5. Verify Rx
+          4. Verify Rx
         </button>
         <button onClick={capture} disabled={!orderId || requiresReauth}>
-          6. Capture
+          5. Capture
         </button>
       </div>
+
+      {/* <div style={{ marginTop: 24 }}>
+        <p>
+          <strong>Need to add more lenses?</strong>{" "}
+          <a href="/shop">Continue shopping</a>
+        </p>
+      </div> */}
 
       {orderId && (
         <div style={{ marginTop: 16 }}>

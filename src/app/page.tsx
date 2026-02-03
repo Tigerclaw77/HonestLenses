@@ -14,7 +14,7 @@ export default function HomePage() {
   const router = useRouter();
 
   const [isFindDoctorOpen, setIsFindDoctorOpen] = useState(false);
-  const [isShopIntentOpen, setIsShopIntentOpen] = useState(true);
+  const [isShopIntentOpen, setIsShopIntentOpen] = useState(false);
 
   // Lock body scroll when ANY modal is open
   useEffect(() => {
@@ -29,10 +29,7 @@ export default function HomePage() {
   return (
     <main>
       {/* HEADER */}
-      <Header
-        variant="home"
-        onShopIntent={() => setIsShopIntentOpen(true)}
-      />
+      <Header variant="home" onShopIntent={() => setIsShopIntentOpen(true)} />
 
       {/* ==================================================
           HERO
@@ -153,12 +150,12 @@ export default function HomePage() {
       ================================================== */}
       <section className="cta">
         <h2>Ready to order?</h2>
-        <Link href="/order" className="primary-btn">
+        <Link href="/upload-prescription" className="primary-btn">
           Order Contacts
         </Link>
       </section>
 
-      <Link href="/order" className="sticky-order-cta">
+      <Link href="/upload-prescription" className="sticky-order-cta">
         Order Contacts
       </Link>
 
