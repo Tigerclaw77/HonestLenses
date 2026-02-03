@@ -171,20 +171,7 @@ export default function EnterPrescriptionPage() {
   }
 
   useEffect(() => {
-    function restoreIfVisible() {
-      if (document.visibilityState !== "visible") return;
-      restoreDraftFromLocalStorage();
-    }
-
-    // initial mount
-    restoreIfVisible();
-
-    // fires when navigating back from checkout
-    document.addEventListener("visibilitychange", restoreIfVisible);
-
-    return () => {
-      document.removeEventListener("visibilitychange", restoreIfVisible);
-    };
+    restoreDraftFromLocalStorage();
   }, []);
 
   /* =========================
@@ -237,7 +224,7 @@ export default function EnterPrescriptionPage() {
 
   useEffect(() => {
     if (!hydrated) return;
-    
+
     const draft: RxDraft = {
       right: {
         lensId: rightLensId,
@@ -262,6 +249,7 @@ export default function EnterPrescriptionPage() {
 
     localStorage.setItem(LS_RX_DRAFT, JSON.stringify(draft));
   }, [
+    hydrated,
     rightLensId,
     rightSph,
     rightCyl,

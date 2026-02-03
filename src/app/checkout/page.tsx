@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
@@ -31,6 +31,14 @@ export default function CheckoutPage() {
   function append(msg: string) {
     setLog((l) => [...l, msg]);
   }
+
+  const refreshOrder = useCallback(async (id: string) => {
+    const res = await authFetch(`/api/orders/${id}`);
+    const body = await res.json();
+    if (res.ok) {
+      setOrder(body.order);
+    }
+  }, []);
 
   /**
    * Auth + cart presence gate
@@ -94,7 +102,7 @@ export default function CheckoutPage() {
     }
 
     initCheckout();
-  }, [router]);
+  }, [router, refreshOrder]);
 
   async function authFetch(
     url: string,
@@ -113,14 +121,6 @@ export default function CheckoutPage() {
         Authorization: `Bearer ${session.access_token}`,
       },
     });
-  }
-
-  async function refreshOrder(id: string) {
-    const res = await authFetch(`/api/orders/${id}`);
-    const body = await res.json();
-    if (res.ok) {
-      setOrder(body.order);
-    }
   }
 
   // save in case needed later
