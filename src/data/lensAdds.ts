@@ -22,6 +22,7 @@ export const lensAddOptions: Record<string, string[]> = {
   V002: ["Low", "Medium", "High"], // Oasys Max 1-Day Multifocal
   V007: ["Low", "Medium", "High"], // Moist Multifocal
   V010: ["Low", "Medium", "High"], // Oasys Multifocal
+  V019: ["Low", "Medium", "High"], // Max 1-Day Multifocal for Astigmatism
 
   /* =========================
      BAUSCH + LOMB

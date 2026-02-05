@@ -1,21 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase-client";
 import Link from "next/link";
 import Header from "../../components/Header";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-);
 
 const LS_ORDER_ID = "rx_upload_order_id";
 const LS_FILENAME = "rx_upload_filename";
 
 export default function UploadPrescriptionPage() {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [file, setFile] = useState<File | null>(null);
   const [existingOrderId, setExistingOrderId] = useState<string | null>(null);
@@ -32,6 +28,12 @@ export default function UploadPrescriptionPage() {
     if (savedOrderId) setExistingOrderId(savedOrderId);
     if (savedFilename) setExistingFilename(savedFilename);
   }, []);
+
+  function handleFileSelected(selected: File | null) {
+    if (!selected) return;
+    setFile(selected);
+    localStorage.setItem(LS_FILENAME, selected.name);
+  }
 
   async function submitUpload() {
     if (!file || loading) return;
@@ -92,14 +94,10 @@ export default function UploadPrescriptionPage() {
         throw new Error(body.error || "Upload failed");
       }
 
-      // 3️⃣ Persist success + clear transient state
+      // 3️⃣ Persist success + filename
       localStorage.setItem(LS_FILENAME, file.name);
 
-      // Optional: clear after success so repeat visits are clean
-      // localStorage.removeItem(LS_ORDER_ID);
-      // localStorage.removeItem(LS_FILENAME);
-
-      router.push("/checkout");
+      router.push("/cart");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -113,52 +111,89 @@ export default function UploadPrescriptionPage() {
 
       <main>
         <section className="content-shell">
-          <h1 className="upper content-title">Upload Prescription</h1>
+          <h2 className="rx-choice-title">
+            How would you like to provide your prescription?
+          </h2>
 
-          <p className="content-lead">
-            Upload a photo or PDF of your valid contact lens prescription. We’ll
-            verify it before fulfillment.
-          </p>
-
-          <div className="order-card">
-            {existingFilename && !file && (
-              <p style={{ marginBottom: 12, opacity: 0.85 }}>
-                Previously selected: <strong>{existingFilename}</strong>
-              </p>
-            )}
-
-            <input
-              type="file"
-              accept="image/*,application/pdf"
-              onChange={(e) => {
-                const selected = e.target.files?.[0] ?? null;
-                setFile(selected);
-                if (selected) {
-                  localStorage.setItem(LS_FILENAME, selected.name);
-                }
+          <div className="rx-choice-grid">
+            {/* Upload / Camera / Drag & Drop */}
+            <div
+              className={`rx-choice-card rx-dropzone ${file ? "has-file" : ""}`}
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const dropped = e.dataTransfer.files?.[0] ?? null;
+                handleFileSelected(dropped);
               }}
-            />
-
-            <button
-              className="primary-btn"
-              onClick={submitUpload}
-              disabled={!file || loading}
             >
-              {loading ? "Uploading…" : "Continue to checkout"}
-            </button>
+              <h3>Upload or take a photo</h3>
+              <p className="rx-upload-subtitle">
+                Upload a photo or PDF of your prescription.
+              </p>
 
-            {error && <p className="order-error">{error}</p>}
+              <p className="rx-upload-hint">
+                Drag & drop here, or tap to upload / take a photo
+              </p>
+
+              {existingFilename && !file && (
+                <p className="rx-filename">
+                  Previously selected: <strong>{existingFilename}</strong>
+                </p>
+              )}
+
+              {file && (
+                <p className="rx-filename">
+                  Selected file: <strong>{file.name}</strong>
+                </p>
+              )}
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,application/pdf"
+                capture="environment"
+                onChange={(e) =>
+                  handleFileSelected(e.target.files?.[0] ?? null)
+                }
+                hidden
+              />
+
+              <button
+                className="primary-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  submitUpload();
+                }}
+                disabled={!file || loading}
+              >
+                {loading ? "Uploading…" : "Continue to cart"}
+              </button>
+
+              {error && <p className="order-error">{error}</p>}
+            </div>
+
+            {/* Manual entry */}
+            <div className="rx-choice-card rx-choice-manual">
+              <h3>Enter it manually</h3>
+              <p className="rx-manual-subtitle">
+                Don’t have it with you right now?
+              </p>
+
+              <p className="rx-manual-hint">
+                You can enter your prescription details manually in a short
+                form.
+              </p>
+
+              <Link href="/enter-prescription" className="primary-btn">
+                Enter prescription manually
+              </Link>
+            </div>
           </div>
 
           <p className="order-fineprint">
-            Uploaded prescriptions are reviewed for accuracy before lenses ship.
+            Prescriptions are reviewed for accuracy before lenses ship.
           </p>
-
-          <div className="order-actions">
-            <Link href="/enter-prescription" className="ghost-link">
-              Enter prescription manually instead
-            </Link>
-          </div>
         </section>
       </main>
     </>

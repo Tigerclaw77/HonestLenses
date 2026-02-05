@@ -1660,6 +1660,32 @@ input {
   line-height: 1.2;
 }
 
+/* Validation: red border for invalid fields */
+.rx-invalid {
+  border: 3px solid rgba(255, 0, 0, 0.95) !important;
+  box-shadow: 0 0 0 2px rgba(255, 80, 80, 0.18) !important;
+}
+
+/* For custom components (AddSelector/ColorSelector) where the real control
+   may be nested inside: wrap and style the inner control in your component CSS
+   if needed. This at least gives you a hook. */
+.rx-invalid-wrap {
+  border-radius: 10px;
+  box-shadow: 0 0 0 2px rgba(255, 80, 80, 0.18);
+}
+
+.rx-error {
+  border: 2px solid #ff2a2a !important;
+  box-shadow: 0 0 0 2px rgba(255, 42, 42, 0.25) !important;
+}
+
+.rx-error-wrap :is(select, input, button, .selector, .trigger) {
+  border: 2px solid #ff2a2a !important;
+  box-shadow: 0 0 0 2px rgba(255, 42, 42, 0.25) !important;
+}
+
+
+
 /* ==================================================
    RX DIVIDER
 ================================================== */
@@ -1688,3 +1714,143 @@ input {
   opacity: 0.8;
 }
 
+.rx-choice-grid {
+  display: grid;
+  gap: 24px;
+  margin-top: 24px;
+}
+
+@media (min-width: 768px) {
+  .rx-choice-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.rx-choice-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 20px 40px rgba(0, 0, 0, 0.4);
+  padding: 24px;
+}
+
+.rx-choice-card input[type="file"]::-webkit-file-upload-button {
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.rx-choice-card:first-child {
+  box-shadow: 0 0 0 1px rgba(186, 176, 255, 0.35);
+}
+
+.rx-choice-title {
+  font-size: 1.6rem;
+  margin-bottom: 12px;
+}
+
+.rx-choice-card h3 {
+  font-size: 1.15rem;
+  margin-bottom: 6px;
+}
+
+.rx-choice-card p {
+  font-size: 0.95rem;
+  opacity: 0.85;
+}
+
+.order-fineprint {
+  margin-top: 32px;
+  font-size: 0.85rem;
+  opacity: 0.65;
+  text-align: center;
+}
+
+.rx-dropzone input[type="file"] {
+  display: none;
+}
+
+.rx-dropzone {
+  border: 2px dashed rgba(186, 176, 255, 0.35);
+  background: linear-gradient(
+    180deg,
+    rgba(186, 176, 255, 0.06),
+    rgba(0, 0, 0, 0)
+  );
+  border-radius: 12px;
+  padding: 24px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.rx-dropzone:hover {
+  border-color: rgba(186, 176, 255, 0.6);
+  background: rgba(186, 176, 255, 0.08);
+}
+
+.rx-dropzone.has-file {
+  border-style: solid;
+}
+
+.rx-upload-hint {
+  font-size: 0.9rem;
+  color: rgba(186, 176, 255, 0.8);
+  opacity: 0.75;
+  margin: 12px 0;
+}
+
+.rx-choice-card .primary-btn {
+  margin-top: auto;
+  background: linear-gradient(
+    180deg,
+    #f2f2f2,
+    #dcdcdc
+  );
+}
+
+.rx-upload-subtitle {
+  font-size: 0.95rem;
+  opacity: 0.9;
+  margin-bottom: 10px;
+}
+
+.rx-upload-hint {
+  font-size: 0.85rem;
+  opacity: 0.65;
+  margin-bottom: 18px;
+}
+
+.rx-choice-manual {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.rx-manual-subtitle {
+  font-size: 1rem;
+  margin-bottom: 6px;
+}
+
+.rx-manual-hint {
+  font-size: 0.85rem;
+  opacity: 0.7;
+  margin-bottom: 18px;
+}
+
+@media (max-width: 767px) {
+  .rx-choice-card {
+    padding: 20px;
+  }
+
+  .rx-choice-card .primary-btn {
+    margin-top: 20px;
+  }
+}

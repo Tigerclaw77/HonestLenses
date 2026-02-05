@@ -8,42 +8,75 @@ export async function POST(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  // ✅ MUST await params in your Next.js version
+  const { id: orderId } = await context.params;
+
+  console.log("RX ROUTE HIT", orderId);
+
   // 1️⃣ Require authenticated user
   const user = await getUserFromRequest(req);
   if (!user) {
+    console.error("RX FAIL: unauthenticated");
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let rx;
+  try {
+    rx = await req.json();
+    console.log("RX BODY RECEIVED:", JSON.stringify(rx, null, 2));
+  } catch {
     return NextResponse.json(
-      { error: "Unauthorized" },
-      { status: 401 }
+      { error: "Invalid JSON body" },
+      { status: 400 }
     );
   }
 
-  const { id: orderId } = await context.params;
-  const body = await req.json();
+  // 2️⃣ Verify order ownership
+  const { data: order, error: orderError } = await supabaseServer
+    .from("orders")
+    .select("id, status")
+    .eq("id", orderId)
+    .eq("user_id", user.id)
+    .single();
 
-  // 2️⃣ Attach Rx + mark verification pending (ownership enforced)
-  const { data, error } = await supabaseServer
+  if (orderError || !order) {
+    console.error("RX FAIL: order not found or not owned", {
+      orderId,
+      userId: user.id,
+      orderError,
+    });
+
+    return NextResponse.json(
+      { error: "Order not found or not owned by user" },
+      { status: 400 }
+    );
+  }
+
+  if (order.status !== "draft") {
+    return NextResponse.json(
+      { error: "Order is not editable" },
+      { status: 400 }
+    );
+  }
+
+  // 3️⃣ Persist RX
+  const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
-      rx_data: body,
+      rx_data: rx,
       verification_status: "pending",
     })
     .eq("id", orderId)
-    .eq("user_id", user.id)
-    .select("id");
+    .eq("user_id", user.id);
 
-  if (error) {
+  if (updateError) {
     return NextResponse.json(
-      { error: error.message },
+      { error: updateError.message },
       { status: 500 }
     );
   }
 
-  if (!data || data.length === 0) {
-    return NextResponse.json(
-      { error: "Order not found or not owned by user" },
-      { status: 404 }
-    );
-  }
+  console.log("RX SUCCESS", orderId);
 
   return NextResponse.json({ ok: true });
 }

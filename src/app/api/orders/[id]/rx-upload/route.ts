@@ -8,15 +8,28 @@ export async function POST(
   req: Request,
   { params }: { params: { id: string } }
 ) {
-  // 1️⃣ Auth
+  /* ======================================================
+     1️⃣ Require authenticated user
+  ====================================================== */
   const user = await getUserFromRequest(req);
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
   }
 
   const orderId = params.id;
+  if (!orderId) {
+    return NextResponse.json(
+      { error: "Missing order id" },
+      { status: 400 }
+    );
+  }
 
-  // 2️⃣ Ensure order belongs to user
+  /* ======================================================
+     2️⃣ Ensure order exists and belongs to user
+  ====================================================== */
   const { data: order, error: orderError } = await supabaseServer
     .from("orders")
     .select("id")
@@ -25,20 +38,30 @@ export async function POST(
     .single();
 
   if (orderError || !order) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    return NextResponse.json(
+      { error: "Order not found or not owned by user" },
+      { status: 404 }
+    );
   }
 
-  // 3️⃣ Parse multipart form
+  /* ======================================================
+     3️⃣ Parse multipart form data
+  ====================================================== */
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
 
   if (!file) {
-    return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
+    return NextResponse.json(
+      { error: "No file uploaded" },
+      { status: 400 }
+    );
   }
 
-  // 4️⃣ Upload to Supabase Storage
-  const fileExt = file.name.split(".").pop();
-  const storagePath = `rx/${orderId}/${crypto.randomUUID()}.${fileExt}`;
+  /* ======================================================
+     4️⃣ Upload prescription to Supabase Storage
+  ====================================================== */
+  const ext = file.name.split(".").pop() || "pdf";
+  const storagePath = `rx/${orderId}/${crypto.randomUUID()}.${ext}`;
 
   const { error: uploadError } = await supabaseServer.storage
     .from("prescriptions")
@@ -54,13 +77,16 @@ export async function POST(
     );
   }
 
-  // 5️⃣ Save RX metadata on order
+  /* ======================================================
+     5️⃣ Persist RX metadata on order
+     (NO pricing, NO SKU, NO cart logic here)
+  ====================================================== */
   const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
       rx_upload_path: storagePath,
-      verification_status: "pending",
       rx_source: "upload",
+      verification_status: "pending",
     })
     .eq("id", orderId);
 
@@ -71,5 +97,8 @@ export async function POST(
     );
   }
 
+  /* ======================================================
+     6️⃣ Success
+  ====================================================== */
   return NextResponse.json({ ok: true });
 }

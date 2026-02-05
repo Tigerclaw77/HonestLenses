@@ -2,6 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { supabase } from "@/lib/supabase-client";
+
+if (typeof window !== "undefined") {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).supabase = supabase;
+}
 
 type HeaderVariant = "home" | "shop" | "about" | "content";
 
@@ -98,11 +104,7 @@ export default function Header({
               </svg>
             </Link>
 
-            <Link
-              href={hasItems ? "/checkout" : "/shop"}
-              className="header-icon-btn"
-              aria-label="Cart"
-            >
+            <Link href="/cart" className="header-icon-btn" aria-label="Cart">
               <svg
                 className="header-icon"
                 width="20"
