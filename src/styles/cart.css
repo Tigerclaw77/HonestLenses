@@ -1,0 +1,201 @@
+/* =========================
+   Cart – Eye Rows (MVP)
+========================= */
+
+.hl-cart {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.75rem;
+}
+
+/* =========================
+   Eye Section
+========================= */
+
+.hl-eye {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+}
+
+.hl-eye-label {
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+
+.hl-eye-lens {
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+/* =========================
+   Rx Block (NEW – important)
+========================= */
+
+.hl-rx-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+/* Base Rx row: SPH / CYL / AXIS */
+.hl-rx-row {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-end;
+}
+
+/* Individual Rx columns */
+.hl-rx-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 60px;
+}
+
+.hl-rx-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.hl-rx-value {
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* ADD power — visually distinct */
+.hl-rx-add {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.15rem;
+}
+
+.hl-rx-add-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.hl-rx-add-value {
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+/* =========================
+   Price / Quantity Row
+========================= */
+
+.hl-eye-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.4rem;
+  margin-left: auto;
+}
+
+.hl-eye-price {
+  font-size: 0.85rem;
+  min-width: 80px;
+  opacity: 0.7;
+  text-align: right;
+}
+
+.hl-eye-select {
+  background: #f1f1f1;
+  color: #000;
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.9rem;
+}
+
+.hl-eye-total {
+  min-width: 70px;
+  text-align: right;
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+/* =========================
+   Divider
+========================= */
+
+.hl-divider {
+  margin: 1.25rem 0;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* =========================
+   Summary
+========================= */
+
+.hl-summary {
+  margin-top: 1rem;
+}
+
+.hl-summary-row {
+  display: flex;
+  justify-content: space-between;
+  margin: 0.4rem 0;
+}
+
+.hl-summary-total {
+  font-weight: 600;
+}
+
+.hl-note {
+  text-align: center;
+  font-size: 0.8rem;
+  opacity: 0.6;
+  margin: 0.75rem 0 1rem;
+}
+
+/* =========================
+   CTA
+========================= */
+
+.hl-checkout-cta {
+  width: 100%;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.hl-rx-color {
+  margin-top: 6px;
+  font-size: 0.9rem;
+  color: #ccc;
+}
+
+.hl-rx-color-label {
+  margin-right: 6px;
+  opacity: 0.8;
+}
+
+/* =========================
+   Desktop Enhancements
+========================= */
+
+@media (min-width: 900px) {
+  .hl-rx-row {
+    gap: 1.75rem;
+  }
+
+  .hl-eye-price {
+    min-width: 110px;
+  }
+
+  .hl-eye-total {
+    min-width: 90px;
+  }
+}

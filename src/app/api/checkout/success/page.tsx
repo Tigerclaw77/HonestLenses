@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Header from "../../../components/Header";
+import Header from "../../../../components/Header";
 
 export default function CheckoutSuccessPage() {
   const router = useRouter();
@@ -10,7 +10,7 @@ export default function CheckoutSuccessPage() {
   // Optional: auto-redirect after a short pause
   useEffect(() => {
     const t = setTimeout(() => {
-      router.replace("/shop"); // or /orders later
+      router.replace("/dashboard"); // or /orders later
     }, 5000);
 
     return () => clearTimeout(t);
@@ -42,7 +42,7 @@ export default function CheckoutSuccessPage() {
             <button
               className="primary-btn"
               style={{ marginTop: 16 }}
-              onClick={() => router.push("/shop")}
+              onClick={() => router.push("/dashboard")}
             >
               Go to my account
             </button>

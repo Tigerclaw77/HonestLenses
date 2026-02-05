@@ -1,12 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { supabase } from "@/lib/supabase-client";
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -20,7 +15,7 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/checkout`,
+        emailRedirectTo: `${window.location.origin}/enter-prescription`,
       },
     });
 

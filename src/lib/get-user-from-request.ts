@@ -1,18 +1,31 @@
-import { createClient } from '@supabase/supabase-js'
+import { supabaseServer } from "./supabase-server";
 
-const supabaseAuth = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
-
+/**
+ * Extracts and validates the authenticated user from an incoming Request.
+ * Uses the Supabase service role to safely verify the JWT.
+ *
+ * Returns:
+ *   - user object if valid
+ *   - null if missing / invalid / expired
+ */
 export async function getUserFromRequest(req: Request) {
-  const authHeader = req.headers.get('authorization')
-  if (!authHeader) return null
+  const authHeader = req.headers.get("authorization");
 
-  const token = authHeader.replace('Bearer ', '')
+  if (!authHeader) {
+    return null;
+  }
 
-  const { data, error } = await supabaseAuth.auth.getUser(token)
-  if (error) return null
+  const token = authHeader.replace("Bearer ", "").trim();
 
-  return data.user ?? null
+  if (!token) {
+    return null;
+  }
+
+  const { data, error } = await supabaseServer.auth.getUser(token);
+
+  if (error || !data?.user) {
+    return null;
+  }
+
+  return data.user;
 }
