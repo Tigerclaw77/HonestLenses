@@ -51,9 +51,23 @@ export async function POST(req: Request) {
     );
   }
 
+  console.log("🧾 DRAFT ORDER LOADED", {
+  id: order.id,
+  lens_sku: order.lens_sku,
+  box_count: order.box_count,
+});
+
+
   // 3️⃣ Price resolution (SKU is authoritative)
   let pricing;
   try {
+
+    console.log("💰 PRICING INPUT", {
+  sku: order.lens_sku,
+  box_count: order.box_count,
+});
+
+
     pricing = getPrice({
       sku: order.lens_sku,
       box_count: order.box_count,
@@ -69,6 +83,9 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+
+  console.log("💰 PRICING OUTPUT", pricing);
+
 
   // 4️⃣ Persist price
   const { error: updateError } = await supabaseServer

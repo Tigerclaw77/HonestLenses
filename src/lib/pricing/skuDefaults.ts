@@ -18,18 +18,12 @@ export const SKU_BOX_DURATION_MONTHS: Record<string, number> = {
   // =========================
   // Acuvue Oasys MAX 1-Day
   // =========================
-
-  // 30 daily lenses ≈ 1 month
-  OASYS_MAX_1DAY_30: 1,
-
-  // 90 daily lenses ≈ 3 months
-  OASYS_MAX_1DAY_90: 3,
-
-  // Toric / MF variants follow same wear schedule
-  OASYS_MAX_1DAY_AST_30: 1,
-  OASYS_MAX_1DAY_MF_30: 1,
-  OASYS_MAX_1DAY_MF_90: 3,
-  OASYS_MAX_1DAY_MF_AST_30: 1,
+  OASYS_MAX_30: 1,
+  OASYS_MAX_90: 3,
+  OASYS_MAX_AST_30: 1,
+  OASYS_MAX_MF_30: 1,
+  OASYS_MAX_MF_90: 3,
+  OASYS_MAX_MF_AST_30: 1,
 
   // =========================
   // Acuvue Oasys 1-Day
@@ -43,29 +37,33 @@ export const SKU_BOX_DURATION_MONTHS: Record<string, number> = {
   // Acuvue Oasys (Bi-weekly)
   // =========================
 
-  // 6 lenses × 14 days ≈ 84 days ≈ 3 months
-  OASYS_2WK_6: 3,
-  OASYS_2WK_AST_6: 3,
-  OASYS_2WK_MF_6: 3,
+  OASYS_12: 6,
+  OASYS_24: 12,
+  OASYS_AST_6: 3,
+  OASYS_MF_6: 3,
 
   // =========================
   // Acuvue Moist 1-Day
   // =========================
 
-  MOIST_1DAY_30: 1,
-  MOIST_1DAY_90: 3,
-  MOIST_1DAY_AST_30: 1,
-  MOIST_1DAY_AST_90: 3,
-  MOIST_1DAY_MF_30: 1,
-  MOIST_1DAY_MF_90: 3,
+  MOIST_30: 1,
+  MOIST_90: 3,
+  MOIST_AST_30: 1,
+  MOIST_AST_90: 3,
+  MOIST_MF_30: 1,
+  MOIST_MF_90: 3,
 
   // =========================
   // Acuvue Vita (Monthly)
   // =========================
-
-  // 6 monthly lenses = 6 months
   VITA_6: 6,
+  VITA_12: 12,
   VITA_AST_6: 6,
+
+  // =========================
+  // Define (1-Day, 30-pack)
+  // =========================
+  DEFINE_30: 1,
 
   // =========================
   // Bausch + Lomb
