@@ -11,7 +11,7 @@ type Order = {
   total_amount_cents: number | null;
   currency: string | null;
   verification_status: VerificationStatus;
-  rx_data: unknown | null;
+  rx: unknown | null;
   created_at: string;
 };
 
@@ -100,7 +100,7 @@ export default function OrdersDebugPage() {
                   ? `${(o.total_amount_cents / 100).toFixed(2)} ${o.currency}`
                   : "—"}
               </td>
-              <td>{o.rx_data ? "✅" : "—"}</td>
+              <td>{o.rx ? "✅" : "—"}</td>
               <td>
                 {o.verification_status === "pending" && "⏳"}
                 {o.verification_status === "verified" && "✅"}

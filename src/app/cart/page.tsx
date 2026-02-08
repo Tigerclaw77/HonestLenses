@@ -26,14 +26,18 @@ type RxData = {
   left?: EyeRx;
 };
 
+type CartOrder = {
+  id: string;
+  rx: RxData | null;
+  lens_id: string | null;
+  box_count: number | null;
+  price_per_box_cents: number | null;
+  total_amount_cents: number | null;
+};
+
 type CartResponse = {
   hasCart: boolean;
-  order?: {
-    id: string;
-    rx: RxData | null;
-    lens_id: string | null;
-    box_count: number | null;
-  };
+  order?: CartOrder;
 };
 
 /* =========================
@@ -46,9 +50,11 @@ function fmtNum(n: number) {
   return n < 0 ? `−${s}` : `+${s}`;
 }
 
-/**
- * Build structured Rx parts instead of a flat string
- */
+function fmtPrice(cents?: number | null) {
+  if (typeof cents !== "number") return "—";
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
 function buildRxParts(rx: EyeRx) {
   return {
     sphere: fmtNum(rx.sphere),
@@ -60,19 +66,14 @@ function buildRxParts(rx: EyeRx) {
 }
 
 /* =========================
-   Rx Display Block
+   Rx Display
 ========================= */
 
-type RxBlockProps = {
-  rx: EyeRx;
-};
-
-function RxBlock({ rx }: RxBlockProps) {
+function RxBlock({ rx }: { rx: EyeRx }) {
   const parts = buildRxParts(rx);
 
   return (
     <div className="hl-rx-block">
-      {/* Base Rx */}
       <div className="hl-rx-row">
         <div className="hl-rx-col">
           <div className="hl-rx-label">SPH</div>
@@ -94,7 +95,6 @@ function RxBlock({ rx }: RxBlockProps) {
         )}
       </div>
 
-      {/* ADD power (distinct) */}
       {parts.add && (
         <div className="hl-rx-add">
           <span className="hl-rx-add-label">ADD</span>
@@ -102,7 +102,6 @@ function RxBlock({ rx }: RxBlockProps) {
         </div>
       )}
 
-      {/* COLOR (UI only) */}
       {parts.color && (
         <div className="hl-rx-color">
           <span className="hl-rx-color-label">Color</span>
@@ -117,25 +116,32 @@ function RxBlock({ rx }: RxBlockProps) {
    Eye Row
 ========================= */
 
-type EyeRowProps = {
+function EyeRow({
+  label,
+  lensName,
+  rx,
+  qty,
+  onQty,
+  pricePerBox,
+  total,
+}: {
   label: "RIGHT EYE" | "LEFT EYE";
   lensName: string;
   rx: EyeRx;
   qty: number;
   onQty: (v: number) => void;
-};
-
-function EyeRow({ label, lensName, rx, qty, onQty }: EyeRowProps) {
+  pricePerBox: number | null;
+  total: number | null;
+}) {
   return (
     <div className="hl-eye">
       <div className="hl-eye-label">{label}</div>
-
       <div className="hl-eye-lens">{lensName}</div>
 
       <RxBlock rx={rx} />
 
       <div className="hl-eye-controls">
-        <div className="hl-eye-price">— / box</div>
+        <div className="hl-eye-price">{fmtPrice(pricePerBox)} / box</div>
 
         <select
           className="hl-eye-select"
@@ -149,14 +155,14 @@ function EyeRow({ label, lensName, rx, qty, onQty }: EyeRowProps) {
           ))}
         </select>
 
-        <div className="hl-eye-total">—</div>
+        <div className="hl-eye-total">{fmtPrice(total)}</div>
       </div>
     </div>
   );
 }
 
 /* =========================
-   Component
+   Page
 ========================= */
 
 export default function CartPage() {
@@ -164,50 +170,96 @@ export default function CartPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [cart, setCart] = useState<CartResponse | null>(null);
+  const [cart, setCart] = useState<CartOrder | null>(null);
 
   const [rightQty, setRightQty] = useState(2);
   const [leftQty, setLeftQty] = useState(2);
 
-  /* =========================
-     Load Cart
-  ========================= */
-
   useEffect(() => {
     async function loadCart() {
+      console.log("🟢 [CartPage] loadCart START");
+
       try {
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
+        console.log("🟢 [CartPage] session", session?.user?.id);
+
         if (!session) {
+          console.log("🔴 [CartPage] NO SESSION → redirect");
           router.push("/login");
           return;
         }
 
         const res = await fetch("/api/cart", {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
+          headers: { Authorization: `Bearer ${session.access_token}` },
         });
 
         const body: CartResponse = await res.json();
+        console.log("🟢 [CartPage] /api/cart RESPONSE", body);
 
         if (!res.ok || !body.hasCart || !body.order) {
+          console.log("🔴 [CartPage] NO ACTIVE CART");
           setError("No active cart found.");
           setLoading(false);
           return;
         }
 
-        setCart(body);
+        const order = body.order;
 
-        const defaultQty = body.order.box_count ?? 2;
-        setRightQty(defaultQty);
-        setLeftQty(defaultQty);
+        console.log("🟢 [CartPage] CART ORDER", order);
+
+        const needsResolve =
+          order.box_count == null ||
+          order.price_per_box_cents == null ||
+          order.total_amount_cents === 0;
+
+        console.log("🟡 [CartPage] needsResolve =", needsResolve);
+
+        if (needsResolve) {
+          console.log("🟡 [CartPage] POST /api/cart/resolve");
+
+          const resolveRes = await fetch("/api/cart/resolve", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+              "Content-Type": "application/json",
+            },
+          });
+
+          let resolveBody: unknown = null;
+          try {
+            resolveBody = await resolveRes.json();
+          } catch {
+            resolveBody = "[no json body]";
+          }
+
+          console.log("🟡 [CartPage] RESOLVE RESPONSE", {
+            status: resolveRes.status,
+            body: resolveBody,
+          });
+
+          const refreshed = await fetch("/api/cart", {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+
+          const refreshedBody: CartResponse = await refreshed.json();
+          console.log("🟡 [CartPage] REFETCH RESPONSE", refreshedBody);
+
+          setCart(refreshedBody.order ?? null);
+        } else {
+          setCart(order);
+        }
+
+        const qty = order.box_count ?? 2;
+        setRightQty(qty);
+        setLeftQty(qty);
 
         setLoading(false);
+        console.log("🟢 [CartPage] loadCart DONE");
       } catch (err) {
-        console.error(err);
+        console.error("🔴 [CartPage] loadCart ERROR", err);
         setError("Failed to load cart.");
         setLoading(false);
       }
@@ -215,46 +267,6 @@ export default function CartPage() {
 
     loadCart();
   }, [router]);
-
-  /* =========================
-     Checkout
-  ========================= */
-
-  async function continueToCheckout() {
-    if (!cart?.order?.id) return;
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session) {
-      router.push("/login");
-      return;
-    }
-
-    const box_count = Math.max(rightQty, leftQty);
-
-    const res = await fetch("/api/cart/resolve", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({ box_count }),
-    });
-
-    if (!res.ok) {
-      const body = await res.json();
-      setError(body.error || "Failed to resolve cart.");
-      return;
-    }
-
-    router.push("/checkout");
-  }
-
-  /* =========================
-     Render
-  ========================= */
 
   if (loading) {
     return (
@@ -276,7 +288,7 @@ export default function CartPage() {
     );
   }
 
-  const rx = cart?.order?.rx ?? null;
+  const rx = cart?.rx ?? null;
   const rightEye = rx?.right;
   const leftEye = rx?.left;
 
@@ -319,6 +331,8 @@ export default function CartPage() {
                 rx={rightEye}
                 qty={rightQty}
                 onQty={setRightQty}
+                pricePerBox={cart?.price_per_box_cents ?? null}
+                total={cart?.total_amount_cents ?? null}
               />
             )}
 
@@ -331,6 +345,8 @@ export default function CartPage() {
                   rx={leftEye}
                   qty={leftQty}
                   onQty={setLeftQty}
+                  pricePerBox={cart?.price_per_box_cents ?? null}
+                  total={cart?.total_amount_cents ?? null}
                 />
               </>
             )}
@@ -339,23 +355,14 @@ export default function CartPage() {
 
             <div className="hl-summary">
               <div className="hl-summary-row">
-                <span>Shipping</span>
-                <span>—</span>
-              </div>
-
-              <div className="hl-summary-row hl-summary-total">
                 <span>Total</span>
-                <span>—</span>
+                <span>{fmtPrice(cart?.total_amount_cents)}</span>
               </div>
             </div>
 
-            <p className="hl-note">
-              Please review your prescription carefully before checkout.
-            </p>
-
             <button
               className="primary-btn hl-checkout-cta"
-              onClick={continueToCheckout}
+              onClick={() => router.push("/checkout")}
             >
               Continue to checkout
             </button>

@@ -23,7 +23,7 @@ export async function GET(req: Request) {
       total_amount_cents,
       currency,
       verification_status,
-      rx_data,
+      rx,
       created_at
     `)
     .eq("user_id", user.id)
