@@ -69,7 +69,7 @@ export const VISTAKON_PRICING: Record<VistakonSKU, PriceEntry> = {
   // =========================
   OASYS_MAX_30: { price_per_box_cents: 4999 },
   OASYS_MAX_90: { price_per_box_cents: 10899 },
-  OASYS_MAX_AST_30: { price_per_box_cents: 4500 },
+  OASYS_MAX_AST_30: { price_per_box_cents: 5499 },
   OASYS_MAX_MF_30: { price_per_box_cents: 5799 },
   OASYS_MAX_MF_90: { price_per_box_cents: 10899 },
   OASYS_MAX_MF_AST_30: { price_per_box_cents: 6499 },
@@ -84,7 +84,7 @@ export const VISTAKON_PRICING: Record<VistakonSKU, PriceEntry> = {
   // =========================
   // Oasys Bi-weekly
   // =========================
-  OASYS_12: { price_per_box_cents: 7299 },
+  OASYS_12: { price_per_box_cents: 72999 },
   OASYS_24: { price_per_box_cents: 13799 },
   OASYS_AST_6: { price_per_box_cents: 5399 },
   OASYS_MF_6: { price_per_box_cents: 5299 },

@@ -1,55 +1,98 @@
 /**
- * resolveDefaultSku
- *
- * PURPOSE (MODEL A):
- * Map an internal lens identifier to a PHYSICAL PRODUCT SKU.
- *
- * IMPORTANT:
- * - SKU represents ONE physical box only
- * - No RX expiration logic
- * - No annual / half-year intent
- * - No quantity logic
- * - No pricing logic
- *
- * This file should be BORING and STABLE.
- */
-
-/**
- * Internal lens → physical SKU map
- *
- * Keys:
- * - Internal lens IDs used throughout the app (e.g. from lenses.ts)
- *
- * Values:
- * - Commerce SKUs representing ONE physical box
+ * lens_id → default (largest) SKU
  */
 const SKU_MAP: Record<string, string> = {
-  // =========================
-  // Vistakon / J&J
-  // =========================
 
-  // Acuvue Oasys MAX 1-Day (90 pack)
-  V001: "ACUVUE_OASYS_MAX_1DAY_90",
+// Vistakon
+V001: "OASYS_MAX_90",
+V002: "OASYS_MAX_MF_90",
+V003: "OASYS_1DAY_90",
+V004: "OASYS_1DAY_AST_90",
+V005: "MOIST_90",
+V006: "MOIST_AST_90",
+V007: "MOIST_MF_90",
+V008: "OASYS_24",
+V009: "OASYS_AST_6",
+V010: "OASYS_MF_6",
+V013: "VITA_12",
+V014: "VITA_AST_6",
+V015: "DEFINE_30",
+V017: "ACUVUE2_6",
+V018: "OASYS_MAX_AST_90",
+V019: "OASYS_MAX_MF_AST_90",
 
-  // Acuvue Oasys 1-Day (90 pack)
-  V002: "ACUVUE_OASYS_1DAY_90",
+// Bausch + Lomb
+BL01: "INFUSE_90",
+BL02: "INFUSE_MF_90",
+BL03: "BIOTRUE_ONEDAY_90",
+BL04: "BIOTRUE_ONEDAY_AST_90",
+BL05: "BIOTRUE_ONEDAY_MF_90",
+BL06: "ULTRA_6",
+BL07: "ULTRA_AST_6",
+BL08: "ULTRA_MF_6",
+BL09: "ULTRA_MF_AST_6",
+BL10: "PUREVISION_6",
+BL11: "PUREVISION_MF_6",
+BL12: "PUREVISION2_6",
+BL13: "PUREVISION2_AST_6",
+BL14: "PUREVISION2_MF_6",
+BL15: "SOFLENS_6",
+BL16: "SOFLENS_AST_6",
+BL17: "SOFLENS_MF_6",
+BL18: "SOFLENS_DAILY_DISPOSABLE_90",
+BL19: "INFUSE_AST_90",
 
-  // Acuvue Oasys (bi-weekly, 6-pack)
-  V010: "ACUVUE_OASYS_6PK",
+// CooperVision
+CV01: "AVAIRA_VITALITY_6",
+CV02: "AVAIRA_VITALITY_TORIC_6",
+CV03: "BIOFINITY_6",
+CV04: "BIOFINITY_XR_6",
+CV05: "BIOFINITY_ENERGYS_6",
+CV06: "BIOFINITY_MF_6",
+CV07: "BIOFINITY_TORIC_6",
+CV08: "BIOFINITY_XR_TORIC_6",
+CV09: "BIOFINITY_AST_MF_6",
+CV10: "BIOMEDICS_55_6",
+CV11: "BIOMEDICS_TORIC_6",
+CV12: "CLARITI_1DAY_90",
+CV13: "CLARITI_1DAY_AST_90",
+CV14: "CLARITI_1DAY_MF_90",
+CV16: "MYDAY_180",
+CV17: "MYDAY_ENERGYS_90",
+CV18: "MYDAY_MF_90",
+CV19: "MYDAY_AST_90",
+CV20: "PROCLEAR_1DAY_90",
+CV21: "PROCLEAR_1DAY_MF_90",
+CV22: "PROCLEAR_MF_6",
+CV23: "PROCLEAR_MF_XR_6",
+CV24: "PROCLEAR_MF_AST_6",
+CV25: "PROCLEAR_6",
+CV26: "PROCLEAR_TORIC_6",
+CV27: "PROCLEAR_TORIC_XR_6",
 
-  // Bausch + Lomb Ultra
-  BL06: "ULTRA_6PK",
-  BL07: "ULTRA_FOR_ASTIGMATISM_6PK",
-
-  // Add additional lenses explicitly as needed
+// Alcon
+A001: "AIR_OPTIX_6",
+A002: "AIR_OPTIX_AST_6",
+A003: "AIR_OPTIX_MF_6",
+A004: "AIR_OPTIX_COLORS_6",
+A005: "AIR_OPTIX_NIGHT_AND_DAY_6",
+A006: "AQUACOMFORT_PLUS_90",
+A007: "AQUACOMFORT_PLUS_MF_90",
+A008: "AQUACOMFORT_PLUS_AST_90",
+A009: "DAILIES_COLORS_90",
+A010: "TOTAL1_90",
+A011: "TOTAL1_AST_90",
+A012: "TOTAL1_MF_90",
+A017: "PRECISION1_90",
+A018: "PRECISION1_AST_90",
+A019: "TOTAL30_6",
+A020: "TOTAL30_AST_6",
+A021: "TOTAL30_MF_6",
+A022: "TOTAL30_MF_AST_6",
+A023: "PRECISION7_27",
+A024: "PRECISION7_AST_27",
 };
 
-/**
- * Resolve physical SKU for a lens
- *
- * @param lensId Internal lens identifier
- * @returns Physical box SKU or null if unsupported
- */
-export function resolveDefaultSku(lensId: string): string | null {
-  return SKU_MAP[lensId] ?? null;
+export function resolveDefaultSku(lens_id: string): string | null {
+  return SKU_MAP[lens_id] ?? null;
 }

@@ -293,11 +293,11 @@ export default function CartPage() {
   const leftEye = rx?.left;
 
   const rightLens = rightEye
-    ? lenses.find((l) => l.nameID === rightEye.lens_id)
+    ? lenses.find((l) => l.lens_id === rightEye.lens_id)
     : null;
 
   const leftLens = leftEye
-    ? lenses.find((l) => l.nameID === leftEye.lens_id)
+    ? lenses.find((l) => l.lens_id === leftEye.lens_id)
     : null;
 
   const rightLensName = rightLens

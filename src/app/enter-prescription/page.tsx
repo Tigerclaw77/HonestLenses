@@ -16,7 +16,7 @@ import { lenses } from "../../data/lenses";
 ========================= */
 
 type EyeRxDraft = {
-  lensId: string;
+  lens_id: string;
   sph: string;
   cyl: string;
   axis: string;
@@ -102,13 +102,13 @@ function validateEye(
   lensObj: (typeof lenses)[number] | undefined,
   colorOptions: string[],
 ): EyeFieldErrorMap | null {
-  if (!(d.lensId || d.sph || d.cyl || d.axis || d.add || d.bc || d.color))
+  if (!(d.lens_id || d.sph || d.cyl || d.axis || d.add || d.bc || d.color))
     return null;
 
   const e: EyeFieldErrorMap = {};
 
   // Lens required if anything entered for eye
-  if (!d.lensId || !lensObj) e.lens = true;
+  if (!d.lens_id || !lensObj) e.lens = true;
 
   // Sphere required once an eye is being entered
   if (!d.sph) e.sph = true;
@@ -149,16 +149,13 @@ export default function EnterPrescriptionPage() {
   const [loading, setLoading] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
-  // After the user clicks Continue once, we keep validation “live”
-  // const [didAttemptSubmit, setDidAttemptSubmit] = useState(false);
-
   // field-level validation state
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({});
 
   /* =========================
      State – Right Eye
   ========================= */
-  const [rightLensId, setRightLensId] = useState("");
+  const [rightlens_id, setRightlens_id] = useState("");
   const [rightSph, setRightSph] = useState("");
   const [rightCyl, setRightCyl] = useState("");
   const [rightAxis, setRightAxis] = useState("");
@@ -169,7 +166,7 @@ export default function EnterPrescriptionPage() {
   /* =========================
      State – Left Eye
   ========================= */
-  const [leftLensId, setLeftLensId] = useState("");
+  const [leftlens_id, setLeftlens_id] = useState("");
   const [leftSph, setLeftSph] = useState("");
   const [leftCyl, setLeftCyl] = useState("");
   const [leftAxis, setLeftAxis] = useState("");
@@ -179,8 +176,8 @@ export default function EnterPrescriptionPage() {
 
   const [expires, setExpires] = useState("");
 
-  const rightLens = lenses.find((l) => l.nameID === rightLensId);
-  const leftLens = lenses.find((l) => l.nameID === leftLensId);
+  const rightLens = lenses.find((l) => l.lens_id === rightlens_id);
+  const leftLens = lenses.find((l) => l.lens_id === leftlens_id);
 
   const rightColorOptions = getColorOptions(rightLens?.name);
   const leftColorOptions = getColorOptions(leftLens?.name);
@@ -224,7 +221,7 @@ export default function EnterPrescriptionPage() {
     try {
       const parsed: RxDraft = JSON.parse(raw);
 
-      setRightLensId(parsed.right.lensId);
+      setRightlens_id(parsed.right.lens_id);
       setRightSph(parsed.right.sph);
       setRightCyl(parsed.right.cyl);
       setRightAxis(parsed.right.axis);
@@ -232,7 +229,7 @@ export default function EnterPrescriptionPage() {
       setRightBC(parsed.right.bc);
       setRightColor(parsed.right.color);
 
-      setLeftLensId(parsed.left.lensId);
+      setLeftlens_id(parsed.left.lens_id);
       setLeftSph(parsed.left.sph);
       setLeftCyl(parsed.left.cyl);
       setLeftAxis(parsed.left.axis);
@@ -317,7 +314,7 @@ export default function EnterPrescriptionPage() {
 
     const draft: RxDraft = {
       right: {
-        lensId: rightLensId,
+        lens_id: rightlens_id,
         sph: rightSph,
         cyl: rightCyl,
         axis: rightAxis,
@@ -326,7 +323,7 @@ export default function EnterPrescriptionPage() {
         color: rightColor,
       },
       left: {
-        lensId: leftLensId,
+        lens_id: leftlens_id,
         sph: leftSph,
         cyl: leftCyl,
         axis: leftAxis,
@@ -340,14 +337,14 @@ export default function EnterPrescriptionPage() {
     localStorage.setItem(LS_RX_DRAFT, JSON.stringify(draft));
   }, [
     hydrated,
-    rightLensId,
+    rightlens_id,
     rightSph,
     rightCyl,
     rightAxis,
     rightAdd,
     rightBC,
     rightColor,
-    leftLensId,
+    leftlens_id,
     leftSph,
     leftCyl,
     leftAxis,
@@ -358,31 +355,52 @@ export default function EnterPrescriptionPage() {
   ]);
 
   async function getOrCreateDraftOrder(accessToken: string): Promise<string> {
+    console.log("🟦 [EnterRx] getOrCreateDraftOrder: checking /api/cart");
+
     const cartRes = await fetch("/api/cart", {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
     });
+
+    console.log("🟦 [EnterRx] /api/cart status =", cartRes.status);
 
     if (cartRes.ok) {
       const cart = await cartRes.json();
+      console.log("🟦 [EnterRx] /api/cart body =", cart);
+
       if (cart?.hasCart && cart.order?.id) {
+        console.log("🟩 [EnterRx] Using existing order id", cart.order.id);
         return cart.order.id;
+      }
+    } else {
+      try {
+        const errBody = await cartRes.json();
+        console.log("🟨 [EnterRx] /api/cart non-ok body =", errBody);
+      } catch {
+        // ignore
       }
     }
 
+    console.log("🟦 [EnterRx] No cart found; creating /api/orders (POST)");
+
     const orderRes = await fetch("/api/orders", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
     });
 
     const body = await orderRes.json();
+    console.log(
+      "🟦 [EnterRx] /api/orders status/body =",
+      orderRes.status,
+      body,
+    );
+
     if (!orderRes.ok || !body.orderId) {
       throw new Error(body.error || "Failed to create order");
     }
 
+    console.log("🟩 [EnterRx] Created order id", body.orderId);
     return body.orderId;
   }
 
@@ -392,56 +410,15 @@ export default function EnterPrescriptionPage() {
 
   function isEyeTouched(d: EyeRxDraft) {
     return Boolean(
-      d.lensId || d.sph || d.cyl || d.axis || d.add || d.bc || d.color,
+      d.lens_id || d.sph || d.cyl || d.axis || d.add || d.bc || d.color,
     );
   }
-
-  // function validateEye(
-  //   d: EyeRxDraft,
-  //   lensObj: (typeof lenses)[number] | undefined,
-  //   colorOptions: string[],
-  // ): EyeFieldErrorMap | null {
-  //   if (!isEyeTouched(d)) return null;
-
-  //   const e: EyeFieldErrorMap = {};
-
-  //   // Lens required if anything entered for eye
-  //   if (!d.lensId || !lensObj) e.lens = true;
-
-  //   // Sphere required once an eye is being entered
-  //   if (!d.sph) e.sph = true;
-
-  //   // Toric requires CYL + AXIS
-  //   if (lensObj?.toric) {
-  //     if (!d.cyl) e.cyl = true;
-  //     if (!d.axis) e.axis = true;
-  //   }
-
-  //   // Multifocal requires ADD if options exist
-  //   if (lensObj?.multifocal) {
-  //     const opts = resolveAddOptions(lensObj);
-  //     if (opts.length > 0 && !d.add) e.add = true;
-  //   }
-
-  //   // Base curve required if multiBC, or if lens has no bc data
-  //   if (lensObj?.multiBC) {
-  //     if (!d.bc) e.bc = true;
-  //   } else {
-  //     const bc0 = lensObj?.baseCurves?.[0];
-  //     if (!bc0) e.bc = true;
-  //   }
-
-  //   // Color required if options exist
-  //   if (colorOptions.length > 0 && !d.color) e.color = true;
-
-  //   return Object.keys(e).length ? e : null;
-  // }
 
   const validateAll = useCallback((): FieldErrorMap => {
     const map: FieldErrorMap = {};
 
     const rightDraft: EyeRxDraft = {
-      lensId: rightLensId,
+      lens_id: rightlens_id,
       sph: rightSph,
       cyl: rightCyl,
       axis: rightAxis,
@@ -451,7 +428,7 @@ export default function EnterPrescriptionPage() {
     };
 
     const leftDraft: EyeRxDraft = {
-      lensId: leftLensId,
+      lens_id: leftlens_id,
       sph: leftSph,
       cyl: leftCyl,
       axis: leftAxis,
@@ -482,14 +459,14 @@ export default function EnterPrescriptionPage() {
 
     return map;
   }, [
-    rightLensId,
+    rightlens_id,
     rightSph,
     rightCyl,
     rightAxis,
     rightAdd,
     rightBC,
     rightColor,
-    leftLensId,
+    leftlens_id,
     leftSph,
     leftCyl,
     leftAxis,
@@ -503,20 +480,12 @@ export default function EnterPrescriptionPage() {
     leftColorOptions,
   ]);
 
-  // Live revalidation ONLY after the user attempts submit once
-  // useEffect(() => {
-  //   if (!didAttemptSubmit) return;
-  //   setFieldErrors(validateAll());
-  // }, [didAttemptSubmit, validateAll]);
-
   /* =========================
      Submit
   ========================= */
 
   async function submitRx() {
     if (loading) return;
-
-    // setDidAttemptSubmit(true);
 
     const map = validateAll();
     setFieldErrors(map);
@@ -525,7 +494,7 @@ export default function EnterPrescriptionPage() {
 
     // ONE-EYE confirm (ONLY after fields are valid)
     const rightDraft: EyeRxDraft = {
-      lensId: rightLensId,
+      lens_id: rightlens_id,
       sph: rightSph,
       cyl: rightCyl,
       axis: rightAxis,
@@ -534,7 +503,7 @@ export default function EnterPrescriptionPage() {
       color: rightColor,
     };
     const leftDraft: EyeRxDraft = {
-      lensId: leftLensId,
+      lens_id: leftlens_id,
       sph: leftSph,
       cyl: leftCyl,
       axis: leftAxis,
@@ -556,9 +525,13 @@ export default function EnterPrescriptionPage() {
     setLoading(true);
 
     try {
+      console.log("🟦 [EnterRx] submitRx start");
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
+
+      console.log("🟦 [EnterRx] session present?", Boolean(session));
 
       if (!session) {
         router.push("/login");
@@ -566,12 +539,13 @@ export default function EnterPrescriptionPage() {
       }
 
       const orderId = await getOrCreateDraftOrder(session.access_token);
+      console.log("🟦 [EnterRx] orderId =", orderId);
 
       const rx: RxPayload = { expires };
 
       if (rightTouched && rightLens) {
         rx.right = {
-          lens_id: rightLensId,
+          lens_id: rightlens_id,
           sphere: Number(rightSph),
           ...(rightLens.toric && {
             cylinder: Number(rightCyl),
@@ -585,7 +559,7 @@ export default function EnterPrescriptionPage() {
 
       if (leftTouched && leftLens) {
         rx.left = {
-          lens_id: leftLensId,
+          lens_id: leftlens_id,
           sphere: Number(leftSph),
           ...(leftLens.toric && {
             cylinder: Number(leftCyl),
@@ -597,6 +571,8 @@ export default function EnterPrescriptionPage() {
         };
       }
 
+      console.log("🟦 [EnterRx] POST /api/orders/:id/rx payload =", rx);
+
       const rxRes = await fetch(`/api/orders/${orderId}/rx`, {
         method: "POST",
         headers: {
@@ -604,25 +580,76 @@ export default function EnterPrescriptionPage() {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify(rx),
+        cache: "no-store",
       });
 
-      if (!rxRes.ok) {
-        const body = await rxRes.json();
-        throw new Error(body.error || "Prescription submission failed");
+      console.log("🟦 [EnterRx] /api/orders/:id/rx status =", rxRes.status);
+
+      let rxBody: unknown = null;
+      try {
+        rxBody = await rxRes.json();
+      } catch {
+        // ignore
       }
 
+      console.log("🟦 [EnterRx] /api/orders/:id/rx body =", rxBody);
+
+      if (!rxRes.ok) {
+        if (rxBody && typeof rxBody === "object" && "error" in rxBody) {
+          throw new Error(String((rxBody as { error: unknown }).error));
+        }
+        throw new Error("Prescription submission failed");
+      }
+
+      /* 🔑 Resolve pricing ONCE */
+      console.log("🟦 [EnterRx] POST /api/cart/resolve");
+
+      const resolveRes = await fetch("/api/cart/resolve", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        cache: "no-store",
+      });
+
+      console.log("🟦 [EnterRx] /api/cart/resolve status =", resolveRes.status);
+
+      let resolveBody: unknown = null;
+      try {
+        resolveBody = await resolveRes.json();
+      } catch {
+        // ignore
+      }
+
+      console.log("🟦 [EnterRx] /api/cart/resolve body =", resolveBody);
+
+      if (!resolveRes.ok) {
+        if (
+          resolveBody &&
+          typeof resolveBody === "object" &&
+          "error" in resolveBody
+        ) {
+          throw new Error(String((resolveBody as { error: unknown }).error));
+        }
+        throw new Error("Cart resolve failed");
+      }
+
+      console.log("🟩 [EnterRx] resolve OK → redirecting to /cart");
       router.push("/cart");
     } catch (err) {
-      console.error(err);
+      console.error("🔴 [EnterRx] submitRx error:", err);
+      // Optional: surface a user-friendly alert for MVP
+      // alert(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setLoading(false);
+      console.log("🟦 [EnterRx] submitRx end");
     }
   }
 
   function copyRightToLeft() {
-    if (!rightLensId) return;
+    if (!rightlens_id) return;
 
-    setLeftLensId(rightLensId);
+    setLeftlens_id(rightlens_id);
     setLeftSph(rightSph);
     setLeftCyl(rightCyl);
     setLeftAxis(rightAxis);
@@ -632,9 +659,9 @@ export default function EnterPrescriptionPage() {
   }
 
   function copyLeftToRight() {
-    if (!leftLensId) return;
+    if (!leftlens_id) return;
 
-    setRightLensId(leftLensId);
+    setRightlens_id(leftlens_id);
     setRightSph(leftSph);
     setRightCyl(leftCyl);
     setRightAxis(leftAxis);
@@ -673,7 +700,7 @@ export default function EnterPrescriptionPage() {
               <button
                 type="button"
                 className="copy-eye-btn"
-                disabled={!rightLensId}
+                disabled={!rightlens_id}
                 onClick={copyRightToLeft}
               >
                 Copy to left eye
@@ -691,12 +718,12 @@ export default function EnterPrescriptionPage() {
                 <div className="rx-field">
                   <select
                     className={cls("lens-select", fieldErrors.right?.lens)}
-                    value={rightLensId}
-                    onChange={(e) => setRightLensId(e.target.value)}
+                    value={rightlens_id}
+                    onChange={(e) => setRightlens_id(e.target.value)}
                   >
                     <option value="">Select lens</option>
                     {lenses.map((l) => (
-                      <option key={l.nameID} value={l.nameID}>
+                      <option key={l.lens_id} value={l.lens_id}>
                         {l.brand} — {l.name}
                       </option>
                     ))}
@@ -833,7 +860,7 @@ export default function EnterPrescriptionPage() {
               <button
                 type="button"
                 className="copy-eye-btn"
-                disabled={!leftLensId}
+                disabled={!leftlens_id}
                 onClick={copyLeftToRight}
               >
                 Copy to right eye
@@ -851,12 +878,12 @@ export default function EnterPrescriptionPage() {
                 <div className="rx-field">
                   <select
                     className={cls("lens-select", fieldErrors.left?.lens)}
-                    value={leftLensId}
-                    onChange={(e) => setLeftLensId(e.target.value)}
+                    value={leftlens_id}
+                    onChange={(e) => setLeftlens_id(e.target.value)}
                   >
                     <option value="">Select lens</option>
                     {lenses.map((l) => (
-                      <option key={l.nameID} value={l.nameID}>
+                      <option key={l.lens_id} value={l.lens_id}>
                         {l.brand} — {l.name}
                       </option>
                     ))}

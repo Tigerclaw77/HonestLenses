@@ -1,7 +1,7 @@
 // data/lensAdds.ts
 
 /**
- * Key = lens.nameID
+ * Key = lens.lens_id
  * Value = exact ADD labels as shown to the user
  *
  * Rule:
