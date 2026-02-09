@@ -18,13 +18,13 @@ export type CooperVisionSKU =
   | "CLARITI_1DAY_90"
   | "CLARITI_1DAY_MF_30"
   | "CLARITI_1DAY_MF_90"
-  | "CLARITI_1DAY_TORIC_30"
-  | "CLARITI_1DAY_TORIC_90"
+  | "CLARITI_1DAY_AST_30"
+  | "CLARITI_1DAY_AST_90"
 
   | "MYDAY_90"
   | "MYDAY_180"
   | "MYDAY_ENERGYS_90"
-  | "MYDAY_TORIC_90"
+  | "MYDAY_AST_90"
   | "MYDAY_MF_90"
 
   | "PROCLEAR_1DAY_90"
@@ -42,9 +42,9 @@ export type CooperVisionSKU =
   | "BIOFINITY_TORIC_6"
   | "BIOFINITY_XR_TORIC_6"
   | "BIOFINITY_MF_6"
-  | "BIOFINITY_TORIC_MF_6"
+  | "BIOFINITY_AST_MF_6"
 
-  | "BIOMEDICS_55_UV_6"
+  | "BIOMEDICS_55_6"
   | "BIOMEDICS_TORIC_6"
 
   | "PROCLEAR_6"
@@ -52,7 +52,7 @@ export type CooperVisionSKU =
   | "PROCLEAR_TORIC_XR_6"
   | "PROCLEAR_MF_6"
   | "PROCLEAR_MF_XR_6"
-  | "PROCLEAR_TORIC_MF_6";
+  | "PROCLEAR_MF_AST_6";
 
 type PriceEntry = {
   price_per_box_cents: number;
@@ -66,8 +66,8 @@ export const COOPERVISION_PRICING: Record<CooperVisionSKU, PriceEntry> = {
   CLARITI_1DAY_90: { price_per_box_cents: 4775 },
   CLARITI_1DAY_MF_30: { price_per_box_cents: 3300 },
   CLARITI_1DAY_MF_90: { price_per_box_cents: 7375 },
-  CLARITI_1DAY_TORIC_30: { price_per_box_cents: 3025 },
-  CLARITI_1DAY_TORIC_90: { price_per_box_cents: 6700 },
+  CLARITI_1DAY_AST_30: { price_per_box_cents: 3025 },
+  CLARITI_1DAY_AST_90: { price_per_box_cents: 6700 },
 
   // =========================
   // MyDay
@@ -75,7 +75,7 @@ export const COOPERVISION_PRICING: Record<CooperVisionSKU, PriceEntry> = {
   MYDAY_90: { price_per_box_cents: 6275 },
   MYDAY_180: { price_per_box_cents: 11300 },
   MYDAY_ENERGYS_90: { price_per_box_cents: 7200 },
-  MYDAY_TORIC_90: { price_per_box_cents: 8175 },
+  MYDAY_AST_90: { price_per_box_cents: 8175 },
   MYDAY_MF_90: { price_per_box_cents: 9500 },
 
   // =========================
@@ -99,12 +99,12 @@ export const COOPERVISION_PRICING: Record<CooperVisionSKU, PriceEntry> = {
   BIOFINITY_TORIC_6: { price_per_box_cents: 4725 },
   BIOFINITY_XR_TORIC_6: { price_per_box_cents: 8950 },
   BIOFINITY_MF_6: { price_per_box_cents: 6350 },
-  BIOFINITY_TORIC_MF_6: { price_per_box_cents: 9650 },
+  BIOFINITY_AST_MF_6: { price_per_box_cents: 9650 },
 
   // =========================
   // Biomedics
   // =========================
-  BIOMEDICS_55_UV_6: { price_per_box_cents: 3075 },
+  BIOMEDICS_55_6: { price_per_box_cents: 3075 },
   BIOMEDICS_TORIC_6: { price_per_box_cents: 3575 },
 
   // =========================
@@ -115,5 +115,5 @@ export const COOPERVISION_PRICING: Record<CooperVisionSKU, PriceEntry> = {
   PROCLEAR_TORIC_XR_6: { price_per_box_cents: 10100 },
   PROCLEAR_MF_6: { price_per_box_cents: 6450 },
   PROCLEAR_MF_XR_6: { price_per_box_cents: 10275 },
-  PROCLEAR_TORIC_MF_6: { price_per_box_cents: 12200 },
+  PROCLEAR_MF_AST_6: { price_per_box_cents: 12200 },
 };

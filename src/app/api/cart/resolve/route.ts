@@ -41,7 +41,7 @@ export async function POST(req: Request) {
   let requestedBoxCount: number | null = null;
 
   try {
-    const body = await req.json();
+    const body = (await req.json()) as { box_count?: unknown };
     console.log("🟥 [cart/resolve] BODY", body);
 
     if (typeof body?.box_count === "number" && body.box_count > 0) {
@@ -56,7 +56,8 @@ export async function POST(req: Request) {
   ========================= */
   const { data: order, error } = await supabaseServer
     .from("orders")
-    .select(`
+    .select(
+      `
       id,
       user_id,
       status,
@@ -66,14 +67,23 @@ export async function POST(req: Request) {
       price_per_box_cents,
       total_amount_cents,
       created_at
-    `)
+    `,
+    )
     .eq("user_id", user.id)
     .in("status", ["draft", "pending", "pending_verification"])
     .order("created_at", { ascending: false })
     .limit(1)
     .single();
 
-  console.log("🟥 [cart/resolve] ORDER QUERY RESULT", { error, order });
+  console.log("🟥 [cart/resolve] ORDER QUERY RESULT", {
+    error,
+    id: order?.id,
+    status: order?.status,
+    sku: order?.sku,
+    box_count: order?.box_count,
+    db_price_per_box_cents: order?.price_per_box_cents,
+    db_total_amount_cents: order?.total_amount_cents,
+  });
 
   if (error || !order) {
     console.error("🔴 [cart/resolve] NO ACTIVE ORDER");
@@ -90,38 +100,39 @@ export async function POST(req: Request) {
     console.error("🔴 [cart/resolve] RX MISSING EXPIRES", rx);
     return NextResponse.json(
       { error: "Order missing RX expiration" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
-  const lensId: string | null =
-    rx?.right?.lens_id || rx?.left?.lens_id || null;
+  const lens_id: string | null =
+    rx?.right?.lens_id ?? rx?.left?.lens_id ?? null;
 
-  console.log("🟥 [cart/resolve] LENS ID", lensId);
+  console.log("🟥 [cart/resolve] LENS ID", lens_id);
 
-  if (!lensId) {
+  if (!lens_id) {
     console.error("🔴 [cart/resolve] RX MISSING LENS_ID", rx);
-    return NextResponse.json(
-      { error: "RX missing lens_id" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "RX missing lens_id" }, { status: 400 });
   }
 
   /* =========================
-     5️⃣ SKU resolution
+     5️⃣ SKU resolution (RX → SKU)
+     (SKU should already be set by /orders/:id/rx,
+      but resolve again as a safety net.)
   ========================= */
-  const sku = order.sku ?? resolveDefaultSku(lensId);
+  const resolvedSku = resolveDefaultSku(lens_id);
+  const sku = resolvedSku ?? order.sku ?? null;
 
   console.log("🟥 [cart/resolve] SKU RESOLUTION", {
     existing: order.sku,
-    resolved: sku,
+    resolved: resolvedSku,
+    final: sku,
   });
 
   if (!sku) {
-    console.error("🔴 [cart/resolve] SKU NOT FOUND", lensId);
+    console.error("🔴 [cart/resolve] SKU NOT FOUND", lens_id);
     return NextResponse.json(
-      { error: `No SKU configured for lens_id ${lensId}` },
-      { status: 400 }
+      { error: `No SKU configured for lens_id ${lens_id}` },
+      { status: 400 },
     );
   }
 
@@ -134,12 +145,11 @@ export async function POST(req: Request) {
   if (!Number.isFinite(daysRemaining)) {
     return NextResponse.json(
       { error: "Invalid RX expiration date" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
-  const targetMonths: 6 | 12 =
-    daysRemaining >= MIN_DAYS_FOR_ANNUAL ? 12 : 6;
+  const targetMonths: 6 | 12 = daysRemaining >= MIN_DAYS_FOR_ANNUAL ? 12 : 6;
 
   /* =========================
      7️⃣ Box count resolution
@@ -151,13 +161,11 @@ export async function POST(req: Request) {
     console.error("🔴 [cart/resolve] SKU DURATION MISSING", sku);
     return NextResponse.json(
       { error: `No duration defined for SKU ${sku}` },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
-  const maxAllowedBoxCount = Math.ceil(
-    targetMonths / boxDurationMonths
-  );
+  const maxAllowedBoxCount = Math.ceil(targetMonths / boxDurationMonths);
 
   const finalBoxCount = requestedBoxCount
     ? Math.min(requestedBoxCount, maxAllowedBoxCount)
@@ -170,28 +178,35 @@ export async function POST(req: Request) {
   });
 
   /* =========================
-     8️⃣ Pricing
+     8️⃣ Pricing (COMPUTE ONLY)
   ========================= */
-  let pricing;
+  let pricing: ReturnType<typeof getPrice>;
   try {
+    console.log("🟥 [cart/resolve] PRICING INPUT", {
+      sku,
+      box_count: finalBoxCount,
+    });
+
     pricing = getPrice({ sku, box_count: finalBoxCount });
+
     console.log("🟥 [cart/resolve] PRICING RESULT", pricing);
   } catch (err) {
     console.error("🔴 [cart/resolve] PRICING ERROR", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Pricing failed" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   /* =========================
-     9️⃣ Persist update
+     9️⃣ Persist ONLY sku + box_count
+     AND WIPE stale price fields so Supabase can't haunt you.
   ========================= */
-  console.log("🟥 [cart/resolve] UPDATING ORDER", {
+  console.log("🟥 [cart/resolve] UPDATING ORDER (sku + box_count only)", {
     order_id: order.id,
-    user_id: user.id,
     sku,
     finalBoxCount,
+    note: "pricing is computed; stored price fields are nulled to prevent stale reads",
   });
 
   const { data: updated, error: updateError } = await supabaseServer
@@ -199,31 +214,39 @@ export async function POST(req: Request) {
     .update({
       sku,
       box_count: finalBoxCount,
-      price_per_box_cents: pricing.price_per_box_cents,
-      total_amount_cents: pricing.total_amount_cents,
+
+      // ✅ wipe stale values (until you drop columns)
+      price_per_box_cents: null,
+      total_amount_cents: null,
     })
     .eq("id", order.id)
     .eq("user_id", user.id)
-    .select();
+    .select("id, sku, box_count, price_per_box_cents, total_amount_cents")
+    .single();
 
-  console.log("🟥 [cart/resolve] UPDATE RESULT", {
-    updated,
-    updateError,
-  });
+  console.log("🟥 [cart/resolve] UPDATE RESULT", { updated, updateError });
 
-  if (updateError) {
+  if (updateError || !updated) {
     return NextResponse.json(
-      { error: updateError.message },
-      { status: 500 }
+      { error: updateError?.message ?? "Failed to update order" },
+      { status: 500 },
     );
   }
 
+  /* =========================
+     10️⃣ Return computed pricing (authoritative)
+  ========================= */
   return NextResponse.json({
     ok: true,
-    order_id: order.id,
-    sku,
-    box_count: finalBoxCount,
-    price_per_box_cents: pricing.price_per_box_cents,
-    total_amount_cents: pricing.total_amount_cents,
+    order: {
+      id: updated.id,
+      sku: updated.sku,
+      box_count: updated.box_count,
+    },
+    pricing: {
+      price_per_box_cents: pricing.price_per_box_cents,
+      total_amount_cents: pricing.total_amount_cents,
+      price_reason: pricing.price_reason ?? null,
+    },
   });
 }

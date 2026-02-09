@@ -1,7 +1,7 @@
 import { lensAddOptions } from "./lensAdds";
 
 export type Lens = {
-  nameID: string;
+  lens_id: string;
   brand: string;
   name: string;
   toric: boolean;
@@ -15,7 +15,7 @@ export type Lens = {
 
 const rawLenses: Lens[] = [
   {
-    nameID: "V001",
+    lens_id: "V001",
     brand: "Oasys",
     name: "Oasys Max 1-Day",
     toric: false,
@@ -26,7 +26,7 @@ const rawLenses: Lens[] = [
     diameter: 14.3,
   },
   {
-    nameID: "V002",
+    lens_id: "V002",
     brand: "Oasys",
     name: "Oasys Max 1-Day Multifocal",
     toric: false,
@@ -37,7 +37,7 @@ const rawLenses: Lens[] = [
     diameter: 14.3,
   },
   {
-    nameID: "V003",
+    lens_id: "V003",
     brand: "Oasys",
     name: "Oasys 1-Day",
     toric: false,
@@ -48,7 +48,7 @@ const rawLenses: Lens[] = [
     diameter: 14.3,
   },
   {
-    nameID: "V004",
+    lens_id: "V004",
     brand: "Oasys",
     name: "Oasys 1-Day for Astigmatism",
     toric: true,
@@ -59,7 +59,7 @@ const rawLenses: Lens[] = [
     diameter: 14.3,
   },
   {
-    nameID: "V005",
+    lens_id: "V005",
     brand: "Moist",
     name: "Moist",
     toric: false,
@@ -70,7 +70,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "V006",
+    lens_id: "V006",
     brand: "Moist",
     name: "Moist for Astigmatism",
     toric: true,
@@ -81,7 +81,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "V007",
+    lens_id: "V007",
     brand: "Moist",
     name: "Moist Multifocal",
     toric: false,
@@ -92,7 +92,7 @@ const rawLenses: Lens[] = [
     diameter: 14.3,
   },
   {
-    nameID: "V008",
+    lens_id: "V008",
     brand: "Oasys",
     name: "Oasys",
     toric: false,
@@ -103,7 +103,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "V009",
+    lens_id: "V009",
     brand: "Oasys",
     name: "Oasys for Astigmatism",
     toric: true,
@@ -114,7 +114,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "V010",
+    lens_id: "V010",
     brand: "Oasys",
     name: "Oasys Multifocal",
     toric: false,
@@ -125,7 +125,7 @@ const rawLenses: Lens[] = [
     diameter: 14.3,
   },
   {
-    nameID: "V012",
+    lens_id: "V012",
     brand: "Oasys",
     name: "Oasys with Transitions",
     toric: false,
@@ -136,7 +136,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "V013",
+    lens_id: "V013",
     brand: "Vita",
     name: "Vita",
     toric: false,
@@ -147,7 +147,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "V014",
+    lens_id: "V014",
     brand: "Vita",
     name: "Vita for Astigmatism",
     toric: true,
@@ -158,7 +158,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "V015",
+    lens_id: "V015",
     brand: "Define",
     name: "Define",
     toric: false,
@@ -169,7 +169,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "V017",
+    lens_id: "V017",
     brand: "Acuvue2",
     name: "Acuvue2",
     toric: false,
@@ -180,7 +180,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "V018",
+    lens_id: "V018",
     brand: "Acuvue",
     name: "Oasys Max 1-Day for Astigmatism",
     toric: true,
@@ -191,7 +191,7 @@ const rawLenses: Lens[] = [
     diameter: 14.3,
   },
   {
-    nameID: "V019",
+    lens_id: "V019",
     brand: "Acuvue",
     name: "Oasys Max 1-Day Multifocal for Astigmatism",
     toric: true,
@@ -202,7 +202,7 @@ const rawLenses: Lens[] = [
     diameter: 14.3,
   },
   {
-    nameID: "BL01",
+    lens_id: "BL01",
     brand: "Infuse",
     name: "Infuse One-Day",
     toric: false,
@@ -213,7 +213,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "BL02",
+    lens_id: "BL02",
     brand: "Infuse",
     name: "Infuse One-Day Multifocal",
     toric: false,
@@ -224,7 +224,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "BL03",
+    lens_id: "BL03",
     brand: "Biotrue",
     name: "ONEday",
     toric: false,
@@ -235,7 +235,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "BL04",
+    lens_id: "BL04",
     brand: "Biotrue",
     name: "ONEday for Astigmatism",
     toric: true,
@@ -246,7 +246,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "BL05",
+    lens_id: "BL05",
     brand: "Biotrue",
     name: "ONEday for Presbyopia",
     toric: false,
@@ -257,7 +257,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "BL06",
+    lens_id: "BL06",
     brand: "Ultra",
     name: "Ultra",
     toric: false,
@@ -268,7 +268,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "BL07",
+    lens_id: "BL07",
     brand: "Ultra",
     name: "Ultra for Astigmatism",
     toric: true,
@@ -279,7 +279,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "BL08",
+    lens_id: "BL08",
     brand: "Ultra",
     name: "Ultra for Presbyopia",
     toric: false,
@@ -290,7 +290,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "BL09",
+    lens_id: "BL09",
     brand: "Ultra",
     name: "Ultra Multifocal for Astigmatism",
     toric: true,
@@ -301,7 +301,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "BL10",
+    lens_id: "BL10",
     brand: "PureVision",
     name: "PureVision",
     toric: false,
@@ -312,7 +312,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "BL11",
+    lens_id: "BL11",
     brand: "PureVision",
     name: "PureVision Multi-Focal",
     toric: false,
@@ -323,7 +323,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "BL12",
+    lens_id: "BL12",
     brand: "PureVision2",
     name: "PureVision2",
     toric: false,
@@ -334,7 +334,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "BL13",
+    lens_id: "BL13",
     brand: "PureVision2",
     name: "PureVision2 for Astigmatism",
     toric: true,
@@ -345,7 +345,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "BL14",
+    lens_id: "BL14",
     brand: "PureVision2",
     name: "PureVision2 For Presbyopia",
     toric: false,
@@ -356,7 +356,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "BL15",
+    lens_id: "BL15",
     brand: "Soflens",
     name: "Soflens 38",
     toric: false,
@@ -367,7 +367,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "BL16",
+    lens_id: "BL16",
     brand: "Soflens",
     name: "Soflens Toric",
     toric: true,
@@ -378,7 +378,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "BL17",
+    lens_id: "BL17",
     brand: "Soflens",
     name: "Soflens Multi-Focal",
     toric: false,
@@ -389,7 +389,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "BL18",
+    lens_id: "BL18",
     brand: "Soflens",
     name: "Soflens daily disposable",
     toric: false,
@@ -400,7 +400,18 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "CV01",
+    lens_id: "BL19",
+    brand: "Infuse",
+    name: "Infuse One-Day for Astigmatism",
+    toric: true,
+    multifocal: false,
+    color: false,
+    multiBC: false,
+    baseCurves: [8.6],
+    diameter: 14.5,
+  },
+  {
+    lens_id: "CV01",
     brand: "Avaira Vitality",
     name: "Avaira Vitality",
     toric: false,
@@ -411,7 +422,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "CV02",
+    lens_id: "CV02",
     brand: "Avaira Vitality",
     name: "Avaira Vitality toric",
     toric: true,
@@ -422,7 +433,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "CV03",
+    lens_id: "CV03",
     brand: "Biofinity",
     name: "Biofinity",
     toric: false,
@@ -433,7 +444,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "CV04",
+    lens_id: "CV04",
     brand: "Biofinity",
     name: "Biofinity XR",
     toric: false,
@@ -444,7 +455,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "CV05",
+    lens_id: "CV05",
     brand: "Biofinity",
     name: "Biofinity Energys",
     toric: false,
@@ -455,7 +466,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "CV06",
+    lens_id: "CV06",
     brand: "Biofinity",
     name: "Biofinity multifocal",
     toric: false,
@@ -466,7 +477,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "CV07",
+    lens_id: "CV07",
     brand: "Biofinity",
     name: "Biofinity toric",
     toric: true,
@@ -477,7 +488,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "CV08",
+    lens_id: "CV08",
     brand: "Biofinity",
     name: "Biofinity XR toric",
     toric: true,
@@ -488,7 +499,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "CV09",
+    lens_id: "CV09",
     brand: "Biofinity",
     name: "Biofinity toric multifocal",
     toric: true,
@@ -499,7 +510,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "CV10",
+    lens_id: "CV10",
     brand: "Biomedics",
     name: "Biomedics 55 Premier asphere",
     toric: false,
@@ -510,7 +521,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "CV11",
+    lens_id: "CV11",
     brand: "Biomedics",
     name: "Biomedics Toric",
     toric: true,
@@ -521,7 +532,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "CV12",
+    lens_id: "CV12",
     brand: "Clariti",
     name: "clariti 1 day",
     toric: false,
@@ -532,7 +543,7 @@ const rawLenses: Lens[] = [
     diameter: 14.1,
   },
   {
-    nameID: "CV13",
+    lens_id: "CV13",
     brand: "Clariti",
     name: "clariti 1 day toric",
     toric: true,
@@ -543,7 +554,7 @@ const rawLenses: Lens[] = [
     diameter: 14.3,
   },
   {
-    nameID: "CV14",
+    lens_id: "CV14",
     brand: "Clariti",
     name: "clariti 1 day multifocal",
     toric: false,
@@ -554,7 +565,7 @@ const rawLenses: Lens[] = [
     diameter: 14.1,
   },
   {
-    nameID: "CV15",
+    lens_id: "CV15",
     brand: "MiSight",
     name: "MiSight 1 day",
     toric: false,
@@ -565,7 +576,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "CV16",
+    lens_id: "CV16",
     brand: "MyDay",
     name: "MyDay",
     toric: false,
@@ -576,7 +587,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "CV17",
+    lens_id: "CV17",
     brand: "MyDay",
     name: "MyDay Energys",
     toric: false,
@@ -587,7 +598,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "CV18",
+    lens_id: "CV18",
     brand: "MyDay",
     name: "MyDay multifocal",
     toric: false,
@@ -598,7 +609,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "CV19",
+    lens_id: "CV19",
     brand: "MyDay",
     name: "MyDay toric",
     toric: true,
@@ -609,7 +620,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "CV20",
+    lens_id: "CV20",
     brand: "Proclear",
     name: "Proclear 1 day",
     toric: false,
@@ -620,7 +631,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "CV21",
+    lens_id: "CV21",
     brand: "Proclear",
     name: "Proclear 1 day multifocal",
     toric: false,
@@ -631,7 +642,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "CV22",
+    lens_id: "CV22",
     brand: "Proclear",
     name: "Proclear multifocal",
     toric: false,
@@ -642,7 +653,7 @@ const rawLenses: Lens[] = [
     diameter: 14.4,
   },
   {
-    nameID: "CV23",
+    lens_id: "CV23",
     brand: "Proclear",
     name: "Proclear multifocal XR",
     toric: false,
@@ -653,7 +664,7 @@ const rawLenses: Lens[] = [
     diameter: 14.4,
   },
   {
-    nameID: "CV24",
+    lens_id: "CV24",
     brand: "Proclear",
     name: "Proclear multifocal toric",
     toric: true,
@@ -664,7 +675,7 @@ const rawLenses: Lens[] = [
     diameter: 14.4,
   },
   {
-    nameID: "CV25",
+    lens_id: "CV25",
     brand: "Proclear",
     name: "Proclear sphere",
     toric: false,
@@ -675,7 +686,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "CV26",
+    lens_id: "CV26",
     brand: "Proclear",
     name: "Proclear toric",
     toric: true,
@@ -686,7 +697,7 @@ const rawLenses: Lens[] = [
     diameter: 14.4,
   },
   {
-    nameID: "CV27",
+    lens_id: "CV27",
     brand: "Proclear",
     name: "Proclear toric XR",
     toric: true,
@@ -697,7 +708,7 @@ const rawLenses: Lens[] = [
     diameter: 14.4,
   },
   {
-    nameID: "A001",
+    lens_id: "A001",
     brand: "Air Optix",
     name: "Air Optix plus HydraGlyde",
     toric: false,
@@ -708,7 +719,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "A002",
+    lens_id: "A002",
     brand: "Air Optix",
     name: "Air Optix plus HydraGlyde for Astigmatism",
     toric: true,
@@ -719,7 +730,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "A003",
+    lens_id: "A003",
     brand: "Air Optix",
     name: "Air Optix plus HydraGlyde Multifocal",
     toric: false,
@@ -730,7 +741,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "A004",
+    lens_id: "A004",
     brand: "Air Optix",
     name: "Air Optix Colors",
     toric: false,
@@ -741,7 +752,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "A005",
+    lens_id: "A005",
     brand: "Air Optix",
     name: "Air Optix Night & Day Aqua",
     toric: false,
@@ -752,7 +763,7 @@ const rawLenses: Lens[] = [
     diameter: 13.8,
   },
   {
-    nameID: "A006",
+    lens_id: "A006",
     brand: "DailiesACP",
     name: "Dailies AquaComfort Plus",
     toric: false,
@@ -763,7 +774,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "A007",
+    lens_id: "A007",
     brand: "DailiesACP",
     name: "Dailies AquaComfort Plus Multifocal",
     toric: false,
@@ -774,7 +785,7 @@ const rawLenses: Lens[] = [
     diameter: 14.4,
   },
   {
-    nameID: "A008",
+    lens_id: "A008",
     brand: "DailiesACP",
     name: "Dailies AquaComfort Plus Toric",
     toric: true,
@@ -785,7 +796,7 @@ const rawLenses: Lens[] = [
     diameter: 14.0,
   },
   {
-    nameID: "A009",
+    lens_id: "A009",
     brand: "Dailies Colors",
     name: "Dailies Colors",
     toric: false,
@@ -796,7 +807,7 @@ const rawLenses: Lens[] = [
     diameter: 13.8,
   },
   {
-    nameID: "A010",
+    lens_id: "A010",
     brand: "Dailies Total 1",
     name: "Dailies Total 1",
     toric: false,
@@ -807,7 +818,7 @@ const rawLenses: Lens[] = [
     diameter: 14.1,
   },
   {
-    nameID: "A011",
+    lens_id: "A011",
     brand: "Dailies Total 1",
     name: "Dailies Total 1 for Astigmatism",
     toric: true,
@@ -818,7 +829,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "A012",
+    lens_id: "A012",
     brand: "Dailies Total 1",
     name: "Dailies Total 1 Multifocal",
     toric: false,
@@ -829,7 +840,7 @@ const rawLenses: Lens[] = [
     diameter: 14.1,
   },
   {
-    nameID: "A013",
+    lens_id: "A013",
     brand: "Focus",
     name: "Focus Dailies",
     toric: false,
@@ -840,7 +851,7 @@ const rawLenses: Lens[] = [
     diameter: 13.8,
   },
   {
-    nameID: "A014",
+    lens_id: "A014",
     brand: "Freshlook",
     name: "Freshlook Colorblends",
     toric: false,
@@ -851,7 +862,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "A016",
+    lens_id: "A016",
     brand: "Freshlook",
     name: "Freshlook Handling Tint",
     toric: false,
@@ -862,7 +873,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "A017",
+    lens_id: "A017",
     brand: "Precision1",
     name: "Precision1",
     toric: false,
@@ -873,7 +884,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "A018",
+    lens_id: "A018",
     brand: "Precision1",
     name: "Precision1 for Astigmatism",
     toric: true,
@@ -884,7 +895,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "A019",
+    lens_id: "A019",
     brand: "Total30",
     name: "Total30",
     toric: false,
@@ -895,7 +906,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "A020",
+    lens_id: "A020",
     brand: "Total30",
     name: "Total30 for Astigmatism",
     toric: true,
@@ -906,7 +917,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "A021",
+    lens_id: "A021",
     brand: "Total30",
     name: "Total30 Multifocal",
     toric: false,
@@ -917,7 +928,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "A022",
+    lens_id: "A022",
     brand: "Total30",
     name: "Total30 Multifocal for Astigmatism",
     toric: true,
@@ -928,7 +939,7 @@ const rawLenses: Lens[] = [
     diameter: 14.5,
   },
   {
-    nameID: "A023",
+    lens_id: "A023",
     brand: "PRECISION7",
     name: "PRECISION7",
     toric: false,
@@ -939,7 +950,7 @@ const rawLenses: Lens[] = [
     diameter: 14.2,
   },
   {
-    nameID: "A024",
+    lens_id: "A024",
     brand: "PRECISION7",
     name: "PRECISION7 for Astigmatism",
     toric: true,
@@ -953,5 +964,5 @@ const rawLenses: Lens[] = [
 
 export const lenses: Lens[] = rawLenses.map((lens) => ({
   ...lens,
-  addOptions: lensAddOptions[lens.nameID] ?? undefined,
+  addOptions: lensAddOptions[lens.lens_id] ?? undefined,
 }));
