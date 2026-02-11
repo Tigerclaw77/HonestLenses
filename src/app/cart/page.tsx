@@ -1,165 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase-client";
+
 import Header from "../../components/Header";
-import { lenses } from "../../data/lenses";
+import EyeRow from "../../components/cart/EyeRow";
 
-/* =========================
-   Types
-========================= */
-
-type EyeRx = {
-  lens_id: string;
-  sphere: number;
-  cylinder?: number;
-  axis?: number;
-  add?: string;
-  base_curve?: number;
-  color?: string;
-};
-
-type RxData = {
-  expires: string;
-  right?: EyeRx;
-  left?: EyeRx;
-};
-
-type CartOrder = {
-  id: string;
-  rx: RxData | null;
-  lens_id: string | null;
-  box_count: number | null;
-  price_per_box_cents: number | null;
-  total_amount_cents: number | null;
-};
-
-type CartResponse = {
-  hasCart: boolean;
-  order?: CartOrder;
-};
-
-/* =========================
-   Helpers
-========================= */
-
-function fmtNum(n: number) {
-  const abs = Math.abs(n);
-  const s = abs.toFixed(2).replace(/\.00$/, "");
-  return n < 0 ? `−${s}` : `+${s}`;
-}
-
-function fmtPrice(cents?: number | null) {
-  if (typeof cents !== "number") return "—";
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
-function buildRxParts(rx: EyeRx) {
-  return {
-    sphere: fmtNum(rx.sphere),
-    cylinder: typeof rx.cylinder === "number" ? fmtNum(rx.cylinder) : null,
-    axis: typeof rx.axis === "number" ? rx.axis.toString() : null,
-    add: rx.add ?? null,
-    color: rx.color ?? null,
-  };
-}
-
-/* =========================
-   Rx Display
-========================= */
-
-function RxBlock({ rx }: { rx: EyeRx }) {
-  const parts = buildRxParts(rx);
-
-  return (
-    <div className="hl-rx-block">
-      <div className="hl-rx-row">
-        <div className="hl-rx-col">
-          <div className="hl-rx-label">SPH</div>
-          <div className="hl-rx-value">{parts.sphere}</div>
-        </div>
-
-        {parts.cylinder && parts.axis && (
-          <>
-            <div className="hl-rx-col">
-              <div className="hl-rx-label">CYL</div>
-              <div className="hl-rx-value">{parts.cylinder}</div>
-            </div>
-
-            <div className="hl-rx-col">
-              <div className="hl-rx-label">AXIS</div>
-              <div className="hl-rx-value">{parts.axis}</div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {parts.add && (
-        <div className="hl-rx-add">
-          <span className="hl-rx-add-label">ADD</span>
-          <span className="hl-rx-add-value">{parts.add}</span>
-        </div>
-      )}
-
-      {parts.color && (
-        <div className="hl-rx-color">
-          <span className="hl-rx-color-label">Color</span>
-          <span className="hl-rx-color-value">{parts.color}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* =========================
-   Eye Row
-========================= */
-
-function EyeRow({
-  label,
-  lensName,
-  rx,
-  qty,
-  onQty,
-  pricePerBox,
-  total,
-}: {
-  label: "RIGHT EYE" | "LEFT EYE";
-  lensName: string;
-  rx: EyeRx;
-  qty: number;
-  onQty: (v: number) => void;
-  pricePerBox: number | null;
-  total: number | null;
-}) {
-  return (
-    <div className="hl-eye">
-      <div className="hl-eye-label">{label}</div>
-      <div className="hl-eye-lens">{lensName}</div>
-
-      <RxBlock rx={rx} />
-
-      <div className="hl-eye-controls">
-        <div className="hl-eye-price">{fmtPrice(pricePerBox)} / box</div>
-
-        <select
-          className="hl-eye-select"
-          value={qty}
-          onChange={(e) => onQty(Number(e.target.value))}
-        >
-          {[1, 2, 3, 4, 6].map((v) => (
-            <option key={v} value={v}>
-              {v}
-            </option>
-          ))}
-        </select>
-
-        <div className="hl-eye-total">{fmtPrice(total)}</div>
-      </div>
-    </div>
-  );
-}
+import { fmtPrice } from "../../lib/cart/formatters";
+import { buildQuantityConfig } from "../../lib/cart/quantityConfig";
+import type { CartOrder } from "../../lib/cart/types";
+import { fetchCart, resolveCart } from "../../lib/cart/api";
+import { getLensDisplayName } from "../../lib/cart/display";
 
 /* =========================
    Page
@@ -169,104 +21,133 @@ export default function CartPage() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
+  const [syncingQty, setSyncingQty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cart, setCart] = useState<CartOrder | null>(null);
 
-  const [rightQty, setRightQty] = useState(2);
-  const [leftQty, setLeftQty] = useState(2);
+  // UI-only overrides (keeps dropdown stable during re-fetch)
+  const [rightQtyOverride, setRightQtyOverride] = useState<number | null>(null);
+  const [leftQtyOverride, setLeftQtyOverride] = useState<number | null>(null);
 
-  useEffect(() => {
-    async function loadCart() {
-      console.log("🟢 [CartPage] loadCart START");
+  // prevents auto-resolve after user interaction
+  const hasUserAdjustedQty = useRef(false);
+
+  /* ---------- Derived ---------- */
+
+  const expires = cart?.rx?.expires ?? "";
+  const sku = cart?.sku ?? "";
+
+  const quantityConfig = useMemo(() => {
+    if (!expires || !sku) return null;
+    return buildQuantityConfig(expires, sku);
+  }, [expires, sku]);
+
+  /* ---------- Qty change ---------- */
+
+  const handleQtyChange = useCallback(
+    async (nextRight: number, nextLeft: number) => {
+      if (syncingQty) return;
+
+      hasUserAdjustedQty.current = true;
+      setSyncingQty(true);
+      setError(null);
 
       try {
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
-        console.log("🟢 [CartPage] session", session?.user?.id);
-
         if (!session) {
-          console.log("🔴 [CartPage] NO SESSION → redirect");
           router.push("/login");
           return;
         }
 
-        const res = await fetch("/api/cart", {
-          headers: { Authorization: `Bearer ${session.access_token}` },
+        const updated = await resolveCart(session.access_token, {
+          right_box_count: nextRight,
+          left_box_count: nextLeft,
+          box_count: nextRight + nextLeft,
         });
 
-        const body: CartResponse = await res.json();
-        console.log("🟢 [CartPage] /api/cart RESPONSE", body);
+        setCart(updated);
 
-        if (!res.ok || !body.hasCart || !body.order) {
-          console.log("🔴 [CartPage] NO ACTIVE CART");
+        // Keep overrides only if backend echoes something unexpected
+        const serverRight =
+          typeof updated.right_box_count === "number"
+            ? updated.right_box_count
+            : null;
+
+        const serverLeft =
+          typeof updated.left_box_count === "number"
+            ? updated.left_box_count
+            : null;
+
+        const serverMatches =
+          (serverRight === null || serverRight === nextRight) &&
+          (serverLeft === null || serverLeft === nextLeft);
+
+        if (serverMatches) {
+          setRightQtyOverride(null);
+          setLeftQtyOverride(null);
+        } else {
+          setRightQtyOverride(nextRight);
+          setLeftQtyOverride(nextLeft);
+        }
+      } catch (e) {
+        console.error("[CartPage] qty update failed", e);
+        setError(e instanceof Error ? e.message : "Failed to update quantity.");
+      } finally {
+        setSyncingQty(false);
+      }
+    },
+    [router, syncingQty],
+  );
+
+  /* ---------- Initial load ---------- */
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadCart() {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!session) {
+          router.push("/login");
+          return;
+        }
+
+        const initial = await fetchCart(session.access_token);
+        if (!alive) return;
+
+        if (!initial) {
           setError("No active cart found.");
           setLoading(false);
           return;
         }
 
-        const order = body.order;
+        // authoritative resolve on load ONLY
+        const finalized = await resolveCart(session.access_token);
+        if (!alive) return;
 
-        console.log("🟢 [CartPage] CART ORDER", order);
-
-        const needsResolve =
-          order.box_count == null ||
-          order.price_per_box_cents == null ||
-          order.total_amount_cents === 0;
-
-        console.log("🟡 [CartPage] needsResolve =", needsResolve);
-
-        if (needsResolve) {
-          console.log("🟡 [CartPage] POST /api/cart/resolve");
-
-          const resolveRes = await fetch("/api/cart/resolve", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-              "Content-Type": "application/json",
-            },
-          });
-
-          let resolveBody: unknown = null;
-          try {
-            resolveBody = await resolveRes.json();
-          } catch {
-            resolveBody = "[no json body]";
-          }
-
-          console.log("🟡 [CartPage] RESOLVE RESPONSE", {
-            status: resolveRes.status,
-            body: resolveBody,
-          });
-
-          const refreshed = await fetch("/api/cart", {
-            headers: { Authorization: `Bearer ${session.access_token}` },
-          });
-
-          const refreshedBody: CartResponse = await refreshed.json();
-          console.log("🟡 [CartPage] REFETCH RESPONSE", refreshedBody);
-
-          setCart(refreshedBody.order ?? null);
-        } else {
-          setCart(order);
-        }
-
-        const qty = order.box_count ?? 2;
-        setRightQty(qty);
-        setLeftQty(qty);
-
+        setCart(finalized);
         setLoading(false);
-        console.log("🟢 [CartPage] loadCart DONE");
       } catch (err) {
-        console.error("🔴 [CartPage] loadCart ERROR", err);
-        setError("Failed to load cart.");
+        console.error("[CartPage] load error", err);
+        if (!alive) return;
+        setError(err instanceof Error ? err.message : "Failed to load cart.");
         setLoading(false);
       }
     }
 
     loadCart();
+    return () => {
+      alive = false;
+    };
   }, [router]);
+
+  /* ---------- Guards ---------- */
 
   if (loading) {
     return (
@@ -277,36 +158,81 @@ export default function CartPage() {
     );
   }
 
-  if (error) {
+  if (!cart || !cart.rx) {
     return (
       <>
         <Header variant="shop" />
         <main className="content-shell">
-          <p className="order-error">{error}</p>
+          <p className="order-error">{error ?? "Cart unavailable."}</p>
         </main>
       </>
     );
   }
 
-  const rx = cart?.rx ?? null;
-  const rightEye = rx?.right;
-  const leftEye = rx?.left;
+  /* ---------- RX ---------- */
 
-  const rightLens = rightEye
-    ? lenses.find((l) => l.lens_id === rightEye.lens_id)
-    : null;
+  const rx = cart.rx;
+  const rightEye = rx.right ?? null;
+  const leftEye = rx.left ?? null;
 
-  const leftLens = leftEye
-    ? lenses.find((l) => l.lens_id === leftEye.lens_id)
-    : null;
-
-  const rightLensName = rightLens
-    ? `${rightLens.brand ? `${rightLens.brand} ` : ""}${rightLens.name}`
+  const rightLensName = rightEye
+    ? getLensDisplayName(rightEye.lens_id, cart.sku)
     : "Unknown Lens";
 
-  const leftLensName = leftLens
-    ? `${leftLens.brand ? `${leftLens.brand} ` : ""}${leftLens.name}`
+  const leftLensName = leftEye
+    ? getLensDisplayName(leftEye.lens_id, cart.sku)
     : "Unknown Lens";
+
+  /* ---------- Quantities ---------- */
+
+  const defaultPerEye = quantityConfig?.defaultPerEye ?? 1;
+
+  // ✅ Include 0 as an option (but keep the rest of your options)
+  const baseOptions = quantityConfig?.options ?? [1, 2, 3, 4, 6, 8];
+  const quantityOptions = baseOptions.includes(0) ? baseOptions : [0, ...baseOptions];
+
+  const durationLabel = quantityConfig?.durationLabel ?? "box";
+
+  // allow 0 stored values
+  const storedRight =
+    typeof cart.right_box_count === "number" ? cart.right_box_count : null;
+
+  const storedLeft =
+    typeof cart.left_box_count === "number" ? cart.left_box_count : null;
+
+  const effectiveRight =
+    rightQtyOverride ?? storedRight ?? (rightEye ? defaultPerEye : 0);
+
+  const effectiveLeft =
+    leftQtyOverride ?? storedLeft ?? (leftEye ? defaultPerEye : 0);
+
+  // ✅ Always compute from effective per-eye qty (prevents stale cart.box_count from lying)
+  const totalBoxesFromEyes =
+    (rightEye ? effectiveRight : 0) + (leftEye ? effectiveLeft : 0);
+
+  const storedBoxCount =
+    typeof cart.box_count === "number" && cart.box_count > 0
+      ? cart.box_count
+      : totalBoxesFromEyes;
+
+  // derive a unit price from whatever the server last said
+  const unitPricePerBoxCents =
+    typeof cart.total_amount_cents === "number" && storedBoxCount > 0
+      ? Math.round(cart.total_amount_cents / storedBoxCount)
+      : null;
+
+  // ✅ UI total that follows the dropdown immediately (even if backend lags)
+  const displayTotalCents =
+    totalBoxesFromEyes <= 0
+      ? 0
+      : typeof unitPricePerBoxCents === "number"
+        ? unitPricePerBoxCents * totalBoxesFromEyes
+        : cart.total_amount_cents ?? 0;
+
+  const canCheckout =
+    !syncingQty && totalBoxesFromEyes > 0 && displayTotalCents > 0;
+
+  /* ---------- Render ---------- */
 
   return (
     <>
@@ -320,19 +246,27 @@ export default function CartPage() {
             <button
               className="hl-cart-edit"
               onClick={() => router.push("/prescription")}
+              disabled={syncingQty}
             >
               Edit prescription
             </button>
+
+            {error ? <p className="order-error">{error}</p> : null}
 
             {rightEye && (
               <EyeRow
                 label="RIGHT EYE"
                 lensName={rightLensName}
                 rx={rightEye}
-                qty={rightQty}
-                onQty={setRightQty}
-                pricePerBox={cart?.price_per_box_cents ?? null}
-                total={cart?.total_amount_cents ?? null}
+                qty={effectiveRight}
+                onQty={(v) => {
+                  setRightQtyOverride(v);
+                  void handleQtyChange(v, effectiveLeft);
+                }}
+                unitPricePerBoxCents={unitPricePerBoxCents}
+                durationLabel={durationLabel}
+                quantityOptions={quantityOptions}
+                disabled={syncingQty}
               />
             )}
 
@@ -343,10 +277,15 @@ export default function CartPage() {
                   label="LEFT EYE"
                   lensName={leftLensName}
                   rx={leftEye}
-                  qty={leftQty}
-                  onQty={setLeftQty}
-                  pricePerBox={cart?.price_per_box_cents ?? null}
-                  total={cart?.total_amount_cents ?? null}
+                  qty={effectiveLeft}
+                  onQty={(v) => {
+                    setLeftQtyOverride(v);
+                    void handleQtyChange(effectiveRight, v);
+                  }}
+                  unitPricePerBoxCents={unitPricePerBoxCents}
+                  durationLabel={durationLabel}
+                  quantityOptions={quantityOptions}
+                  disabled={syncingQty}
                 />
               </>
             )}
@@ -356,13 +295,28 @@ export default function CartPage() {
             <div className="hl-summary">
               <div className="hl-summary-row">
                 <span>Total</span>
-                <span>{fmtPrice(cart?.total_amount_cents)}</span>
+                <span>{fmtPrice(displayTotalCents)}</span>
               </div>
+
+              {syncingQty && (
+                <div className="hl-summary-row">
+                  <span />
+                  <span style={{ fontSize: 12, opacity: 0.8 }}>
+                    Updating quantity…
+                  </span>
+                </div>
+              )}
             </div>
 
             <button
               className="primary-btn hl-checkout-cta"
               onClick={() => router.push("/checkout")}
+              disabled={!canCheckout}
+              title={
+                canCheckout
+                  ? ""
+                  : "Select at least 1 box to continue."
+              }
             >
               Continue to checkout
             </button>

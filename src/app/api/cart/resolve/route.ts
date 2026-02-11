@@ -3,57 +3,153 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
-import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
-import { SKU_BOX_DURATION_MONTHS } from "../../../../lib/pricing/skuDefaults";
 import { getPrice } from "../../../../lib/pricing/getPrice";
+import { SKU_BOX_DURATION_MONTHS } from "../../../../lib/pricing/skuDefaults";
+import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
 
-/**
- * RX rule (MVP):
- * ≥ 5 months remaining → allow 12-month supply
- * < 5 months remaining → cap at 6-month supply
- */
-const MIN_DAYS_FOR_ANNUAL = 150;
+/* =========================
+   Constants
+========================= */
+
+const MIN_DAYS_FOR_ANNUAL = 150; // ~5 months
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
-function daysUntil(expires: string): number {
-  const d = new Date(expires);
-  if (Number.isNaN(d.getTime())) return NaN;
-  return Math.floor((d.getTime() - Date.now()) / MS_PER_DAY);
+/* =========================
+   Types
+========================= */
+
+type EyeRx = {
+  lens_id: string;
+};
+
+type RxData = {
+  expires: string;
+  right?: EyeRx;
+  left?: EyeRx;
+};
+
+type ResolveBody = {
+  right_box_count?: number;
+  left_box_count?: number;
+  box_count?: number;
+};
+
+/* =========================
+   Type Guards
+========================= */
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
+function isEyeRx(value: unknown): value is EyeRx {
+  return (
+    isObject(value) &&
+    typeof value.lens_id === "string" &&
+    value.lens_id.length > 0
+  );
+}
+
+function isRxData(value: unknown): value is RxData {
+  if (!isObject(value)) return false;
+
+  if (typeof value.expires !== "string" || value.expires.length === 0) {
+    return false;
+  }
+
+  if ("right" in value && value.right != null && !isEyeRx(value.right)) {
+    return false;
+  }
+
+  if ("left" in value && value.left != null && !isEyeRx(value.left)) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Allow NON-NEGATIVE integers (0 allowed).
+ * Backend still enforces ≥1 later when computing finals.
+ */
+function isFiniteNonNegativeInt(n: unknown): n is number {
+  return (
+    typeof n === "number" &&
+    Number.isFinite(n) &&
+    Number.isInteger(n) &&
+    n >= 0
+  );
+}
+
+function isResolveBody(value: unknown): value is ResolveBody {
+  if (!isObject(value)) return false;
+
+  const r = value.right_box_count;
+  const l = value.left_box_count;
+  const b = value.box_count;
+
+  if (r !== undefined && r !== null && !isFiniteNonNegativeInt(r)) return false;
+  if (l !== undefined && l !== null && !isFiniteNonNegativeInt(l)) return false;
+  if (b !== undefined && b !== null && !isFiniteNonNegativeInt(b)) return false;
+
+  return true;
+}
+
+/* =========================
+   Helpers
+========================= */
+
+function daysUntil(expires: string): number {
+  const exp = new Date(expires);
+  if (Number.isNaN(exp.getTime())) {
+    throw new Error("Invalid RX expiration date");
+  }
+  return Math.floor((exp.getTime() - Date.now()) / MS_PER_DAY);
+}
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n));
+}
+
+async function safeJson(req: Request): Promise<unknown> {
+  const ct = req.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) return null;
+  try {
+    return await req.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Detect whether existing stored counts came from a prior explicit user choice.
+ */
+function wasPreviouslyExplicit(price_reason: unknown): boolean {
+  if (typeof price_reason !== "string") return false;
+  return price_reason.includes("explicitQty=true");
+}
+
+/* =========================
+   POST /api/cart/resolve
+========================= */
+
 export async function POST(req: Request) {
-  console.log("🟥 [cart/resolve] HIT");
-
-  /* =========================
-     1️⃣ Auth
-  ========================= */
+  /* ---------- Auth ---------- */
   const user = await getUserFromRequest(req);
-  console.log("🟥 [cart/resolve] USER", user?.id ?? "NONE");
-
   if (!user) {
-    console.error("🔴 [cart/resolve] UNAUTHORIZED");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  /* =========================
-     2️⃣ Optional body
-  ========================= */
-  let requestedBoxCount: number | null = null;
+  /* ---------- Optional body ---------- */
+  const rawBody = await safeJson(req);
+  const body: ResolveBody | null = isResolveBody(rawBody) ? rawBody : null;
 
-  try {
-    const body = (await req.json()) as { box_count?: unknown };
-    console.log("🟥 [cart/resolve] BODY", body);
+  const hasExplicitQty =
+    body !== null &&
+    (isFiniteNonNegativeInt(body.right_box_count) ||
+      isFiniteNonNegativeInt(body.left_box_count));
 
-    if (typeof body?.box_count === "number" && body.box_count > 0) {
-      requestedBoxCount = Math.floor(body.box_count);
-    }
-  } catch {
-    console.log("🟡 [cart/resolve] NO BODY (OK)");
-  }
-
-  /* =========================
-     3️⃣ Load active order
-  ========================= */
+  /* ---------- Load active order ---------- */
   const { data: order, error } = await supabaseServer
     .from("orders")
     .select(
@@ -64,8 +160,9 @@ export async function POST(req: Request) {
       rx,
       sku,
       box_count,
-      price_per_box_cents,
-      total_amount_cents,
+      right_box_count,
+      left_box_count,
+      price_reason,
       created_at
     `,
     )
@@ -73,180 +170,167 @@ export async function POST(req: Request) {
     .in("status", ["draft", "pending", "pending_verification"])
     .order("created_at", { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  console.log("🟥 [cart/resolve] ORDER QUERY RESULT", {
-    error,
-    id: order?.id,
-    status: order?.status,
-    sku: order?.sku,
-    box_count: order?.box_count,
-    db_price_per_box_cents: order?.price_per_box_cents,
-    db_total_amount_cents: order?.total_amount_cents,
-  });
-
-  if (error || !order) {
-    console.error("🔴 [cart/resolve] NO ACTIVE ORDER");
-    return NextResponse.json({ error: "No active cart order" }, { status: 400 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  /* =========================
-     4️⃣ RX validation
-  ========================= */
-  const rx = order.rx ?? null;
-  const expires = rx?.expires;
-
-  if (!expires) {
-    console.error("🔴 [cart/resolve] RX MISSING EXPIRES", rx);
+  if (!order?.id) {
     return NextResponse.json(
-      { error: "Order missing RX expiration" },
+      { error: "No active order found" },
       { status: 400 },
     );
   }
 
-  const lens_id: string | null =
-    rx?.right?.lens_id ?? rx?.left?.lens_id ?? null;
-
-  console.log("🟥 [cart/resolve] LENS ID", lens_id);
-
-  if (!lens_id) {
-    console.error("🔴 [cart/resolve] RX MISSING LENS_ID", rx);
-    return NextResponse.json({ error: "RX missing lens_id" }, { status: 400 });
-  }
-
-  /* =========================
-     5️⃣ SKU resolution (RX → SKU)
-     (SKU should already be set by /orders/:id/rx,
-      but resolve again as a safety net.)
-  ========================= */
-  const resolvedSku = resolveDefaultSku(lens_id);
-  const sku = resolvedSku ?? order.sku ?? null;
-
-  console.log("🟥 [cart/resolve] SKU RESOLUTION", {
-    existing: order.sku,
-    resolved: resolvedSku,
-    final: sku,
-  });
-
-  if (!sku) {
-    console.error("🔴 [cart/resolve] SKU NOT FOUND", lens_id);
+  /* ---------- RX validation ---------- */
+  if (!isRxData(order.rx)) {
     return NextResponse.json(
-      { error: `No SKU configured for lens_id ${lens_id}` },
-      { status: 400 },
-    );
-  }
-
-  /* =========================
-     6️⃣ RX duration logic
-  ========================= */
-  const daysRemaining = daysUntil(expires);
-  console.log("🟥 [cart/resolve] DAYS REMAINING", daysRemaining);
-
-  if (!Number.isFinite(daysRemaining)) {
-    return NextResponse.json(
-      { error: "Invalid RX expiration date" },
-      { status: 400 },
-    );
-  }
-
-  const targetMonths: 6 | 12 = daysRemaining >= MIN_DAYS_FOR_ANNUAL ? 12 : 6;
-
-  /* =========================
-     7️⃣ Box count resolution
-  ========================= */
-  const boxDurationMonths = SKU_BOX_DURATION_MONTHS[sku];
-  console.log("🟥 [cart/resolve] SKU DURATION (months/box)", boxDurationMonths);
-
-  if (!boxDurationMonths) {
-    console.error("🔴 [cart/resolve] SKU DURATION MISSING", sku);
-    return NextResponse.json(
-      { error: `No duration defined for SKU ${sku}` },
+      { error: "Invalid RX structure on order" },
       { status: 500 },
     );
   }
 
-  const maxAllowedBoxCount = Math.ceil(targetMonths / boxDurationMonths);
+  const rx = order.rx;
+  const hasRight = Boolean(rx.right);
+  const hasLeft = Boolean(rx.left);
 
-  const finalBoxCount = requestedBoxCount
-    ? Math.min(requestedBoxCount, maxAllowedBoxCount)
-    : maxAllowedBoxCount;
-
-  console.log("🟥 [cart/resolve] BOX COUNT RESOLVED", {
-    requestedBoxCount,
-    maxAllowedBoxCount,
-    finalBoxCount,
-  });
-
-  /* =========================
-     8️⃣ Pricing (COMPUTE ONLY)
-  ========================= */
-  let pricing: ReturnType<typeof getPrice>;
-  try {
-    console.log("🟥 [cart/resolve] PRICING INPUT", {
-      sku,
-      box_count: finalBoxCount,
-    });
-
-    pricing = getPrice({ sku, box_count: finalBoxCount });
-
-    console.log("🟥 [cart/resolve] PRICING RESULT", pricing);
-  } catch (err) {
-    console.error("🔴 [cart/resolve] PRICING ERROR", err);
+  if (!hasRight && !hasLeft) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Pricing failed" },
+      { error: "Order missing RX eyes" },
       { status: 400 },
     );
   }
 
-  /* =========================
-     9️⃣ Persist ONLY sku + box_count
-     AND WIPE stale price fields so Supabase can't haunt you.
-  ========================= */
-  console.log("🟥 [cart/resolve] UPDATING ORDER (sku + box_count only)", {
-    order_id: order.id,
-    sku,
-    finalBoxCount,
-    note: "pricing is computed; stored price fields are nulled to prevent stale reads",
-  });
+  /* ---------- Resolve SKU ---------- */
+  const lens_id = rx.right?.lens_id ?? rx.left?.lens_id ?? null;
+  if (!lens_id) {
+    return NextResponse.json(
+      { error: "Order missing lens_id" },
+      { status: 400 },
+    );
+  }
 
-  const { data: updated, error: updateError } = await supabaseServer
+  const resolvedSku = resolveDefaultSku(lens_id);
+  if (!resolvedSku) {
+    return NextResponse.json(
+      { error: `No default SKU for lens_id ${lens_id}` },
+      { status: 400 },
+    );
+  }
+
+  const previousSku =
+    typeof order.sku === "string" && order.sku.length > 0
+      ? order.sku
+      : null;
+
+  const skuChanged = previousSku !== null && previousSku !== resolvedSku;
+
+  /* ---------- RX expiration → target months ---------- */
+  let targetMonths: 6 | 12;
+  try {
+    const remainingDays = daysUntil(rx.expires);
+    targetMonths = remainingDays >= MIN_DAYS_FOR_ANNUAL ? 12 : 6;
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Invalid RX expiration" },
+      { status: 400 },
+    );
+  }
+
+  /* ---------- SKU duration ---------- */
+  const durationMonths = SKU_BOX_DURATION_MONTHS[resolvedSku];
+  if (!durationMonths) {
+    return NextResponse.json(
+      { error: `No duration defined for SKU ${resolvedSku}` },
+      { status: 500 },
+    );
+  }
+
+  /* ---------- Defaults ---------- */
+  const defaultPerEye = Math.ceil(targetMonths / durationMonths);
+  const maxPerEye = defaultPerEye * 2;
+
+  const storedRight =
+    typeof order.right_box_count === "number" ? order.right_box_count : null;
+  const storedLeft =
+    typeof order.left_box_count === "number" ? order.left_box_count : null;
+
+  const bodyRight = body?.right_box_count;
+  const bodyLeft = body?.left_box_count;
+
+  const previouslyExplicit = wasPreviouslyExplicit(order.price_reason);
+
+  /* ---------- Final per-eye quantities ---------- */
+  const finalRight = hasRight
+    ? hasExplicitQty && typeof bodyRight === "number"
+      ? clamp(bodyRight || defaultPerEye, 1, maxPerEye)
+      : skuChanged
+        ? defaultPerEye
+        : previouslyExplicit && typeof storedRight === "number" && storedRight > 0
+          ? clamp(storedRight, 1, maxPerEye)
+          : defaultPerEye
+    : null;
+
+  const finalLeft = hasLeft
+    ? hasExplicitQty && typeof bodyLeft === "number"
+      ? clamp(bodyLeft || defaultPerEye, 1, maxPerEye)
+      : skuChanged
+        ? defaultPerEye
+        : previouslyExplicit && typeof storedLeft === "number" && storedLeft > 0
+          ? clamp(storedLeft, 1, maxPerEye)
+          : defaultPerEye
+    : null;
+
+  const totalBoxes =
+    (typeof finalRight === "number" ? finalRight : 0) +
+    (typeof finalLeft === "number" ? finalLeft : 0);
+
+  if (totalBoxes <= 0) {
+    return NextResponse.json(
+      { error: "Computed total box_count is invalid" },
+      { status: 400 },
+    );
+  }
+
+  /* ---------- Pricing ---------- */
+  const pricing = getPrice({ sku: resolvedSku, box_count: totalBoxes });
+
+  const price_reason =
+    `cart_resolve: sku=${resolvedSku}, skuChanged=${skuChanged}, ` +
+    `targetMonths=${targetMonths}, durationMonths=${durationMonths}, ` +
+    `defaultPerEye=${defaultPerEye}, maxPerEye=${maxPerEye}, ` +
+    `right=${finalRight ?? 0}, left=${finalLeft ?? 0}, total=${totalBoxes}, ` +
+    `explicitQty=${hasExplicitQty}`;
+
+  /* ---------- Persist ---------- */
+  const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
-      sku,
-      box_count: finalBoxCount,
-
-      // ✅ wipe stale values (until you drop columns)
-      price_per_box_cents: null,
-      total_amount_cents: null,
+      sku: resolvedSku,
+      right_box_count: finalRight,
+      left_box_count: finalLeft,
+      box_count: totalBoxes,
+      total_amount_cents: pricing.total_amount_cents,
+      price_reason,
+      status: "pending",
     })
     .eq("id", order.id)
-    .eq("user_id", user.id)
-    .select("id, sku, box_count, price_per_box_cents, total_amount_cents")
-    .single();
+    .eq("user_id", user.id);
 
-  console.log("🟥 [cart/resolve] UPDATE RESULT", { updated, updateError });
-
-  if (updateError || !updated) {
-    return NextResponse.json(
-      { error: updateError?.message ?? "Failed to update order" },
-      { status: 500 },
-    );
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
-  /* =========================
-     10️⃣ Return computed pricing (authoritative)
-  ========================= */
   return NextResponse.json({
     ok: true,
     order: {
-      id: updated.id,
-      sku: updated.sku,
-      box_count: updated.box_count,
-    },
-    pricing: {
-      price_per_box_cents: pricing.price_per_box_cents,
+      id: order.id,
+      sku: resolvedSku,
+      right_box_count: finalRight,
+      left_box_count: finalLeft,
+      box_count: totalBoxes,
       total_amount_cents: pricing.total_amount_cents,
-      price_reason: pricing.price_reason ?? null,
     },
   });
 }

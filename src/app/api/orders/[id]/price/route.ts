@@ -11,68 +11,87 @@ type RouteParams = {
   };
 };
 
+type OrderRow = {
+  id: string;
+  user_id: string;
+  status: "draft" | "pending" | string;
+  sku: string | null;
+  box_count: number | null;
+  total_amount_cents: number | null;
+};
+
 export async function POST(req: Request, { params }: RouteParams) {
   /* =========================
-     Auth
+     1) Auth
   ========================= */
 
   const user = await getUserFromRequest(req);
   if (!user) {
-    return NextResponse.json(
-      { error: "Unauthorized" },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const orderId = params.id;
   if (!orderId) {
-    return NextResponse.json(
-      { error: "Missing order id" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Missing order id" }, { status: 400 });
   }
 
   /* =========================
-     Load order (SKU must exist)
+     2) Load order
   ========================= */
 
   const { data: order, error } = await supabaseServer
     .from("orders")
-    .select(`
-      id,
-      user_id,
-      status,
-      lens_sku,
-      box_count
-    `)
+    .select(
+      `
+        id,
+        user_id,
+        status,
+        sku,
+        box_count,
+        total_amount_cents
+      `,
+    )
     .eq("id", orderId)
-    .single();
+    .single<OrderRow>();
 
   if (error || !order) {
-    return NextResponse.json(
-      { error: "Order not found" },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
   if (order.user_id !== user.id) {
-    return NextResponse.json(
-      { error: "Order not owned by user" },
-      { status: 403 }
-    );
+    return NextResponse.json({ error: "Order not owned by user" }, { status: 403 });
   }
 
   if (order.status !== "draft" && order.status !== "pending") {
     return NextResponse.json(
       { error: "Order not priceable in current state" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
-  if (!order.lens_sku) {
+  /* =========================
+     3) Guard: already priced
+     (authoritative via cart/resolve)
+  ========================= */
+
+  if (
+    typeof order.total_amount_cents === "number" &&
+    order.total_amount_cents > 0
+  ) {
+    return NextResponse.json({
+      ok: true,
+      total_amount_cents: order.total_amount_cents,
+    });
+  }
+
+  /* =========================
+     4) Validate pricing inputs
+  ========================= */
+
+  if (!order.sku) {
     return NextResponse.json(
-      { error: "Order missing lens_sku (cart not resolved)" },
-      { status: 400 }
+      { error: "Order missing sku (cart not resolved)" },
+      { status: 400 },
     );
   }
 
@@ -82,18 +101,19 @@ export async function POST(req: Request, { params }: RouteParams) {
   ) {
     return NextResponse.json(
       { error: "Order missing valid box_count" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   /* =========================
-     Price resolution (SKU authoritative)
+     5) Fallback price resolution
+     (should be rare)
   ========================= */
 
   let pricing;
   try {
     pricing = getPrice({
-      sku: order.lens_sku,
+      sku: order.sku,
       box_count: order.box_count,
     });
   } catch (err) {
@@ -104,29 +124,27 @@ export async function POST(req: Request, { params }: RouteParams) {
             ? err.message
             : "Pricing resolution failed",
       },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   /* =========================
-     Persist pricing
+     6) Persist fallback pricing
   ========================= */
 
   const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
       total_amount_cents: pricing.total_amount_cents,
-      revised_total_amount_cents: null,
       price_reason: pricing.price_reason,
-      currency: "USD",
     })
-    .eq("id", orderId)
+    .eq("id", order.id)
     .eq("user_id", user.id);
 
   if (updateError) {
     return NextResponse.json(
       { error: updateError.message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 

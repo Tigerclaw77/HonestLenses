@@ -20,9 +20,7 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // ✅ REQUIRED IN NEXT 15
   const { id: orderId } = await params;
-
   const supabase = supabaseServer;
 
   /* 1️⃣ Load order */
@@ -50,7 +48,7 @@ export async function POST(
     );
   }
 
-  /* 2️⃣ Resolve physical SKU (Model A) */
+  /* 2️⃣ Resolve SKU */
   const sku = resolveDefaultSku(order.lens_id);
   if (!sku) {
     return NextResponse.json(
@@ -64,7 +62,7 @@ export async function POST(
   const targetMonths: 6 | 12 =
     daysRemaining >= MIN_DAYS_FOR_ANNUAL ? 12 : 6;
 
-  /* 4️⃣ Duration → box_count */
+  /* 4️⃣ Box count */
   const boxDurationMonths = SKU_BOX_DURATION_MONTHS[sku];
   if (!boxDurationMonths) {
     return NextResponse.json(
@@ -85,20 +83,20 @@ export async function POST(
     box_count: finalBoxCount,
   });
 
-  /* 6️⃣ Persist */
+  /* 6️⃣ Persist (IMPORTANT FIX HERE) */
   const { error: updateError } = await supabase
     .from("orders")
     .update({
       sku,
       box_count: finalBoxCount,
       total_amount_cents: pricing.total_amount_cents,
-      status: "checkout_ready",
+      status: "pending", // ✅ VALID ENUM
     })
     .eq("id", orderId);
 
   if (updateError) {
     return NextResponse.json(
-      { error: "Failed to update order" },
+      { error: updateError.message },
       { status: 500 }
     );
   }

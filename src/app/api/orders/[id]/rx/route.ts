@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 import { resolveDefaultSku } from "../../../../../lib/pricing/resolveDefaultSku";
+import { lenses } from "../../../../../data/lenses";
+import { getColorOptions } from "../../../../../data/lensColors";
 
 /* =========================
    Types
@@ -24,6 +26,31 @@ type RxData = {
   right?: EyeRx;
   left?: EyeRx;
 };
+
+/* =========================
+   Helpers
+========================= */
+
+function sanitizeEyeRx(eye: EyeRx | undefined): EyeRx | undefined {
+  if (!eye) return undefined;
+
+  const lens = lenses.find((l) => l.lens_id === eye.lens_id);
+  if (!lens) return eye;
+
+  const allowedColors = getColorOptions(lens.name);
+
+  // Shallow clone so we never mutate caller data
+  const clean: EyeRx = { ...eye };
+
+  // ❌ Strip color if lens does not support it
+  if (!allowedColors.length) {
+    delete clean.color;
+  } else if (clean.color && !allowedColors.includes(clean.color)) {
+    delete clean.color;
+  }
+
+  return clean;
+}
 
 /* =========================
    POST /api/orders/:id/rx
@@ -50,7 +77,6 @@ export async function POST(
   ========================= */
   const user = await getUserFromRequest(req);
   if (!user) {
-    console.error("🔴 [RX] UNAUTHORIZED");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -60,23 +86,24 @@ export async function POST(
   let rx: RxData;
   try {
     rx = (await req.json()) as RxData;
-    console.log("🟣 [RX] BODY RECEIVED", JSON.stringify(rx, null, 2));
   } catch {
-    console.error("🔴 [RX] INVALID JSON");
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
   /* =========================
      3️⃣ Extract lens_id (AUTHORITATIVE)
   ========================= */
-  const lens_id: string | null = rx?.right?.lens_id ?? rx?.left?.lens_id ?? null;
+  const lens_id =
+    rx?.right?.lens_id ??
+    rx?.left?.lens_id ??
+    null;
 
   if (!lens_id) {
-    console.error("🔴 [RX] MISSING lens_id", rx);
-    return NextResponse.json({ error: "RX missing lens_id" }, { status: 400 });
+    return NextResponse.json(
+      { error: "RX missing lens_id" },
+      { status: 400 },
+    );
   }
-
-  console.log("🟣 [RX] lens_id extracted:", lens_id);
 
   /* =========================
      4️⃣ Resolve SKU (RX → SKU)
@@ -84,14 +111,11 @@ export async function POST(
   const sku = resolveDefaultSku(lens_id);
 
   if (!sku) {
-    console.error("🔴 [RX] NO SKU FOR lens_id", lens_id);
     return NextResponse.json(
       { error: `No default SKU configured for lens_id ${lens_id}` },
       { status: 400 },
     );
   }
-
-  console.log("🟣 [RX] SKU resolved:", sku);
 
   /* =========================
      5️⃣ Verify order ownership
@@ -104,11 +128,6 @@ export async function POST(
     .single();
 
   if (orderError || !order) {
-    console.error("🔴 [RX] ORDER NOT FOUND / NOT OWNED", {
-      orderId,
-      userId: user.id,
-      orderError,
-    });
     return NextResponse.json(
       { error: "Order not found or not owned by user" },
       { status: 400 },
@@ -116,19 +135,28 @@ export async function POST(
   }
 
   if (!["draft", "pending"].includes(order.status)) {
-    console.error("🔴 [RX] ORDER NOT EDITABLE", order.status);
-    return NextResponse.json({ error: "Order is not editable" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Order is not editable" },
+      { status: 400 },
+    );
   }
 
   /* =========================
-     6️⃣ Persist RX + SKU ONLY
+     6️⃣ Sanitize RX (SERVER AUTHORITATIVE)
   ========================= */
-  console.log("🟣 [RX] UPDATING ORDER (RX + SKU only)", { orderId, sku });
+  const sanitizedRx: RxData = {
+    expires: rx.expires,
+    right: sanitizeEyeRx(rx.right),
+    left: sanitizeEyeRx(rx.left),
+  };
 
+  /* =========================
+     7️⃣ Persist RX + SKU ONLY
+  ========================= */
   const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
-      rx,
+      rx: sanitizedRx,
       sku,
       verification_status: "pending",
       status: "draft",
@@ -137,10 +165,15 @@ export async function POST(
     .eq("user_id", user.id);
 
   if (updateError) {
-    console.error("🔴 [RX] UPDATE FAILED", updateError);
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    return NextResponse.json(
+      { error: updateError.message },
+      { status: 500 },
+    );
   }
 
-  console.log("🟢 [RX] SUCCESS", { orderId, sku });
-  return NextResponse.json({ ok: true, orderId, sku });
+  return NextResponse.json({
+    ok: true,
+    orderId,
+    sku,
+  });
 }
