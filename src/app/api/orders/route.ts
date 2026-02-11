@@ -5,7 +5,9 @@ import { supabaseServer } from "../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../lib/get-user-from-request";
 
 export async function POST(req: Request) {
-  // 1️⃣ Require authenticated user
+  /* =========================
+     1️⃣ Auth
+  ========================= */
   const user = await getUserFromRequest(req);
   if (!user) {
     return NextResponse.json(
@@ -14,7 +16,9 @@ export async function POST(req: Request) {
     );
   }
 
-  // 2️⃣ Reuse existing draft or pending order (IDEMPOTENT)
+  /* =========================
+     2️⃣ Reuse existing editable order (idempotent)
+  ========================= */
   const { data: existingOrders, error: existingError } =
     await supabaseServer
       .from("orders")
@@ -35,15 +39,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ orderId: existingOrders[0].id });
   }
 
-  // 3️⃣ Create new draft order
+  /* =========================
+     3️⃣ Create new draft order (minimal, ops-only)
+  ========================= */
   const { data: order, error: orderError } =
     await supabaseServer
       .from("orders")
       .insert({
         user_id: user.id,
         status: "draft",
-        total_amount_cents: 0,
         currency: "USD",
+        box_count: 0, // explicit, avoids NULL math later
       })
       .select("id")
       .single();

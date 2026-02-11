@@ -10,6 +10,7 @@ import { resolveAddOptions } from "../../lib/resolveAddOptions";
 import ColorSelector from "../../components/ColorSelector";
 import { getColorOptions } from "../../data/lensColors";
 import { lenses } from "../../data/lenses";
+import { getLensDisplayName } from "../../lib/cart/display";
 
 /* =========================
    Types
@@ -265,9 +266,8 @@ export default function EnterPrescriptionPage() {
       setRightAdd("");
     }
 
-    if (!rightLens.multiBC) {
-      const bc0 = rightLens.baseCurves?.[0];
-      setRightBC(bc0 ? formatBC(bc0) : "");
+    if (!rightLens.multiBC && rightLens.baseCurves?.length === 1) {
+      setRightBC(formatBC(rightLens.baseCurves[0]));
     }
 
     if (
@@ -291,9 +291,8 @@ export default function EnterPrescriptionPage() {
       setLeftAdd("");
     }
 
-    if (!leftLens.multiBC) {
-      const bc0 = leftLens.baseCurves?.[0];
-      setLeftBC(bc0 ? formatBC(bc0) : "");
+    if (!leftLens.multiBC && leftLens.baseCurves?.length === 1) {
+      setLeftBC(formatBC(leftLens.baseCurves[0]));
     }
 
     if (
@@ -483,6 +482,20 @@ export default function EnterPrescriptionPage() {
   /* =========================
      Submit
   ========================= */
+
+  useEffect(() => {
+    if (!rightLens) return;
+    if (rightColor && rightColorOptions.length === 0) {
+      setRightColor("");
+    }
+  }, [rightLens, rightColor, rightColorOptions]);
+
+  useEffect(() => {
+    if (!leftLens) return;
+    if (leftColor && leftColorOptions.length === 0) {
+      setLeftColor("");
+    }
+  }, [leftLens, leftColor, leftColorOptions]);
 
   async function submitRx() {
     if (loading) return;
@@ -724,7 +737,7 @@ export default function EnterPrescriptionPage() {
                     <option value="">Select lens</option>
                     {lenses.map((l) => (
                       <option key={l.lens_id} value={l.lens_id}>
-                        {l.brand} — {l.name}
+                        {getLensDisplayName(l.lens_id, null)}
                       </option>
                     ))}
                   </select>
@@ -884,7 +897,7 @@ export default function EnterPrescriptionPage() {
                     <option value="">Select lens</option>
                     {lenses.map((l) => (
                       <option key={l.lens_id} value={l.lens_id}>
-                        {l.brand} — {l.name}
+                        {getLensDisplayName(l.lens_id, null)}
                       </option>
                     ))}
                   </select>
