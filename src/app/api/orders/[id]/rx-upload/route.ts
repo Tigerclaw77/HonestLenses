@@ -1,30 +1,26 @@
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 
 export async function POST(
-  req: Request,
-  { params }: { params: { id: string } }
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }
 ) {
-  /* ======================================================
-     1️⃣ Require authenticated user
-  ====================================================== */
+  const { id: orderId } = await context.params;
+
+  /* =========================
+     1) Auth
+  ========================= */
+
   const user = await getUserFromRequest(req);
   if (!user) {
-    return NextResponse.json(
-      { error: "Unauthorized" },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const orderId = params.id;
   if (!orderId) {
-    return NextResponse.json(
-      { error: "Missing order id" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Missing order id" }, { status: 400 });
   }
 
   /* ======================================================
