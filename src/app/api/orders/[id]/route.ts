@@ -1,75 +1,84 @@
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 
-type RouteParams = {
-  params: {
-    id: string;
-  };
+type OrderRow = {
+  id: string;
+  status: string;
+  total_amount_cents: number | null;
+  revised_total_amount_cents: number | null;
+  verification_status: string | null;
+  price_reason: string | null;
+  rx: unknown;  // ← change this
+  user_id: string;
 };
 
-export async function GET(req: Request, { params }: RouteParams) {
-  try {
-    // 1️⃣ Require authenticated user
-    const user = await getUserFromRequest(req);
-    if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
+export async function GET(
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  /* =========================
+     1) Auth
+  ========================= */
 
-    const orderId = params.id;
-    if (!orderId) {
-      return NextResponse.json(
-        { error: "Missing order id" },
-        { status: 400 }
-      );
-    }
+  const user = await getUserFromRequest(req);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-    // 2️⃣ Fetch order owned by user (INCLUDING rx)
-    const { data: order, error } = await supabaseServer
-      .from("orders")
-      .select(`
-        id,
-        status,
-        total_amount_cents,
-        revised_total_amount_cents,
-        verification_status,
-        price_reason,
-        rx
-      `)
-      .eq("id", orderId)
-      .eq("user_id", user.id)
-      .single();
+  /* =========================
+     2) Extract params (Next 16 style)
+  ========================= */
 
-    if (error) {
-      console.error("Order fetch error:", error);
-      return NextResponse.json(
-        { error: "Failed to fetch order" },
-        { status: 500 }
-      );
-    }
+  const { id: orderId } = await context.params;
 
-    if (!order) {
-      return NextResponse.json(
-        { error: "Order not found" },
-        { status: 404 }
-      );
-    }
+  if (!orderId) {
+    return NextResponse.json({ error: "Missing order id" }, { status: 400 });
+  }
 
-    // 3️⃣ Canonical JSON response
+  /* =========================
+     3) Load order
+  ========================= */
+
+  const { data: order, error } = await supabaseServer
+    .from("orders")
+    .select(
+      `
+      id,
+      status,
+      total_amount_cents,
+      revised_total_amount_cents,
+      verification_status,
+      price_reason,
+      rx,
+      user_id
+    `
+    )
+    .eq("id", orderId)
+    .single<OrderRow>();
+
+  if (error || !order) {
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+  }
+
+  if (order.user_id !== user.id) {
     return NextResponse.json(
-      { order },
-      { status: 200 }
-    );
-  } catch (err) {
-    console.error("GET /api/orders/[id] crash:", err);
-    return NextResponse.json(
-      { error: "Unexpected server error" },
-      { status: 500 }
+      { error: "Order not owned by user" },
+      { status: 403 }
     );
   }
+
+  return NextResponse.json({
+    order: {
+      id: order.id,
+      status: order.status,
+      total_amount_cents: order.total_amount_cents,
+      revised_total_amount_cents: order.revised_total_amount_cents,
+      verification_status: order.verification_status,
+      price_reason: order.price_reason,
+      rx: order.rx,
+    },
+  });
 }
