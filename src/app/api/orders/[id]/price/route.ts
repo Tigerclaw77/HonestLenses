@@ -1,15 +1,9 @@
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 import { getPrice } from "../../../../../lib/pricing/getPrice";
-
-type RouteParams = {
-  params: {
-    id: string;
-  };
-};
 
 type OrderRow = {
   id: string;
@@ -20,17 +14,25 @@ type OrderRow = {
   total_amount_cents: number | null;
 };
 
-export async function POST(req: Request, { params }: RouteParams) {
+/* ============================================================
+   POST /api/orders/[id]/price
+============================================================ */
+
+export async function POST(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
   /* =========================
      1) Auth
   ========================= */
 
-  const user = await getUserFromRequest(req);
+  const user = await getUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const orderId = params.id;
+  const { id: orderId } = await context.params;
+
   if (!orderId) {
     return NextResponse.json({ error: "Missing order id" }, { status: 400 });
   }
@@ -41,16 +43,14 @@ export async function POST(req: Request, { params }: RouteParams) {
 
   const { data: order, error } = await supabaseServer
     .from("orders")
-    .select(
-      `
-        id,
-        user_id,
-        status,
-        sku,
-        box_count,
-        total_amount_cents
-      `,
-    )
+    .select(`
+      id,
+      user_id,
+      status,
+      sku,
+      box_count,
+      total_amount_cents
+    `)
     .eq("id", orderId)
     .single<OrderRow>();
 
@@ -59,19 +59,21 @@ export async function POST(req: Request, { params }: RouteParams) {
   }
 
   if (order.user_id !== user.id) {
-    return NextResponse.json({ error: "Order not owned by user" }, { status: 403 });
+    return NextResponse.json(
+      { error: "Order not owned by user" },
+      { status: 403 }
+    );
   }
 
   if (order.status !== "draft" && order.status !== "pending") {
     return NextResponse.json(
       { error: "Order not priceable in current state" },
-      { status: 400 },
+      { status: 400 }
     );
   }
 
   /* =========================
      3) Guard: already priced
-     (authoritative via cart/resolve)
   ========================= */
 
   if (
@@ -91,7 +93,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (!order.sku) {
     return NextResponse.json(
       { error: "Order missing sku (cart not resolved)" },
-      { status: 400 },
+      { status: 400 }
     );
   }
 
@@ -101,13 +103,12 @@ export async function POST(req: Request, { params }: RouteParams) {
   ) {
     return NextResponse.json(
       { error: "Order missing valid box_count" },
-      { status: 400 },
+      { status: 400 }
     );
   }
 
   /* =========================
      5) Fallback price resolution
-     (should be rare)
   ========================= */
 
   let pricing;
@@ -124,7 +125,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             ? err.message
             : "Pricing resolution failed",
       },
-      { status: 400 },
+      { status: 400 }
     );
   }
 
@@ -144,7 +145,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (updateError) {
     return NextResponse.json(
       { error: updateError.message },
-      { status: 500 },
+      { status: 500 }
     );
   }
 

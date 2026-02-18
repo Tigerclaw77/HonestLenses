@@ -64,7 +64,7 @@ export async function GET(req: Request) {
       created_at
     `)
     .eq("user_id", user.id)
-    .in("status", ["draft", "pending", "pending_verification"])
+    .in("status", ["draft", "pending"])
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();

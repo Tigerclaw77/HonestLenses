@@ -5,37 +5,50 @@ import Stripe from "stripe";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  // DO NOT pin apiVersion — avoids TS + Stripe mismatch issues
-});
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 export async function POST(req: Request) {
-  // 1️⃣ Auth
+  /* =========================
+     1️⃣ Auth
+  ========================= */
   const user = await getUserFromRequest(req);
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
   }
 
-  // 2️⃣ Load draft order ONLY
+  /* =========================
+     2️⃣ Load Active Pending Order
+  ========================= */
   const { data: order, error } = await supabaseServer
     .from("orders")
-    .select(
-      `
+    .select(`
       id,
       user_id,
       status,
       total_amount_cents,
-      stripe_payment_intent_id
-    `
-    )
+      payment_intent_id
+    `)
     .eq("user_id", user.id)
-    .eq("status", "draft")
+    .eq("status", "pending")
     .order("created_at", { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  if (error || !order) {
-    return NextResponse.json({ error: "No draft order" }, { status: 400 });
+  if (error) {
+    return NextResponse.json(
+      { error: error.message },
+      { status: 500 }
+    );
+  }
+
+  if (!order) {
+    return NextResponse.json(
+      { error: "No pending order" },
+      { status: 400 }
+    );
   }
 
   if (
@@ -48,10 +61,12 @@ export async function POST(req: Request) {
     );
   }
 
-  // 3️⃣ Reuse existing PaymentIntent if present
-  if (order.stripe_payment_intent_id) {
+  /* =========================
+     3️⃣ Reuse Existing PaymentIntent
+  ========================= */
+  if (order.payment_intent_id) {
     const existing = await stripe.paymentIntents.retrieve(
-      order.stripe_payment_intent_id
+      order.payment_intent_id
     );
 
     if (!existing.client_secret) {
@@ -61,10 +76,15 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({ clientSecret: existing.client_secret });
+    return NextResponse.json({
+      clientSecret: existing.client_secret,
+    });
   }
 
-  // 4️⃣ Create Stripe PaymentIntent (manual capture)
+  /* =========================
+     4️⃣ Create New PaymentIntent
+     (Manual capture)
+  ========================= */
   const intent = await stripe.paymentIntents.create({
     amount: order.total_amount_cents,
     currency: "usd",
@@ -82,18 +102,26 @@ export async function POST(req: Request) {
     );
   }
 
-  // 5️⃣ Persist Stripe intent ONLY (DO NOT change order.status here)
+  /* =========================
+     5️⃣ Persist PaymentIntent ID
+     (Do NOT change order status)
+  ========================= */
   const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
-      stripe_payment_intent_id: intent.id,
+      payment_intent_id: intent.id,
     })
     .eq("id", order.id)
     .eq("user_id", user.id);
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    return NextResponse.json(
+      { error: updateError.message },
+      { status: 500 }
+    );
   }
 
-  return NextResponse.json({ clientSecret: intent.client_secret });
+  return NextResponse.json({
+    clientSecret: intent.client_secret,
+  });
 }
