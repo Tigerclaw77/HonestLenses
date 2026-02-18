@@ -1,0 +1,8 @@
+{
+  "cron": [
+    {
+      "path": "/api/verification/process",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}

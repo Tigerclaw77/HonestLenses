@@ -68,16 +68,9 @@ function isRxData(value: unknown): value is RxData {
   return true;
 }
 
-/**
- * Allow NON-NEGATIVE integers (0 allowed).
- * Backend still enforces ≥1 later when computing finals.
- */
 function isFiniteNonNegativeInt(n: unknown): n is number {
   return (
-    typeof n === "number" &&
-    Number.isFinite(n) &&
-    Number.isInteger(n) &&
-    n >= 0
+    typeof n === "number" && Number.isFinite(n) && Number.isInteger(n) && n >= 0
   );
 }
 
@@ -121,9 +114,6 @@ async function safeJson(req: Request): Promise<unknown> {
   }
 }
 
-/**
- * Detect whether existing stored counts came from a prior explicit user choice.
- */
 function wasPreviouslyExplicit(price_reason: unknown): boolean {
   if (typeof price_reason !== "string") return false;
   return price_reason.includes("explicitQty=true");
@@ -150,24 +140,25 @@ export async function POST(req: Request) {
       isFiniteNonNegativeInt(body.left_box_count));
 
   /* ---------- Load active order ---------- */
-  const { data: order, error } = await supabaseServer
+
+  const { data: initialOrder, error } = await supabaseServer
     .from("orders")
     .select(
       `
-      id,
-      user_id,
-      status,
-      rx,
-      sku,
-      box_count,
-      right_box_count,
-      left_box_count,
-      price_reason,
-      created_at
+    id,
+    user_id,
+    status,
+    rx,
+    sku,
+    box_count,
+    right_box_count,
+    left_box_count,
+    price_reason,
+    created_at
     `,
     )
     .eq("user_id", user.id)
-    .in("status", ["draft", "pending", "pending_verification"])
+    .in("status", ["draft", "pending"])
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -176,18 +167,54 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  let order = initialOrder;
+
+  /* ---------- If no active order → create draft ---------- */
   if (!order?.id) {
-    return NextResponse.json(
-      { error: "No active order found" },
-      { status: 400 },
-    );
+    const { data: created, error: createErr } = await supabaseServer
+      .from("orders")
+      .insert({
+        user_id: user.id,
+        status: "draft",
+        rx: null,
+        sku: null,
+        box_count: null,
+        right_box_count: null,
+        left_box_count: null,
+        total_amount_cents: null,
+        price_reason: "created_by_cart_resolve: awaiting_rx",
+      })
+      .select(
+        `
+        id,
+        user_id,
+        status,
+        rx,
+        sku,
+        box_count,
+        right_box_count,
+        left_box_count,
+        price_reason,
+        created_at
+        `,
+      )
+      .single();
+
+    if (createErr || !created?.id) {
+      return NextResponse.json(
+        { error: createErr?.message ?? "Failed to create order" },
+        { status: 500 },
+      );
+    }
+
+    order = created;
   }
 
   /* ---------- RX validation ---------- */
   if (!isRxData(order.rx)) {
     return NextResponse.json(
-      { error: "Invalid RX structure on order" },
-      { status: 500 },
+      { error: "Order is missing RX. Save prescription first." },
+      { status: 400 },
     );
   }
 
@@ -220,13 +247,11 @@ export async function POST(req: Request) {
   }
 
   const previousSku =
-    typeof order.sku === "string" && order.sku.length > 0
-      ? order.sku
-      : null;
+    typeof order.sku === "string" && order.sku.length > 0 ? order.sku : null;
 
   const skuChanged = previousSku !== null && previousSku !== resolvedSku;
 
-  /* ---------- RX expiration → target months ---------- */
+  /* ---------- RX expiration ---------- */
   let targetMonths: 6 | 12;
   try {
     const remainingDays = daysUntil(rx.expires);
@@ -247,7 +272,6 @@ export async function POST(req: Request) {
     );
   }
 
-  /* ---------- Defaults ---------- */
   const defaultPerEye = Math.ceil(targetMonths / durationMonths);
   const maxPerEye = defaultPerEye * 2;
 
@@ -262,19 +286,22 @@ export async function POST(req: Request) {
   const previouslyExplicit = wasPreviouslyExplicit(order.price_reason);
 
   /* ---------- Final per-eye quantities ---------- */
+
   const finalRight = hasRight
     ? hasExplicitQty && typeof bodyRight === "number"
-      ? clamp(bodyRight || defaultPerEye, 1, maxPerEye)
+      ? clamp(bodyRight ?? defaultPerEye, 1, maxPerEye)
       : skuChanged
         ? defaultPerEye
-        : previouslyExplicit && typeof storedRight === "number" && storedRight > 0
+        : previouslyExplicit &&
+            typeof storedRight === "number" &&
+            storedRight > 0
           ? clamp(storedRight, 1, maxPerEye)
           : defaultPerEye
     : null;
 
   const finalLeft = hasLeft
     ? hasExplicitQty && typeof bodyLeft === "number"
-      ? clamp(bodyLeft || defaultPerEye, 1, maxPerEye)
+      ? clamp(bodyLeft ?? defaultPerEye, 1, maxPerEye)
       : skuChanged
         ? defaultPerEye
         : previouslyExplicit && typeof storedLeft === "number" && storedLeft > 0

@@ -3,10 +3,11 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
-import { getPrice } from "../../../../lib/pricing/getPrice";
 
 export async function POST(req: Request) {
-  // 1️⃣ Auth
+  /* =========================
+     1️⃣ Auth
+  ========================= */
   const user = await getUserFromRequest(req);
   if (!user) {
     return NextResponse.json(
@@ -15,99 +16,77 @@ export async function POST(req: Request) {
     );
   }
 
-  // 2️⃣ Load active draft order ONLY
+  /* =========================
+     2️⃣ Load ACTIVE PENDING order
+     (Resolve already priced it)
+  ========================= */
   const { data: order, error } = await supabaseServer
     .from("orders")
     .select(`
       id,
       status,
-      lens_sku,
-      box_count
+      sku,
+      box_count,
+      total_amount_cents,
+      currency
     `)
     .eq("user_id", user.id)
-    .eq("status", "draft")
+    .eq("status", "pending")
     .order("created_at", { ascending: false })
     .limit(1)
     .single();
 
   if (error || !order) {
     return NextResponse.json(
-      { error: "No active draft order" },
+      { error: "No active pending order" },
       { status: 400 }
     );
   }
 
-  if (!order.lens_sku) {
+  if (!order.sku) {
     return NextResponse.json(
-      { error: "Order missing lens_sku" },
+      { error: "Order missing SKU" },
       { status: 400 }
     );
   }
 
-  if (typeof order.box_count !== "number" || order.box_count <= 0) {
+  if (
+    typeof order.box_count !== "number" ||
+    order.box_count <= 0
+  ) {
     return NextResponse.json(
       { error: "Order missing valid box_count" },
       { status: 400 }
     );
   }
 
-  console.log("🧾 DRAFT ORDER LOADED", {
-  id: order.id,
-  lens_sku: order.lens_sku,
-  box_count: order.box_count,
-});
-
-
-  // 3️⃣ Price resolution (SKU is authoritative)
-  let pricing;
-  try {
-
-    console.log("💰 PRICING INPUT", {
-  sku: order.lens_sku,
-  box_count: order.box_count,
-});
-
-
-    pricing = getPrice({
-      sku: order.lens_sku,
-      box_count: order.box_count,
-    });
-  } catch (err) {
+  if (
+    typeof order.total_amount_cents !== "number" ||
+    order.total_amount_cents <= 0
+  ) {
     return NextResponse.json(
-      {
-        error:
-          err instanceof Error
-            ? err.message
-            : "Pricing failed",
-      },
+      { error: "Order missing valid total_amount_cents" },
       { status: 400 }
     );
   }
 
-  console.log("💰 PRICING OUTPUT", pricing);
+  console.log("🧾 CHECKOUT ORDER LOADED", {
+    id: order.id,
+    sku: order.sku,
+    box_count: order.box_count,
+    total_amount_cents: order.total_amount_cents,
+  });
 
-
-  // 4️⃣ Persist price
-  const { error: updateError } = await supabaseServer
-    .from("orders")
-    .update({
-      total_amount_cents: pricing.total_amount_cents,
-      currency: "USD",
-      price_reason: pricing.price_reason,
-    })
-    .eq("id", order.id)
-    .eq("user_id", user.id);
-
-  if (updateError) {
-    return NextResponse.json(
-      { error: updateError.message },
-      { status: 500 }
-    );
-  }
-
+  /* =========================
+     3️⃣ Return Authoritative Price
+     (Stripe will use this)
+  ========================= */
   return NextResponse.json({
     ok: true,
-    total_amount_cents: pricing.total_amount_cents,
-    price_reason: pricing.price_reason,
+    orderId: order.id,
+    sku: order.sku,
+    box_count: order.box_count,
+    total_amount_cents: order.total_amount_cents,
+    currency: order.currency ?? "USD",
   });
 }
