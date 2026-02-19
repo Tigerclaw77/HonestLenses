@@ -22,7 +22,7 @@ export async function POST(req: Request) {
       user_id,
       status,
       verification_passed,
-      stripe_payment_intent_id
+      payment_intent_id
     `)
     .eq("user_id", user.id)
     .eq("status", "pending")
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!order.stripe_payment_intent_id) {
+  if (!order.payment_intent_id) {
     return NextResponse.json(
       { error: "Missing Stripe PaymentIntent" },
       { status: 400 }
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
   // 4️⃣ Capture payment
   try {
     await stripe.paymentIntents.capture(
-      order.stripe_payment_intent_id
+      order.payment_intent_id
     );
   } catch (err) {
     return NextResponse.json(
