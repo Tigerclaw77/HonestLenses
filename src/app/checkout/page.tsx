@@ -21,7 +21,7 @@ const stripePromise = loadStripe(
 
 type Order = {
   id: string;
-  status: "pending" | "authorized" | "captured";
+  status: "draft" | "pending" | "authorized" | "captured";
   total_amount_cents: number;
 };
 
@@ -74,6 +74,19 @@ function CheckoutForm({
       return;
     }
 
+    if (!result.paymentIntent) {
+      setError("Missing payment intent");
+      setSubmitting(false);
+      return;
+    }
+
+    if (result.paymentIntent.status !== "requires_capture") {
+      setError("Authorization failed");
+      setSubmitting(false);
+      return;
+    }
+
+    // Mark authorized in DB
     const markRes = await fetch("/api/checkout/authorized", {
       method: "POST",
       headers: {
@@ -82,13 +95,7 @@ function CheckoutForm({
       cache: "no-store",
     });
 
-    let markBody: AuthorizedResponse | null = null;
-
-    try {
-      markBody = (await markRes.json()) as AuthorizedResponse;
-    } catch {
-      markBody = null;
-    }
+    const markBody: AuthorizedResponse = await markRes.json().catch(() => ({}));
 
     if (!markRes.ok) {
       setError(markBody?.error || "Failed to finalize authorization");
@@ -96,7 +103,7 @@ function CheckoutForm({
       return;
     }
 
-    // 2️⃣ Send verification request (starts 8 business hour clock)
+    // Start verification timer
     const verificationRes = await fetch("/api/verification/send", {
       method: "POST",
       headers: {
@@ -112,7 +119,6 @@ function CheckoutForm({
       return;
     }
 
-    // 3️⃣ Success → go to success page
     onAuthorized();
   }
 
@@ -149,49 +155,10 @@ function CheckoutForm({
           fontSize: 16,
           border: "none",
           cursor: !stripe || submitting ? "not-allowed" : "pointer",
-          boxShadow: submitting ? "none" : "0 8px 24px rgba(37, 99, 235, 0.35)",
-          transition: "all 0.2s ease",
-        }}
-        onMouseOver={(e) => {
-          if (!submitting) {
-            e.currentTarget.style.background =
-              "linear-gradient(90deg, #1d4ed8 0%, #1e40af 100%)";
-            e.currentTarget.style.transform = "translateY(-2px)";
-          }
-        }}
-        onMouseOut={(e) => {
-          if (!submitting) {
-            e.currentTarget.style.background =
-              "linear-gradient(90deg, #2563eb 0%, #1d4ed8 100%)";
-            e.currentTarget.style.transform = "translateY(0px)";
-          }
         }}
       >
         {submitting ? "Processing…" : "Authorize Secure Payment"}
       </button>
-
-      <p
-        style={{
-          fontSize: 13,
-          color: "#94a3b8",
-          marginTop: 12,
-          textAlign: "center",
-        }}
-      >
-        Authorization only. Your card will not be charged until prescription
-        verification is complete.
-      </p>
-
-      <p
-        style={{
-          fontSize: 12,
-          color: "#64748b",
-          marginTop: 8,
-          textAlign: "center",
-        }}
-      >
-        Secure SSL encryption · PCI compliant · Powered by Stripe
-      </p>
     </form>
   );
 }
@@ -234,21 +201,13 @@ export default function CheckoutPage() {
           .from("orders")
           .select("id, status, total_amount_cents")
           .eq("user_id", session.user.id)
-          .in("status", ["pending", "authorized", "captured"])
+          .eq("status", "draft")
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
 
         if (orderError || !orderData) {
-          throw new Error("No pending order");
-        }
-
-        if (
-          orderData.status === "authorized" ||
-          orderData.status === "captured"
-        ) {
-          router.replace("/checkout/success");
-          return;
+          throw new Error("No draft order");
         }
 
         if (
@@ -269,13 +228,7 @@ export default function CheckoutPage() {
           cache: "no-store",
         });
 
-        let body: CheckoutPayResponse | null = null;
-
-        try {
-          body = (await res.json()) as CheckoutPayResponse;
-        } catch {
-          body = null;
-        }
+        const body: CheckoutPayResponse = await res.json().catch(() => ({}));
 
         if (!res.ok || !body?.clientSecret) {
           throw new Error(body?.error || "Payment initialization failed");
@@ -318,8 +271,6 @@ export default function CheckoutPage() {
     );
   }
 
-  const orderTotal = order.total_amount_cents;
-
   return (
     <main>
       <section className="content-shell">
@@ -347,7 +298,7 @@ export default function CheckoutPage() {
             <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
               <div style={{ fontWeight: 800, fontSize: 16 }}>Total:</div>
               <div style={{ fontWeight: 900, fontSize: 20 }}>
-                ${(orderTotal / 100).toFixed(2)}
+                ${(order.total_amount_cents / 100).toFixed(2)}
               </div>
             </div>
             <p style={{ marginTop: 8, fontSize: 13, color: "#475569" }}>
@@ -356,29 +307,14 @@ export default function CheckoutPage() {
             </p>
           </div>
 
-          <Elements
-            stripe={stripePromise}
-            options={{
-              clientSecret,
-              locale: "en",
-              appearance: {
-                theme: "stripe",
-                variables: {
-                  colorPrimary: "#0f172a",
-                  colorBackground: "#ffffff",
-                  colorText: "#0b1220",
-                  colorDanger: "#b91c1c",
-                  fontFamily: "Inter, system-ui, sans-serif",
-                  borderRadius: "10px",
-                },
-              },
-            }}
-          >
-            <CheckoutForm
-              accessToken={accessToken}
-              onAuthorized={() => router.replace("/checkout/success")}
-            />
-          </Elements>
+          {clientSecret && (
+            <Elements stripe={stripePromise} options={{ clientSecret }}>
+              <CheckoutForm
+                accessToken={accessToken}
+                onAuthorized={() => router.replace("/checkout/success")}
+              />
+            </Elements>
+          )}
         </div>
       </section>
     </main>

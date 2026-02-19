@@ -32,7 +32,7 @@ export async function POST(req: Request) {
       payment_intent_id
     `)
     .eq("user_id", user.id)
-    .eq("status", "pending")
+    .eq("status", "draft")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
 
   if (!order) {
     return NextResponse.json(
-      { error: "No pending order" },
+      { error: "No draft order" },
       { status: 400 }
     );
   }
