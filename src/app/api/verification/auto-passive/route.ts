@@ -17,7 +17,7 @@ export async function POST() {
         passive_deadline_at,
         status
       `)
-      .eq("status", "pending_verification")
+      .eq("status", "pending")
       .lte("passive_deadline_at", new Date().toISOString());
 
     if (error) {
