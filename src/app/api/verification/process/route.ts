@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   const { data: orders, error } = await supabaseServer
     .from("orders")
     .select("*")
-    .eq("status", "pending_verification")
+    .eq("status", "pending")
     .eq("verification_status", "pending")
     .lte("passive_deadline_at", now);
 
