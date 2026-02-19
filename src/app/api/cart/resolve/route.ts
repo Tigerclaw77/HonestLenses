@@ -340,7 +340,7 @@ export async function POST(req: Request) {
       box_count: totalBoxes,
       total_amount_cents: pricing.total_amount_cents,
       price_reason,
-      status: "pending",
+      // status: "pending",
     })
     .eq("id", order.id)
     .eq("user_id", user.id);
