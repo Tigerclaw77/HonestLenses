@@ -88,9 +88,10 @@ export async function POST(req: Request) {
       .update({
         verification_sent_at: nowIso,
         passive_deadline_at: passiveDeadline,
-        verification_status: "awaiting_response",
+        verification_status: "pending",
       })
-      .eq("id", order.id);
+      .eq("id", order.id)
+      .eq("verification_status", null);
 
     if (updateError) {
       return NextResponse.json(
