@@ -13,10 +13,7 @@ export async function POST(req: Request) {
   ========================= */
   const user = await getUserFromRequest(req);
   if (!user) {
-    return NextResponse.json(
-      { error: "Unauthorized" },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   /* =========================
@@ -24,13 +21,15 @@ export async function POST(req: Request) {
   ========================= */
   const { data: order, error } = await supabaseServer
     .from("orders")
-    .select(`
+    .select(
+      `
       id,
       user_id,
       status,
       total_amount_cents,
       payment_intent_id
-    `)
+    `,
+    )
     .eq("user_id", user.id)
     .eq("status", "draft")
     .order("created_at", { ascending: false })
@@ -38,17 +37,11 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   if (!order) {
-    return NextResponse.json(
-      { error: "No draft order" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "No draft order" }, { status: 400 });
   }
 
   if (
@@ -57,7 +50,7 @@ export async function POST(req: Request) {
   ) {
     return NextResponse.json(
       { error: "Order missing valid price" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -66,13 +59,13 @@ export async function POST(req: Request) {
   ========================= */
   if (order.payment_intent_id) {
     const existing = await stripe.paymentIntents.retrieve(
-      order.payment_intent_id
+      order.payment_intent_id,
     );
 
     if (!existing.client_secret) {
       return NextResponse.json(
         { error: "Stripe intent missing client secret" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -89,6 +82,7 @@ export async function POST(req: Request) {
     amount: order.total_amount_cents,
     currency: "usd",
     capture_method: "manual",
+    automatic_payment_methods: { enabled: true },
     metadata: {
       order_id: order.id,
       user_id: user.id,
@@ -98,7 +92,7 @@ export async function POST(req: Request) {
   if (!intent.client_secret) {
     return NextResponse.json(
       { error: "Stripe intent missing client secret" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -115,10 +109,7 @@ export async function POST(req: Request) {
     .eq("user_id", user.id);
 
   if (updateError) {
-    return NextResponse.json(
-      { error: updateError.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
   return NextResponse.json({

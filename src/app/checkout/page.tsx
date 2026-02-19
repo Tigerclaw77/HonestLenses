@@ -271,6 +271,8 @@ export default function CheckoutPage() {
     );
   }
 
+  console.log("clientSecret:", clientSecret);
+
   return (
     <main>
       <section className="content-shell">
