@@ -21,7 +21,7 @@ export async function POST(req: Request) {
       id,
       user_id,
       status,
-      stripe_payment_intent_id
+      payment_intent_id
     `)
     .eq("user_id", user.id)
     .eq("status", "draft")
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No draft order" }, { status: 400 });
   }
 
-  if (!order.stripe_payment_intent_id) {
+  if (!order.payment_intent_id) {
     return NextResponse.json(
       { error: "Missing Stripe PaymentIntent" },
       { status: 400 }
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
   }
 
   // 3️⃣ Verify Stripe intent is actually authorized (manual capture)
-  const intent = await stripe.paymentIntents.retrieve(order.stripe_payment_intent_id);
+  const intent = await stripe.paymentIntents.retrieve(order.payment_intent_id);
 
   // For manual capture, successful authorization typically ends in `requires_capture`
   if (intent.status !== "requires_capture") {
