@@ -21,11 +21,17 @@ type EyeRx = {
   color?: string;
 };
 
+type RxMeta = {
+  patient_name?: string;
+  prescriber_name?: string;
+  prescriber_phone?: string;
+};
+
 type RxData = {
   expires: string;
   right?: EyeRx;
   left?: EyeRx;
-};
+} & RxMeta;
 
 /* =========================
    Helpers
@@ -39,10 +45,9 @@ function sanitizeEyeRx(eye: EyeRx | undefined): EyeRx | undefined {
 
   const allowedColors = getColorOptions(lens.name);
 
-  // Shallow clone so we never mutate caller data
   const clean: EyeRx = { ...eye };
 
-  // ❌ Strip color if lens does not support it
+  // Strip invalid color
   if (!allowedColors.length) {
     delete clean.color;
   } else if (clean.color && !allowedColors.includes(clean.color)) {
@@ -58,6 +63,7 @@ function sanitizeEyeRx(eye: EyeRx | undefined): EyeRx | undefined {
    - Validate RX
    - Resolve SKU from RX
    - Persist RX + SKU ONLY
+   - Persist OCR metadata (if present)
    - ❌ NO PRICING
    - ❌ NO BOX COUNTS
 ========================= */
@@ -91,7 +97,26 @@ export async function POST(
   }
 
   /* =========================
-     3️⃣ Extract lens_id (AUTHORITATIVE)
+     3️⃣ Extract & sanitize OCR metadata
+  ========================= */
+
+  const patient_name =
+    typeof rx.patient_name === "string"
+      ? rx.patient_name.trim()
+      : null;
+
+  const prescriber_name =
+    typeof rx.prescriber_name === "string"
+      ? rx.prescriber_name.trim()
+      : null;
+
+  const prescriber_phone =
+    typeof rx.prescriber_phone === "string"
+      ? rx.prescriber_phone.trim()
+      : null;
+
+  /* =========================
+     4️⃣ Extract lens_id (AUTHORITATIVE)
   ========================= */
   const lens_id =
     rx?.right?.lens_id ??
@@ -106,7 +131,7 @@ export async function POST(
   }
 
   /* =========================
-     4️⃣ Resolve SKU (RX → SKU)
+     5️⃣ Resolve SKU (RX → SKU)
   ========================= */
   const sku = resolveDefaultSku(lens_id);
 
@@ -118,7 +143,7 @@ export async function POST(
   }
 
   /* =========================
-     5️⃣ Verify order ownership
+     6️⃣ Verify order ownership
   ========================= */
   const { data: order, error: orderError } = await supabaseServer
     .from("orders")
@@ -142,16 +167,16 @@ export async function POST(
   }
 
   /* =========================
-     6️⃣ Sanitize RX (SERVER AUTHORITATIVE)
+     7️⃣ Sanitize RX (SERVER AUTHORITATIVE)
   ========================= */
-  const sanitizedRx: RxData = {
+  const sanitizedRx = {
     expires: rx.expires,
     right: sanitizeEyeRx(rx.right),
     left: sanitizeEyeRx(rx.left),
   };
 
   /* =========================
-     7️⃣ Persist RX + SKU ONLY
+     8️⃣ Persist RX + SKU + META
   ========================= */
   const { error: updateError } = await supabaseServer
     .from("orders")
@@ -160,6 +185,11 @@ export async function POST(
       sku,
       verification_status: "pending",
       status: "draft",
+
+      // OCR metadata (null for manual entry)
+      patient_name,
+      prescriber_name,
+      prescriber_phone,
     })
     .eq("id", orderId)
     .eq("user_id", user.id);
