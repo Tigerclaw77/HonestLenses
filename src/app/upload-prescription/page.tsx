@@ -97,7 +97,14 @@ export default function UploadPrescriptionPage() {
       // 3️⃣ Persist success + filename
       localStorage.setItem(LS_FILENAME, file.name);
 
-      router.push("/cart");
+      await fetch(`/api/orders/${orderId}/rx-ocr`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      router.push(`/upload-prescription/confirm?orderId=${orderId}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
