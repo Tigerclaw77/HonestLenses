@@ -38,8 +38,6 @@ type EyeRx = {
   axis?: number;
   add?: string;
   base_curve?: number;
-  // NOTE: color not currently stored in rx payload in your version.
-  // If you later decide to store it, add: color?: string;
 };
 
 type RxPayload = {
@@ -71,16 +69,17 @@ type OcrExtract = {
   patientName?: string;
   doctorName?: string;
   doctorPhone?: string;
+  issuedDate?: string;   // 🔹 add this (you’re displaying issued)
+  expires?: string;      // 🔹 helpful for consistency
   rawText?: string;
 };
 
 type Props = {
-  orderId?: string; // if not provided, RxForm will create/find a draft order
-  mode?: RxFormMode; // manual | ocr
-  initialDraft?: RxDraft; // for OCR: the pre-filled draft derived from OCR
-  ocrExtract?: OcrExtract; // for OCR: meta extracted from OCR
+  orderId: string;                 // 🔹 make required (Confirm flow depends on it)
+  mode?: RxFormMode;               // manual | ocr
+  initialDraft?: RxDraft;          // pre-filled draft (OCR → mapped to draft format)
+  ocrExtract?: OcrExtract;         // extracted metadata block
 };
-
 /* =========================
    Numeric Formatters
 ========================= */

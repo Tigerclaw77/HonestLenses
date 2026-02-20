@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 
-import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 
@@ -9,28 +9,55 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-export async function POST(
+/* =========================
+   GET → Return stored OCR
+========================= */
+
+export async function GET(
   req: NextRequest,
-  context: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> },
 ) {
   const { id: orderId } = await context.params;
-
-  /* =========================
-     1️⃣ Auth
-  ========================= */
 
   const user = await getUserFromRequest(req);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!orderId) {
-    return NextResponse.json({ error: "Missing order id" }, { status: 400 });
+  const { data: order, error } = await supabaseServer
+    .from("orders")
+    .select("rx_ocr_raw")
+    .eq("id", orderId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (error || !order) {
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  /* =========================
-     2️⃣ Confirm ownership
-  ========================= */
+  if (!order.rx_ocr_raw) {
+    return NextResponse.json({ error: "OCR not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({
+    ocr_json: order.rx_ocr_raw,
+  });
+}
+
+/* =========================
+   POST → Run OCR + Store
+========================= */
+
+export async function POST(
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> },
+) {
+  const { id: orderId } = await context.params;
+
+  const user = await getUserFromRequest(req);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const { data: order, error } = await supabaseServer
     .from("orders")
@@ -40,136 +67,124 @@ export async function POST(
     .single();
 
   if (error || !order) {
-    return NextResponse.json(
-      { error: "Order not found or not owned by user" },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
   if (!order.rx_upload_path) {
     return NextResponse.json(
       { error: "No uploaded prescription found" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   /* =========================
-     3️⃣ Fetch image from Supabase Storage
+     Download image from Supabase
   ========================= */
 
-  const { data: fileData, error: fileError } =
-    await supabaseServer.storage
-      .from("prescriptions")
-      .download(order.rx_upload_path);
+  const { data: fileData, error: downloadError } = await supabaseServer.storage
+    .from("prescriptions")
+    .download(order.rx_upload_path);
 
-  if (fileError || !fileData) {
+  if (downloadError || !fileData) {
     return NextResponse.json(
-      { error: "Failed to retrieve uploaded file" },
-      { status: 500 }
+      { error: "Failed to download prescription image" },
+      { status: 500 },
     );
   }
 
-  const buffer = Buffer.from(await fileData.arrayBuffer());
-  const base64Image = buffer.toString("base64");
+  const arrayBuffer = await fileData.arrayBuffer();
+  const base64 = Buffer.from(arrayBuffer).toString("base64");
 
   /* =========================
-     4️⃣ OpenAI Vision Extraction
+     Strict Extraction Prompt
   ========================= */
+
+  const systemPrompt = `
+You are extracting structured data from a contact lens prescription image.
+
+STRICT RULES:
+- Extract ONLY values explicitly written.
+- Do NOT infer or fabricate.
+- If unclear, return null.
+- Return strictly valid JSON.
+
+Structure:
+
+{
+  "patient_name": string | null,
+  "doctor_name": string | null,
+  "prescriber_phone": string | null,
+  "issued_date": string | null,
+  "expires": string | null,
+  "brand_raw": string | null,
+  "right": {
+    "sphere": number | null,
+    "cylinder": number | null,
+    "axis": number | null,
+    "base_curve": number | null,
+    "diameter": number | null
+  },
+  "left": {
+    "sphere": number | null,
+    "cylinder": number | null,
+    "axis": number | null,
+    "base_curve": number | null,
+    "diameter": number | null
+  }
+}
+`;
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    temperature: 0,
+    model: "gpt-4.1-mini",
     messages: [
       {
         role: "system",
-        content:
-          "You extract structured contact lens prescription data from images. Return strict JSON only.",
+        content: systemPrompt,
       },
       {
         role: "user",
         content: [
           {
             type: "text",
-            text: `
-Extract contact lens prescription fields.
-
-Return JSON in this format:
-
-{
-  expires: string,
-  patient_name: string,
-  prescriber_name: string,
-  prescriber_phone: string,
-  right: {
-    sphere: string,
-    cylinder: string,
-    axis: string,
-    add: string,
-    base_curve: string
-  },
-  left: {
-    sphere: string,
-    cylinder: string,
-    axis: string,
-    add: string,
-    base_curve: string
-  }
-}
-            `,
+            text: "Extract prescription data from this image.",
           },
           {
             type: "image_url",
             image_url: {
-              url: `data:image/jpeg;base64,${base64Image}`,
+              url: `data:image/png;base64,${base64}`,
             },
           },
         ],
       },
     ],
+    temperature: 0,
   });
 
+  const text = response.choices[0].message.content ?? "";
+
   let parsed;
+
   try {
-    parsed = JSON.parse(response.choices[0].message.content ?? "{}");
+    parsed = JSON.parse(text);
   } catch {
     return NextResponse.json(
-      { error: "Failed to parse OCR response" },
-      { status: 500 }
+      { error: "OCR returned invalid JSON" },
+      { status: 500 },
     );
   }
 
-  /* =========================
-     5️⃣ Transform To RxDraft Shape
-  ========================= */
+  const { error: updateError } = await supabaseServer
+    .from("orders")
+    .update({
+      rx_ocr_raw: parsed,
+      rx_status: "ocr_complete",
+    })
+    .eq("id", orderId)
+    .eq("user_id", user.id);
 
-  const draft = {
-    expires: parsed.expires ?? "",
-    right: {
-      lens_id: "",
-      sph: parsed.right?.sphere ?? "",
-      cyl: parsed.right?.cylinder ?? "",
-      axis: parsed.right?.axis ?? "",
-      add: parsed.right?.add ?? "",
-      bc: parsed.right?.base_curve ?? "",
-      color: "",
-    },
-    left: {
-      lens_id: "",
-      sph: parsed.left?.sphere ?? "",
-      cyl: parsed.left?.cylinder ?? "",
-      axis: parsed.left?.axis ?? "",
-      add: parsed.left?.add ?? "",
-      bc: parsed.left?.base_curve ?? "",
-      color: "",
-    },
-  };
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
 
-  return NextResponse.json({
-    draft,
-    meta: {
-      patient_name: parsed.patient_name ?? "",
-      prescriber_name: parsed.prescriber_name ?? "",
-      prescriber_phone: parsed.prescriber_phone ?? "",
-    },
-  });
+  return NextResponse.json({ ok: true });
 }
