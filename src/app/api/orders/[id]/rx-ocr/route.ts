@@ -121,6 +121,7 @@ Structure:
     "sphere": number | null,
     "cylinder": number | null,
     "axis": number | null,
+    "add": string | null,
     "base_curve": number | null,
     "diameter": number | null
   },
@@ -128,6 +129,7 @@ Structure:
     "sphere": number | null,
     "cylinder": number | null,
     "axis": number | null,
+    "add": string | null,
     "base_curve": number | null,
     "diameter": number | null
   }
