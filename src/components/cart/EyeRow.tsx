@@ -32,10 +32,15 @@ type EyeRowProps = {
    Formatters (UI only)
 ========================= */
 
-function fmtNum(n: number) {
-  const abs = Math.abs(n);
-  const s = abs.toFixed(2).replace(/\.00$/, "");
-  return n < 0 ? `−${s}` : `+${s}`;
+function fmtNum(value: number | string) {
+  const n = typeof value === "number" ? value : Number(value);
+
+  if (!Number.isFinite(n)) return "";
+
+  const formatted = n.toFixed(2);
+
+  if (n === 0) return "0.00";
+  return n > 0 ? `+${formatted}` : formatted;
 }
 
 function fmtPrice(cents?: number | null) {
