@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase-client";
 import RxForm from "@/components/RxForm";
+import { resolveBrand } from "@/lib/resolveBrand";
+import { rawLenses } from "@/data/lenses";
 
 type EyeRx = {
   lens_id?: string | null;
@@ -17,6 +19,7 @@ type EyeRx = {
 
 type OcrApiResponse = {
   ocr_json?: {
+    brand_raw?: string | null;
     right?: EyeRx;
     left?: EyeRx;
     expires?: string;
@@ -50,6 +53,8 @@ type OcrExtract = {
   issuedDate?: string;
   expires?: string;
   rawText?: string;
+  proposedLensId?: string | null;
+  proposalConfidence?: "high" | "low" | null;
 };
 
 export default function ConfirmClient() {
@@ -99,10 +104,48 @@ export default function ConfirmClient() {
 
         const ocr = data.ocr_json;
 
+        // -----------------------------
+        // Structural detection (Rx-based)
+        // -----------------------------
+
+        const hasCyl =
+          typeof ocr.right?.cylinder === "number" ||
+          typeof ocr.left?.cylinder === "number";
+
+        const hasAdd = !!ocr.right?.add || !!ocr.left?.add;
+
+        // -----------------------------
+        // Brand Resolution
+        // -----------------------------
+
+        let proposedLensId: string | null = null;
+        let proposalConfidence: "high" | "low" | null = null;
+
+        if (ocr.brand_raw) {
+          const result = resolveBrand(
+            {
+              rawString: ocr.brand_raw,
+              hasCyl,
+              hasAdd,
+            },
+            rawLenses,
+          );
+
+          proposedLensId = result.lensId;
+
+          const CONFIDENCE_THRESHOLD = 11;
+          proposalConfidence =
+            result.score >= CONFIDENCE_THRESHOLD ? "high" : "low";
+        }
+
+        // -----------------------------
+        // Map Eye → Draft
+        // -----------------------------
+
         const mapEye = (eye?: EyeRx): EyeRxDraft => ({
-          lens_id: eye?.lens_id ?? "",
-          sph: eye?.sphere != null ? `${eye.sphere}` : "",
-          cyl: eye?.cylinder != null ? `${eye.cylinder}` : "",
+          lens_id: proposedLensId ?? "",
+          sph: eye?.sphere != null ? Number(eye.sphere).toFixed(2) : "",
+          cyl: eye?.cylinder != null ? Number(eye.cylinder).toFixed(2) : "",
           axis: eye?.axis != null ? `${eye.axis}` : "",
           add: eye?.add ?? "",
           bc: eye?.base_curve != null ? `${eye.base_curve}` : "",
@@ -121,6 +164,9 @@ export default function ConfirmClient() {
           doctorPhone: ocr.prescriber_phone,
           issuedDate: ocr.issued_date,
           expires: ocr.expires,
+          rawText: ocr.brand_raw ?? undefined,
+          proposedLensId,
+          proposalConfidence,
         };
 
         if (isMounted) {
@@ -163,7 +209,7 @@ export default function ConfirmClient() {
 
   return (
     <div className="pt-16 px-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-semibold mb-8">Confirm Your Prescription</h1>
+      {/* <h1 className="confirm-title">Confirm Your Prescription</h1> */}
 
       <RxForm
         orderId={orderId}

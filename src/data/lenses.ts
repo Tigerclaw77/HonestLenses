@@ -13,7 +13,7 @@ export type Lens = {
   addOptions?: string[];
 };
 
-const rawLenses: Lens[] = [
+export const rawLenses: Lens[] = [
   {
     lens_id: "V001",
     brand: "Oasys",

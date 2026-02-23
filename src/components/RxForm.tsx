@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase-client";
 import Link from "next/link";
@@ -69,16 +69,18 @@ type OcrExtract = {
   patientName?: string;
   doctorName?: string;
   doctorPhone?: string;
-  issuedDate?: string;   // 🔹 add this (you’re displaying issued)
-  expires?: string;      // 🔹 helpful for consistency
+  issuedDate?: string; // 🔹 add this (you’re displaying issued)
+  expires?: string; // 🔹 helpful for consistency
   rawText?: string;
+  proposedLensId?: string | null;
+  proposalConfidence?: "high" | "low" | null;
 };
 
 type Props = {
-  orderId: string;                 // 🔹 make required (Confirm flow depends on it)
-  mode?: RxFormMode;               // manual | ocr
-  initialDraft?: RxDraft;          // pre-filled draft (OCR → mapped to draft format)
-  ocrExtract?: OcrExtract;         // extracted metadata block
+  orderId: string; // 🔹 make required (Confirm flow depends on it)
+  mode?: RxFormMode; // manual | ocr
+  initialDraft?: RxDraft; // pre-filled draft (OCR → mapped to draft format)
+  ocrExtract?: OcrExtract; // extracted metadata block
 };
 /* =========================
    Numeric Formatters
@@ -194,6 +196,17 @@ export default function RxForm({
 
   const [expires, setExpires] = useState("");
 
+  const proposedLensId = ocrExtract?.proposedLensId ?? null;
+  // const proposalConfidence = ocrExtract?.proposalConfidence ?? null;
+
+  const [proposalAck, setProposalAck] = useState<boolean>(
+    mode !== "ocr" || !proposedLensId,
+  );
+  const locked = mode === "ocr" && proposedLensId && !proposalAck;
+  const [showLensDropdown, setShowLensDropdown] = useState<boolean>(
+    mode !== "ocr",
+  );
+
   // OCR-only meta (does not exist for manual entry)
   const [patientName, setPatientName] = useState(
     mode === "ocr" ? (ocrExtract?.patientName ?? "") : "",
@@ -205,14 +218,34 @@ export default function RxForm({
     mode === "ocr" ? (ocrExtract?.doctorPhone ?? "") : "",
   );
 
+  const [confirmGlow, setConfirmGlow] = useState(false);
+
+  const [ocrError, setOcrError] = useState(false);
+
+  const lensCardState = ocrError
+    ? "error"
+    : proposalAck && showLensDropdown
+      ? "manual"
+      : proposalAck && !showLensDropdown
+        ? "confirmed"
+        : "suggested";
+
   const rightLens = lenses.find((l) => l.lens_id === rightlens_id);
   const leftLens = lenses.find((l) => l.lens_id === leftlens_id);
 
-  const rightColorOptions = getColorOptions(rightLens?.name);
-  const leftColorOptions = getColorOptions(leftLens?.name);
+  const rightColorOptions = useMemo(() => {
+    if (!rightLens?.name) return [];
+    return getColorOptions(rightLens.name);
+  }, [rightLens?.name]);
+
+  const leftColorOptions = useMemo(() => {
+    if (!leftLens?.name) return [];
+    return getColorOptions(leftLens.name);
+  }, [leftLens?.name]);
 
   const PLANO_HINT = "0.00 indicates Plano (PL)";
   const EmptyHint = () => <div className="rx-hint">&nbsp;</div>;
+  const EmptyLabel = () => <label className="rx-label">&nbsp;</label>;
 
   /* =========================
      Error helpers
@@ -301,6 +334,22 @@ export default function RxForm({
 
     applyDraft(initialDraft);
 
+    applyDraft(initialDraft);
+
+    // 🔴 TEMP: force OCR error for testing
+    // setOcrError(true);
+    // setShowLensDropdown(true);
+    // setProposalAck(true);
+
+    const noSphereDetected =
+      !initialDraft?.right?.sph && !initialDraft?.left?.sph;
+
+    if (noSphereDetected) {
+      setOcrError(true);
+      setShowLensDropdown(true);
+      setProposalAck(true);
+    }
+
     // meta from OCR
     setPatientName(ocrExtract?.patientName ?? "");
     setDoctorName(ocrExtract?.doctorName ?? "");
@@ -319,13 +368,27 @@ export default function RxForm({
   function resetToOcr() {
     if (mode !== "ocr" || !initialDraft) return;
 
+    // Snapshot current OCR extract to avoid re-reading optional chain
+    const extract = ocrExtract;
+
+    // 1️⃣ Restore field values from original OCR draft
     applyDraft(initialDraft);
 
-    setPatientName(ocrExtract?.patientName ?? "");
-    setDoctorName(ocrExtract?.doctorName ?? "");
-    setDoctorPhone(ocrExtract?.doctorPhone ?? "");
+    // 2️⃣ Restore extracted metadata
+    setPatientName(extract?.patientName ?? "");
+    setDoctorName(extract?.doctorName ?? "");
+    setDoctorPhone(extract?.doctorPhone ?? "");
 
-    // Clear any error highlights after reset
+    // 3️⃣ Re-lock proposal gate properly
+    const hasProposal = Boolean(extract?.proposedLensId);
+
+    // If there was a detected lens, require acknowledgement again
+    setProposalAck(!hasProposal);
+
+    // Only show dropdown immediately if there was NO proposal
+    setShowLensDropdown(!hasProposal);
+
+    // 4️⃣ Clear validation highlights
     setFieldErrors({});
   }
 
@@ -558,24 +621,30 @@ export default function RxForm({
      Submit
   ========================= */
 
-  useEffect(() => {
-    if (!rightLens) return;
-    if (rightColor && rightColorOptions.length === 0) setRightColor("");
-  }, [rightLens, rightColor, rightColorOptions]);
+  // useEffect(() => {
+  //   if (!rightLens) return;
+  //   if (rightColor && rightColorOptions.length === 0) setRightColor("");
+  // }, [rightLens, rightColor, rightColorOptions]);
 
-  useEffect(() => {
-    if (!leftLens) return;
-    if (leftColor && leftColorOptions.length === 0) setLeftColor("");
-  }, [leftLens, leftColor, leftColorOptions]);
+  // useEffect(() => {
+  //   if (!leftLens) return;
+  //   if (leftColor && leftColorOptions.length === 0) setLeftColor("");
+  // }, [leftLens, leftColor, leftColorOptions]);
 
   async function submitRx() {
     if (loading) return;
+
+    if (locked) {
+      alert(
+        "Please confirm the detected lens (or mark it incorrect) before continuing.",
+      );
+      return;
+    }
 
     const map = validateAll();
     setFieldErrors(map);
     if (hasAnyErrors(map)) return;
 
-    // ONE-EYE confirm (ONLY after fields are valid)
     const rightDraft: EyeRxDraft = {
       lens_id: rightlens_id,
       sph: rightSph,
@@ -585,6 +654,7 @@ export default function RxForm({
       bc: rightBC,
       color: rightColor,
     };
+
     const leftDraft: EyeRxDraft = {
       lens_id: leftlens_id,
       sph: leftSph,
@@ -614,16 +684,22 @@ export default function RxForm({
         data: { session },
       } = await supabase.auth.getSession();
 
-      console.log("🟦 [RxForm] session present?", Boolean(session));
-
       if (!session) {
         router.push("/login");
         return;
       }
 
-      const finalOrderId =
-        orderId ?? (await getOrCreateDraftOrder(session.access_token));
+      console.log("🟦 [RxForm] session present?", Boolean(session));
+
+      /* =========================================================
+       🔑 ALWAYS RESOLVE A DRAFT ORDER FIRST
+    ========================================================== */
+
+      const finalOrderId = await getOrCreateDraftOrder(session.access_token);
+
       console.log("🟦 [RxForm] orderId =", finalOrderId);
+
+      /* ========================================================= */
 
       const rx: RxPayload & {
         patient_name?: string;
@@ -682,11 +758,7 @@ export default function RxForm({
       let rxBody: unknown = null;
       try {
         rxBody = await rxRes.json();
-      } catch {
-        // ignore
-      }
-
-      console.log("🟦 [RxForm] /api/orders/:id/rx body =", rxBody);
+      } catch {}
 
       if (!rxRes.ok) {
         if (rxBody && typeof rxBody === "object" && "error" in rxBody) {
@@ -695,12 +767,17 @@ export default function RxForm({
         throw new Error("Prescription submission failed");
       }
 
-      /* 🔑 Resolve pricing ONCE */
+      /* =========================================================
+       🔑 RESOLVE CART PRICING
+    ========================================================== */
+
       console.log("🟦 [RxForm] POST /api/cart/resolve");
 
       const resolveRes = await fetch("/api/cart/resolve", {
         method: "POST",
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
         cache: "no-store",
       });
 
@@ -709,11 +786,7 @@ export default function RxForm({
       let resolveBody: unknown = null;
       try {
         resolveBody = await resolveRes.json();
-      } catch {
-        // ignore
-      }
-
-      console.log("🟦 [RxForm] /api/cart/resolve body =", resolveBody);
+      } catch {}
 
       if (!resolveRes.ok) {
         if (
@@ -730,8 +803,6 @@ export default function RxForm({
       router.push("/cart");
     } catch (err) {
       console.error("🔴 [RxForm] submitRx error:", err);
-      // Optional: surface a user-friendly alert for MVP
-      // alert(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setLoading(false);
       console.log("🟦 [RxForm] submitRx end");
@@ -770,7 +841,11 @@ export default function RxForm({
     <>
       <main>
         <section className="content-shell">
-          <h1 className="upper content-title">Enter Prescription</h1>
+          <h1 className="upper content-title">
+            {mode === "ocr"
+              ? "Confirm Your Prescription"
+              : "Enter Prescription"}
+          </h1>
 
           {mode === "ocr" && (
             <div
@@ -779,7 +854,114 @@ export default function RxForm({
             >
               <h3 style={{ marginBottom: 12 }}>Scanned prescription details</h3>
 
-              <div className="rx-grid" style={{ marginBottom: 12 }}>
+              {/* =============================
+       PHASE 3 – Detected Lens Gate
+    ============================== */}
+
+              {proposedLensId && (
+                <div
+                  style={{
+                    fontSize: "0.95rem",
+                    fontWeight: 400,
+                    letterSpacing: "0.4px",
+                  }}
+                  className={`order-card detected-lens-card ${lensCardState} ${
+                    confirmGlow ? "pulse-confirm" : ""
+                  }`}
+                >
+                  {/* <div className="text-sm text-neutral-400 mb-1">
+                    Detected lens
+                  </div> */}
+
+                  {!proposalAck && (
+                    <div className="proposal-row">
+                      <div className="proposal-meta">
+                        <div className="proposal-label">Detected lens</div>
+                        <div className="proposal-name">
+                          {getLensDisplayName(proposedLensId!, null)}
+                        </div>
+                      </div>
+
+                      <div className="proposal-actions">
+                        <button
+                          type="button"
+                          className="proposal-confirm"
+                          onClick={() => {
+                            setConfirmGlow(true);
+
+                            setProposalAck(true);
+                            setShowLensDropdown(false);
+
+                            setTimeout(() => {
+                              setConfirmGlow(false);
+                            }, 900);
+                          }}
+                        >
+                          Use this lens
+                        </button>
+
+                        <button
+                          type="button"
+                          className="proposal-change"
+                          onClick={() => {
+                            setConfirmGlow(false);
+                            setProposalAck(true);
+                            setShowLensDropdown(true);
+                          }}
+                        >
+                          Select different lens
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {lensCardState === "confirmed" && (
+                    <div className="rx-hint mt-2">
+                      <span
+                        style={{
+                          fontSize: "0.95rem",
+                          fontWeight: 600,
+                          letterSpacing: "0.25px",
+                        }}
+                      >
+                        ✓ Lens brand confirmed
+                      </span>
+                    </div>
+                  )}
+
+                  {lensCardState === "manual" && (
+                    <div className="rx-hint mt-2">
+                      <span style={{ fontSize: "0.9rem", fontWeight: 500 }}>
+                        Please select the lens brand exactly as written on your
+                        prescription below. A licensed optometrist will review
+                        the selection before shipping.
+                      </span>
+                    </div>
+                  )}
+
+                  {lensCardState === "error" && (
+                    <div className="rx-hint mt-2 ">
+                      <span
+                        style={{
+                          fontSize: "0.95rem",
+                          fontWeight: 400,
+                          letterSpacing: "0.25px",
+                        }}
+                      >
+                        We couldn’t confidently extract prescription values from
+                        the uploaded image. Please enter them manually below. A
+                        licensed optometrist will verify before shipping.
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* =============================
+       OCR Metadata Fields
+    ============================== */}
+
+              <div className="rx-meta-grid" style={{ marginBottom: 12 }}>
                 <div className="rx-field">
                   <label className="rx-label">Patient name</label>
                   <input
@@ -788,22 +970,22 @@ export default function RxForm({
                     onChange={(e) => setPatientName(e.target.value)}
                     placeholder="Patient name"
                   />
-                  <div className="rx-hint">
+                  {/* <div className="rx-hint">
                     Optional — used only for the uploaded Rx flow.
-                  </div>
+                  </div> */}
                 </div>
 
                 <div className="rx-field">
-                  <label className="rx-label">Doctor / prescriber name</label>
+                  <label className="rx-label">Prescriber name</label>
                   <input
                     className="rx-input"
                     value={doctorName}
                     onChange={(e) => setDoctorName(e.target.value)}
                     placeholder="Doctor name"
                   />
-                  <div className="rx-hint">
+                  {/* <div className="rx-hint">
                     Optional — used only for the uploaded Rx flow.
-                  </div>
+                  </div> */}
                 </div>
 
                 <div className="rx-field">
@@ -814,22 +996,32 @@ export default function RxForm({
                     onChange={(e) => setDoctorPhone(e.target.value)}
                     placeholder="(###) ###-####"
                   />
-                  <div className="rx-hint">
-                    Please verify — we’ll use this for verification.
-                  </div>
+                  {/* <div className="rx-hint">
+                    Used for verification.
+                  </div> */}
                 </div>
               </div>
 
-              <button type="button" className="ghost-btn" onClick={resetToOcr}>
-                Reset to scanned values
-              </button>
+              {!ocrError && (
+                <button
+                  type="button"
+                  className="reset-link"
+                  onClick={resetToOcr}
+                >
+                  Reset to scanned values
+                </button>
+              )}
             </div>
           )}
 
           <div className="order-card">
-            <p className="form-hint">
-              Use <strong>0.00</strong> for <em>PL / Plano</em>.
-            </p>
+            {/* 🔴 OCR Failure Notice */}
+            {/* {mode === "ocr" && ocrError && (
+              <div className="rx-eye-error" style={{ marginBottom: 12 }}>
+                We couldn’t detect valid prescription values from the uploaded
+                image. Please enter your prescription manually below.
+              </div>
+            )} */}
 
             {fieldErrors.noneEntered && (
               <div className="rx-eye-error">
@@ -841,14 +1033,16 @@ export default function RxForm({
             <div className="rx-eye-header">
               <h3 className="rx-eye-title">Right Eye (OD)</h3>
 
-              <button
-                type="button"
-                className="copy-eye-btn"
-                disabled={!rightlens_id}
-                onClick={copyRightToLeft}
-              >
-                Copy to left eye
-              </button>
+              {mode === "manual" && (
+                <button
+                  type="button"
+                  className="copy-eye-btn"
+                  disabled={!rightlens_id}
+                  onClick={copyRightToLeft}
+                >
+                  Copy to left eye
+                </button>
+              )}
             </div>
 
             {eyeHasErrors("right") && (
@@ -857,31 +1051,66 @@ export default function RxForm({
               </div>
             )}
 
-            <div className="rx-eye">
-              <div className="rx-grid rx-grid-top">
+            <div
+              className="rx-eye"
+              style={locked ? { pointerEvents: "none" } : undefined}
+            >
+              <div className="rx-grid">
+                {/* ===== LENS ===== */}
                 <div className="rx-field">
-                  <select
-                    className={cls("lens-select", fieldErrors.right?.lens)}
-                    value={rightlens_id}
-                    onChange={(e) => setRightlens_id(e.target.value)}
-                  >
-                    <option value="">Select lens</option>
-                    {lenses.map((l) => (
-                      <option key={l.lens_id} value={l.lens_id}>
-                        {getLensDisplayName(l.lens_id, null)}
-                      </option>
-                    ))}
-                  </select>
-                  <EmptyHint />
+                  {mode === "ocr" && showLensDropdown ? (
+                    <label className="rx-label">
+                      Select the exact lens written on your prescription
+                    </label>
+                  ) : (
+                    <EmptyLabel />
+                  )}
+
+                  {mode !== "ocr" || showLensDropdown ? (
+                    <>
+                      <select
+                        className={cls("lens-select", fieldErrors.right?.lens)}
+                        value={rightlens_id}
+                        onChange={(e) => setRightlens_id(e.target.value)}
+                      >
+                        <option value="">Select lens</option>
+                        {lenses.map((l) => (
+                          <option key={l.lens_id} value={l.lens_id}>
+                            {getLensDisplayName(l.lens_id, null)}
+                          </option>
+                        ))}
+                      </select>
+
+                      <div className="rx-hint">
+                        Have our licensed optometrist confirm it.
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        className="rx-input"
+                        value={
+                          rightlens_id
+                            ? getLensDisplayName(rightlens_id, null)
+                            : ""
+                        }
+                        disabled
+                      />
+                      <EmptyHint />
+                    </>
+                  )}
                 </div>
 
+                {/* ===== SPHERE ===== */}
                 <div className="rx-field">
+                  <EmptyLabel />
                   <input
                     className={cls("rx-input", fieldErrors.right?.sph)}
                     type="number"
                     step="0.25"
                     placeholder="Sphere*"
                     value={rightSph}
+                    disabled={mode === "ocr" && !proposalAck}
                     onChange={(e) => {
                       setRightSph(
                         e.target.value === ""
@@ -890,47 +1119,57 @@ export default function RxForm({
                       );
                     }}
                   />
-                  <div className="rx-hint">{PLANO_HINT}</div>
+                  <div className="rx-hint">
+                    {mode === "ocr" && !proposalAck
+                      ? "Confirm detected lens before editing values."
+                      : PLANO_HINT}
+                  </div>
                 </div>
 
+                {/* ===== CYL ===== */}
                 {rightLens?.toric && (
-                  <>
-                    <div className="rx-field">
-                      <select
-                        className={cls("rx-select", fieldErrors.right?.cyl)}
-                        value={rightCyl}
-                        onChange={(e) => setRightCyl(e.target.value)}
-                      >
-                        <option value="">CYL</option>
-                        {CYL_OPTIONS.map((v) => (
-                          <option key={v} value={formatHundredths(v)}>
-                            {formatHundredths(v)}
-                          </option>
-                        ))}
-                      </select>
-                      <EmptyHint />
-                    </div>
-
-                    <div className="rx-field">
-                      <select
-                        className={cls("rx-select", fieldErrors.right?.axis)}
-                        value={rightAxis}
-                        onChange={(e) => setRightAxis(e.target.value)}
-                      >
-                        <option value="">Axis</option>
-                        {AXIS_OPTIONS.map((v) => (
-                          <option key={v} value={v}>
-                            {v}
-                          </option>
-                        ))}
-                      </select>
-                      <EmptyHint />
-                    </div>
-                  </>
+                  <div className="rx-field">
+                    <EmptyLabel />
+                    <select
+                      className={cls("rx-select", fieldErrors.right?.cyl)}
+                      value={rightCyl}
+                      onChange={(e) => setRightCyl(e.target.value)}
+                    >
+                      <option value="">CYL</option>
+                      {CYL_OPTIONS.map((v) => (
+                        <option key={v} value={formatHundredths(v)}>
+                          {formatHundredths(v)}
+                        </option>
+                      ))}
+                    </select>
+                    <EmptyHint />
+                  </div>
                 )}
 
+                {/* ===== AXIS ===== */}
+                {rightLens?.toric && (
+                  <div className="rx-field">
+                    <EmptyLabel />
+                    <select
+                      className={cls("rx-select", fieldErrors.right?.axis)}
+                      value={rightAxis}
+                      onChange={(e) => setRightAxis(e.target.value)}
+                    >
+                      <option value="">Axis</option>
+                      {AXIS_OPTIONS.map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                    <EmptyHint />
+                  </div>
+                )}
+
+                {/* ===== ADD ===== */}
                 {rightLens?.multifocal && (
                   <div className="rx-field">
+                    <EmptyLabel />
                     <div
                       className={fieldErrors.right?.add ? "rx-error-wrap" : ""}
                     >
@@ -944,9 +1183,11 @@ export default function RxForm({
                   </div>
                 )}
 
+                {/* ===== BC ===== */}
                 {rightLens &&
                   (rightLens.multiBC ? (
                     <div className="rx-field">
+                      <EmptyLabel />
                       <select
                         className={cls("rx-select", fieldErrors.right?.bc)}
                         value={rightBC}
@@ -963,6 +1204,7 @@ export default function RxForm({
                     </div>
                   ) : (
                     <div className="rx-field">
+                      <EmptyLabel />
                       <input
                         className={cls("rx-input", fieldErrors.right?.bc)}
                         value={
@@ -976,8 +1218,10 @@ export default function RxForm({
                     </div>
                   ))}
 
+                {/* ===== COLOR ===== */}
                 {rightLens && rightColorOptions.length > 0 && (
                   <div className="rx-field">
+                    <EmptyLabel />
                     <div
                       className={
                         fieldErrors.right?.color ? "rx-error-wrap" : ""
@@ -1001,14 +1245,16 @@ export default function RxForm({
             <div className="rx-eye-header">
               <h3 className="rx-eye-title">Left Eye (OS)</h3>
 
-              <button
-                type="button"
-                className="copy-eye-btn"
-                disabled={!leftlens_id}
-                onClick={copyLeftToRight}
-              >
-                Copy to right eye
-              </button>
+              {mode === "manual" && (
+                <button
+                  type="button"
+                  className="copy-eye-btn"
+                  disabled={!leftlens_id}
+                  onClick={copyLeftToRight}
+                >
+                  Copy to right eye
+                </button>
+              )}
             </div>
 
             {eyeHasErrors("left") && (
@@ -1017,25 +1263,59 @@ export default function RxForm({
               </div>
             )}
 
-            <div className="rx-eye">
-              <div className="rx-grid rx-grid-top">
+            <div
+              className="rx-eye"
+              style={locked ? { pointerEvents: "none" } : undefined}
+            >
+              <div className="rx-grid">
+                {/* ===== LENS ===== */}
                 <div className="rx-field">
-                  <select
-                    className={cls("lens-select", fieldErrors.left?.lens)}
-                    value={leftlens_id}
-                    onChange={(e) => setLeftlens_id(e.target.value)}
-                  >
-                    <option value="">Select lens</option>
-                    {lenses.map((l) => (
-                      <option key={l.lens_id} value={l.lens_id}>
-                        {getLensDisplayName(l.lens_id, null)}
-                      </option>
-                    ))}
-                  </select>
-                  <EmptyHint />
+                  {mode === "ocr" && showLensDropdown ? (
+                    <label className="rx-label">
+                      Select the exact lens written on your prescription
+                    </label>
+                  ) : (
+                    <EmptyLabel />
+                  )}
+
+                  {mode !== "ocr" || showLensDropdown ? (
+                    <>
+                      <select
+                        className={cls("lens-select", fieldErrors.left?.lens)}
+                        value={leftlens_id}
+                        onChange={(e) => setLeftlens_id(e.target.value)}
+                      >
+                        <option value="">Select lens</option>
+                        {lenses.map((l) => (
+                          <option key={l.lens_id} value={l.lens_id}>
+                            {getLensDisplayName(l.lens_id, null)}
+                          </option>
+                        ))}
+                      </select>
+
+                      <div className="rx-hint">
+                        Have our licensed optometrist confirm it.
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        className="rx-input"
+                        value={
+                          leftlens_id
+                            ? getLensDisplayName(leftlens_id, null)
+                            : ""
+                        }
+                        disabled
+                      />
+                      <EmptyHint />
+                    </>
+                  )}
                 </div>
 
+                {/* ===== SPHERE ===== */}
                 <div className="rx-field">
+                  <EmptyLabel />
                   <input
                     className={cls("rx-input", fieldErrors.left?.sph)}
                     type="number"
@@ -1053,44 +1333,50 @@ export default function RxForm({
                   <div className="rx-hint">{PLANO_HINT}</div>
                 </div>
 
+                {/* ===== CYL ===== */}
                 {leftLens?.toric && (
-                  <>
-                    <div className="rx-field">
-                      <select
-                        className={cls("rx-select", fieldErrors.left?.cyl)}
-                        value={leftCyl}
-                        onChange={(e) => setLeftCyl(e.target.value)}
-                      >
-                        <option value="">CYL</option>
-                        {CYL_OPTIONS.map((v) => (
-                          <option key={v} value={formatHundredths(v)}>
-                            {formatHundredths(v)}
-                          </option>
-                        ))}
-                      </select>
-                      <EmptyHint />
-                    </div>
-
-                    <div className="rx-field">
-                      <select
-                        className={cls("rx-select", fieldErrors.left?.axis)}
-                        value={leftAxis}
-                        onChange={(e) => setLeftAxis(e.target.value)}
-                      >
-                        <option value="">Axis</option>
-                        {AXIS_OPTIONS.map((v) => (
-                          <option key={v} value={v}>
-                            {v}
-                          </option>
-                        ))}
-                      </select>
-                      <EmptyHint />
-                    </div>
-                  </>
+                  <div className="rx-field">
+                    <EmptyLabel />
+                    <select
+                      className={cls("rx-select", fieldErrors.left?.cyl)}
+                      value={leftCyl}
+                      onChange={(e) => setLeftCyl(e.target.value)}
+                    >
+                      <option value="">CYL</option>
+                      {CYL_OPTIONS.map((v) => (
+                        <option key={v} value={formatHundredths(v)}>
+                          {formatHundredths(v)}
+                        </option>
+                      ))}
+                    </select>
+                    <EmptyHint />
+                  </div>
                 )}
 
+                {/* ===== AXIS ===== */}
+                {leftLens?.toric && (
+                  <div className="rx-field">
+                    <EmptyLabel />
+                    <select
+                      className={cls("rx-select", fieldErrors.left?.axis)}
+                      value={leftAxis}
+                      onChange={(e) => setLeftAxis(e.target.value)}
+                    >
+                      <option value="">Axis</option>
+                      {AXIS_OPTIONS.map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                    <EmptyHint />
+                  </div>
+                )}
+
+                {/* ===== ADD ===== */}
                 {leftLens?.multifocal && (
                   <div className="rx-field">
+                    <EmptyLabel />
                     <div
                       className={fieldErrors.left?.add ? "rx-error-wrap" : ""}
                     >
@@ -1104,9 +1390,11 @@ export default function RxForm({
                   </div>
                 )}
 
+                {/* ===== BC ===== */}
                 {leftLens &&
                   (leftLens.multiBC ? (
                     <div className="rx-field">
+                      <EmptyLabel />
                       <select
                         className={cls("rx-select", fieldErrors.left?.bc)}
                         value={leftBC}
@@ -1123,6 +1411,7 @@ export default function RxForm({
                     </div>
                   ) : (
                     <div className="rx-field">
+                      <EmptyLabel />
                       <input
                         className={cls("rx-input", fieldErrors.left?.bc)}
                         value={
@@ -1136,8 +1425,10 @@ export default function RxForm({
                     </div>
                   ))}
 
+                {/* ===== COLOR ===== */}
                 {leftLens && leftColorOptions.length > 0 && (
                   <div className="rx-field">
+                    <EmptyLabel />
                     <div
                       className={fieldErrors.left?.color ? "rx-error-wrap" : ""}
                     >
@@ -1178,11 +1469,13 @@ export default function RxForm({
             </div>
           </div>
 
-          <div className="order-actions">
-            <Link href="/upload-prescription" className="ghost-link">
-              Upload prescription instead
-            </Link>
-          </div>
+          {mode === "manual" && (
+            <div className="order-actions">
+              <Link href="/upload-prescription" className="ghost-link">
+                Upload prescription instead
+              </Link>
+            </div>
+          )}
         </section>
       </main>
     </>
