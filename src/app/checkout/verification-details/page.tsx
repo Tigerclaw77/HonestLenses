@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabase-client";
 
 type DetailsResponse = {
@@ -14,6 +14,17 @@ type DraftOrPendingOrder = {
   id: string;
   status: string;
   total_amount_cents: number | null;
+
+  shipping_first_name: string | null;
+  shipping_last_name: string | null;
+  shipping_address1: string | null;
+  shipping_address2: string | null;
+  shipping_city: string | null;
+  shipping_state: string | null;
+  shipping_zip: string | null;
+
+  // used to bypass for OCR/upload flows
+  verification_status?: string | null;
 };
 
 type FormState = {
@@ -39,9 +50,56 @@ type FormState = {
 };
 
 const US_STATES = [
-  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI",
-  "MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT",
-  "VT","VA","WA","WV","WI","WY",
+  "AL",
+  "AK",
+  "AZ",
+  "AR",
+  "CA",
+  "CO",
+  "CT",
+  "DE",
+  "FL",
+  "GA",
+  "HI",
+  "ID",
+  "IL",
+  "IN",
+  "IA",
+  "KS",
+  "KY",
+  "LA",
+  "ME",
+  "MD",
+  "MA",
+  "MI",
+  "MN",
+  "MS",
+  "MO",
+  "MT",
+  "NE",
+  "NV",
+  "NH",
+  "NJ",
+  "NM",
+  "NY",
+  "NC",
+  "ND",
+  "OH",
+  "OK",
+  "OR",
+  "PA",
+  "RI",
+  "SC",
+  "SD",
+  "TN",
+  "TX",
+  "UT",
+  "VT",
+  "VA",
+  "WA",
+  "WV",
+  "WI",
+  "WY",
 ];
 
 function inputBaseStyle(): React.CSSProperties {
@@ -49,11 +107,16 @@ function inputBaseStyle(): React.CSSProperties {
     width: "100%",
     padding: "14px 14px",
     borderRadius: 12,
-    border: "1px solid rgba(148, 163, 184, 0.35)",
+
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "rgba(148, 163, 184, 0.35)",
+
     outline: "none",
     fontSize: 14,
     background: "#f8fafc",
-    transition: "box-shadow 140ms ease, border-color 140ms ease, background 140ms ease",
+    transition:
+      "box-shadow 140ms ease, border-color 140ms ease, background 140ms ease",
   };
 }
 
@@ -105,6 +168,8 @@ function normalizePhone(s: string) {
 
 export default function VerificationDetailsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const orderId = searchParams.get("orderId");
 
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [order, setOrder] = useState<DraftOrPendingOrder | null>(null);
@@ -138,6 +203,11 @@ export default function VerificationDetailsPage() {
     allow_lower_price_adjustment: false,
   });
 
+  /**
+   * IMPORTANT:
+   * - ONE effect only (no double-init, no partial commented blocks)
+   * - depends on stable primitives only: router + orderId
+   */
   useEffect(() => {
     let cancelled = false;
 
@@ -155,16 +225,34 @@ export default function VerificationDetailsPage() {
           return;
         }
 
+        if (!orderId) {
+          setError("Missing order id. Please try checkout again.");
+          setLoading(false);
+          return;
+        }
+
         if (cancelled) return;
         setAccessToken(session.access_token);
 
         const { data: orderData, error: orderError } = await supabase
           .from("orders")
-          .select("id, status, total_amount_cents")
+          .select(
+            `
+            id,
+            status,
+            total_amount_cents,
+            shipping_first_name,
+            shipping_last_name,
+            shipping_address1,
+            shipping_address2,
+            shipping_city,
+            shipping_state,
+            shipping_zip,
+            verification_status
+          `,
+          )
           .eq("user_id", session.user.id)
-          .in("status", ["pending", "authorized"])
-          .order("created_at", { ascending: false })
-          .limit(1)
+          .eq("id", orderId)
           .maybeSingle();
 
         if (orderError || !orderData) {
@@ -172,7 +260,36 @@ export default function VerificationDetailsPage() {
         }
 
         if (cancelled) return;
-        setOrder(orderData as DraftOrPendingOrder);
+
+        const typedOrder = orderData as DraftOrPendingOrder;
+
+        const vs = typedOrder.verification_status;
+
+        const isUploadedMode =
+          vs === "verified" ||
+          vs === "ocr_verified" ||
+          vs === "uploaded" ||
+          vs === "upload_verified";
+
+        if (isUploadedMode) {
+          router.replace("/checkout/success?mode=uploaded");
+          return;
+        }
+
+        setOrder(typedOrder);
+
+        // Prefill from shipping columns (if they are truly NULL in DB, these will remain blank)
+        setForm((prev) => ({
+          ...prev,
+          patient_first_name: typedOrder.shipping_first_name ?? "",
+          patient_last_name: typedOrder.shipping_last_name ?? "",
+          patient_address1: typedOrder.shipping_address1 ?? "",
+          patient_address2: typedOrder.shipping_address2 ?? "",
+          patient_city: typedOrder.shipping_city ?? "",
+          patient_state: typedOrder.shipping_state ?? "",
+          patient_zip: typedOrder.shipping_zip ?? "",
+        }));
+
         setLoading(false);
       } catch (err: unknown) {
         if (cancelled) return;
@@ -185,20 +302,30 @@ export default function VerificationDetailsPage() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [router, orderId]);
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
   }
 
   function validate(): string | null {
-    if (!form.patient_first_name.trim()) return "Please enter the patient’s first name.";
-    if (!form.patient_last_name.trim()) return "Please enter the patient’s last name.";
+    // flip this to true if you want to hard-require email for Vistakon flows
+    const REQUIRE_PRESCRIBER_EMAIL = false;
+
+    if (!form.patient_first_name.trim())
+      return "Please enter the patient’s first name.";
+    if (!form.patient_last_name.trim())
+      return "Please enter the patient’s last name.";
 
     const isoDob = dobToIso(form.patient_dob);
-    if (!isoDob) return "Please enter the patient’s date of birth (MM / DD / YYYY).";
+    if (!isoDob)
+      return "Please enter the patient’s date of birth (MM / DD / YYYY).";
 
-    if (!form.patient_address1.trim()) return "Please enter the patient’s address.";
+    if (!form.patient_address1.trim())
+      return "Please enter the patient’s address.";
     if (!form.patient_city.trim()) return "Please enter the city.";
     if (!form.patient_state.trim()) return "Please choose a state.";
     if (!form.patient_zip.trim()) return "Please enter the ZIP code.";
@@ -207,6 +334,10 @@ export default function VerificationDetailsPage() {
     const hasPractice = form.prescriber_practice.trim().length > 0;
     if (!hasName && !hasPractice) {
       return "Please enter either the doctor’s name or the practice name.";
+    }
+
+    if (REQUIRE_PRESCRIBER_EMAIL && !form.prescriber_email.trim()) {
+      return "Please enter the doctor’s email address.";
     }
 
     return null;
@@ -293,7 +424,9 @@ export default function VerificationDetailsPage() {
           .hl-card {
             margin-top: 22px;
             background: rgba(15, 23, 42, 0.65);
-            border: 1px solid rgba(148, 163, 184, 0.18);
+            border-width: 1px;
+            border-style: solid;
+            border-color: rgba(148, 163, 184, 0.18);
             box-shadow: 0 18px 60px rgba(0,0,0,0.5);
             border-radius: 18px;
             padding: 26px;
@@ -328,7 +461,9 @@ export default function VerificationDetailsPage() {
             padding: 22px;
             background: #ffffff;
             border-radius: 16px;
-            border: 1px solid #e2e8f0;
+            border-width: 1px;
+            border-style: solid;
+            border-color: #e2e8f0;
           }
 
           .hl-helper {
@@ -340,9 +475,12 @@ export default function VerificationDetailsPage() {
           }
         `}</style>
 
-        <h1 className="upper content-title">Final Step — Prescription Verification</h1>
+        <h1 className="upper content-title">
+          Final Step — Prescription Verification
+        </h1>
         <p style={{ color: "#cbd5e1", marginTop: 6, maxWidth: 760 }}>
-          We’ll contact your doctor to confirm your prescription. This usually takes up to 8 business hours.
+          We’ll contact your doctor to confirm your prescription. This usually
+          takes up to 8 business hours.
         </p>
 
         <div className="hl-card">
@@ -359,7 +497,8 @@ export default function VerificationDetailsPage() {
               Patient Information
             </h2>
             <p style={{ color: "#cbd5e1", marginTop: -4, marginBottom: 18 }}>
-              Please enter the patient’s name exactly as it appears on the prescription.
+              Please enter the patient’s name exactly as it appears on the
+              prescription.
             </p>
 
             <div className="hl-grid">
@@ -368,11 +507,15 @@ export default function VerificationDetailsPage() {
                 <span style={labelStyle()}>First name</span>
                 <input
                   value={form.patient_first_name}
-                  onChange={(e) => setField("patient_first_name", e.target.value)}
+                  onChange={(e) =>
+                    setField("patient_first_name", e.target.value)
+                  }
                   placeholder="First"
                   style={{
                     ...inputBaseStyle(),
-                    ...(focusKey === "patient_first_name" ? focusRingStyle() : {}),
+                    ...(focusKey === "patient_first_name"
+                      ? focusRingStyle()
+                      : {}),
                   }}
                   onFocus={() => setFocusKey("patient_first_name")}
                   onBlur={() => setFocusKey(null)}
@@ -384,11 +527,15 @@ export default function VerificationDetailsPage() {
                 <span style={labelStyle()}>MI</span>
                 <input
                   value={form.patient_middle_name}
-                  onChange={(e) => setField("patient_middle_name", e.target.value)}
+                  onChange={(e) =>
+                    setField("patient_middle_name", e.target.value)
+                  }
                   placeholder="M"
                   style={{
                     ...inputBaseStyle(),
-                    ...(focusKey === "patient_middle_name" ? focusRingStyle() : {}),
+                    ...(focusKey === "patient_middle_name"
+                      ? focusRingStyle()
+                      : {}),
                   }}
                   onFocus={() => setFocusKey("patient_middle_name")}
                   onBlur={() => setFocusKey(null)}
@@ -401,11 +548,15 @@ export default function VerificationDetailsPage() {
                 <span style={labelStyle()}>Last name</span>
                 <input
                   value={form.patient_last_name}
-                  onChange={(e) => setField("patient_last_name", e.target.value)}
+                  onChange={(e) =>
+                    setField("patient_last_name", e.target.value)
+                  }
                   placeholder="Last"
                   style={{
                     ...inputBaseStyle(),
-                    ...(focusKey === "patient_last_name" ? focusRingStyle() : {}),
+                    ...(focusKey === "patient_last_name"
+                      ? focusRingStyle()
+                      : {}),
                   }}
                   onFocus={() => setFocusKey("patient_last_name")}
                   onBlur={() => setFocusKey(null)}
@@ -418,7 +569,9 @@ export default function VerificationDetailsPage() {
                 <span style={labelStyle()}>DOB</span>
                 <input
                   value={form.patient_dob}
-                  onChange={(e) => setField("patient_dob", formatDobMMDDYYYY(e.target.value))}
+                  onChange={(e) =>
+                    setField("patient_dob", formatDobMMDDYYYY(e.target.value))
+                  }
                   placeholder="MM / DD / YYYY"
                   inputMode="numeric"
                   style={{
@@ -439,7 +592,9 @@ export default function VerificationDetailsPage() {
                   placeholder="Street address"
                   style={{
                     ...inputBaseStyle(),
-                    ...(focusKey === "patient_address1" ? focusRingStyle() : {}),
+                    ...(focusKey === "patient_address1"
+                      ? focusRingStyle()
+                      : {}),
                   }}
                   onFocus={() => setFocusKey("patient_address1")}
                   onBlur={() => setFocusKey(null)}
@@ -455,7 +610,9 @@ export default function VerificationDetailsPage() {
                   placeholder="Apt / Suite (optional)"
                   style={{
                     ...inputBaseStyle(),
-                    ...(focusKey === "patient_address2" ? focusRingStyle() : {}),
+                    ...(focusKey === "patient_address2"
+                      ? focusRingStyle()
+                      : {}),
                   }}
                   onFocus={() => setFocusKey("patient_address2")}
                   onBlur={() => setFocusKey(null)}
@@ -524,13 +681,16 @@ export default function VerificationDetailsPage() {
                 marginBottom: 18,
                 padding: "12px 14px",
                 borderRadius: 12,
-                border: "1px solid rgba(148, 163, 184, 0.18)",
+                borderWidth: 1,
+                borderStyle: "solid",
+                borderColor: "rgba(148, 163, 184, 0.18)",
                 color: "#cbd5e1",
                 fontSize: 13,
                 background: "rgba(2, 6, 23, 0.35)",
               }}
             >
-              <strong style={{ color: "#ffffff" }}>Tip:</strong> For fastest approval, use the same name and address your doctor has on file.
+              <strong style={{ color: "#ffffff" }}>Tip:</strong> For fastest
+              approval, use the same name and address your doctor has on file.
             </div>
 
             <div className="hl-divider" />
@@ -549,22 +709,31 @@ export default function VerificationDetailsPage() {
               </h3>
 
               <div className="hl-helper">
-                Please supply enough information to help us identify your doctor or their office.
+                Please supply enough information to help us identify your doctor
+                or their office.
                 <br />
                 <strong>At minimum:</strong> doctor name and/or practice name.
               </div>
 
               <div className="hl-grid" style={{ marginBottom: 0 }}>
                 <div className="col" style={{ gridColumn: "span 6" }}>
-                  <label style={{ ...labelStyle(), color: "#1e293b" }}>Doctor name</label>
+                  <label style={{ ...labelStyle(), color: "#1e293b" }}>
+                    Doctor name
+                  </label>
                   <input
                     value={form.prescriber_name}
-                    onChange={(e) => setField("prescriber_name", e.target.value)}
+                    onChange={(e) =>
+                      setField("prescriber_name", e.target.value)
+                    }
                     placeholder="Dr. John Smith"
                     style={{
                       ...inputBaseStyle(),
-                      border: "1px solid rgba(15,23,42,0.12)",
-                      ...(focusKey === "prescriber_name" ? focusRingStyle() : {}),
+                      borderWidth: 1,
+                      borderStyle: "solid",
+                      borderColor: "rgba(15,23,42,0.12)",
+                      ...(focusKey === "prescriber_name"
+                        ? focusRingStyle()
+                        : {}),
                     }}
                     onFocus={() => setFocusKey("prescriber_name")}
                     onBlur={() => setFocusKey(null)}
@@ -572,15 +741,23 @@ export default function VerificationDetailsPage() {
                 </div>
 
                 <div className="col" style={{ gridColumn: "span 6" }}>
-                  <label style={{ ...labelStyle(), color: "#1e293b" }}>Practice name (optional)</label>
+                  <label style={{ ...labelStyle(), color: "#1e293b" }}>
+                    Practice name (optional)
+                  </label>
                   <input
                     value={form.prescriber_practice}
-                    onChange={(e) => setField("prescriber_practice", e.target.value)}
+                    onChange={(e) =>
+                      setField("prescriber_practice", e.target.value)
+                    }
                     placeholder="Family Vision Center"
                     style={{
                       ...inputBaseStyle(),
-                      border: "1px solid rgba(15,23,42,0.12)",
-                      ...(focusKey === "prescriber_practice" ? focusRingStyle() : {}),
+                      borderWidth: 1,
+                      borderStyle: "solid",
+                      borderColor: "rgba(15,23,42,0.12)",
+                      ...(focusKey === "prescriber_practice"
+                        ? focusRingStyle()
+                        : {}),
                     }}
                     onFocus={() => setFocusKey("prescriber_practice")}
                     onBlur={() => setFocusKey(null)}
@@ -588,15 +765,23 @@ export default function VerificationDetailsPage() {
                 </div>
 
                 <div className="col" style={{ gridColumn: "span 4" }}>
-                  <label style={{ ...labelStyle(), color: "#1e293b" }}>Phone (optional)</label>
+                  <label style={{ ...labelStyle(), color: "#1e293b" }}>
+                    Phone (optional)
+                  </label>
                   <input
                     value={form.prescriber_phone}
-                    onChange={(e) => setField("prescriber_phone", e.target.value)}
+                    onChange={(e) =>
+                      setField("prescriber_phone", e.target.value)
+                    }
                     placeholder="(555) 555-5555"
                     style={{
                       ...inputBaseStyle(),
-                      border: "1px solid rgba(15,23,42,0.12)",
-                      ...(focusKey === "prescriber_phone" ? focusRingStyle() : {}),
+                      borderWidth: 1,
+                      borderStyle: "solid",
+                      borderColor: "rgba(15,23,42,0.12)",
+                      ...(focusKey === "prescriber_phone"
+                        ? focusRingStyle()
+                        : {}),
                     }}
                     onFocus={() => setFocusKey("prescriber_phone")}
                     onBlur={() => setFocusKey(null)}
@@ -605,15 +790,23 @@ export default function VerificationDetailsPage() {
                 </div>
 
                 <div className="col" style={{ gridColumn: "span 4" }}>
-                  <label style={{ ...labelStyle(), color: "#1e293b" }}>City (optional)</label>
+                  <label style={{ ...labelStyle(), color: "#1e293b" }}>
+                    City (optional)
+                  </label>
                   <input
                     value={form.prescriber_city}
-                    onChange={(e) => setField("prescriber_city", e.target.value)}
+                    onChange={(e) =>
+                      setField("prescriber_city", e.target.value)
+                    }
                     placeholder="City"
                     style={{
                       ...inputBaseStyle(),
-                      border: "1px solid rgba(15,23,42,0.12)",
-                      ...(focusKey === "prescriber_city" ? focusRingStyle() : {}),
+                      borderWidth: 1,
+                      borderStyle: "solid",
+                      borderColor: "rgba(15,23,42,0.12)",
+                      ...(focusKey === "prescriber_city"
+                        ? focusRingStyle()
+                        : {}),
                     }}
                     onFocus={() => setFocusKey("prescriber_city")}
                     onBlur={() => setFocusKey(null)}
@@ -621,14 +814,22 @@ export default function VerificationDetailsPage() {
                 </div>
 
                 <div className="col" style={{ gridColumn: "span 4" }}>
-                  <label style={{ ...labelStyle(), color: "#1e293b" }}>State (optional)</label>
+                  <label style={{ ...labelStyle(), color: "#1e293b" }}>
+                    State (optional)
+                  </label>
                   <select
                     value={form.prescriber_state}
-                    onChange={(e) => setField("prescriber_state", e.target.value)}
+                    onChange={(e) =>
+                      setField("prescriber_state", e.target.value)
+                    }
                     style={{
                       ...inputBaseStyle(),
-                      border: "1px solid rgba(15,23,42,0.12)",
-                      ...(focusKey === "prescriber_state" ? focusRingStyle() : {}),
+                      borderWidth: 1,
+                      borderStyle: "solid",
+                      borderColor: "rgba(15,23,42,0.12)",
+                      ...(focusKey === "prescriber_state"
+                        ? focusRingStyle()
+                        : {}),
                     }}
                     onFocus={() => setFocusKey("prescriber_state")}
                     onBlur={() => setFocusKey(null)}
@@ -643,16 +844,24 @@ export default function VerificationDetailsPage() {
                 </div>
 
                 <div className="col" style={{ gridColumn: "span 12" }}>
-                  <label style={{ ...labelStyle(), color: "#1e293b" }}>Email (optional)</label>
+                  <label style={{ ...labelStyle(), color: "#1e293b" }}>
+                    Email (optional)
+                  </label>
                   <input
                     type="email"
                     value={form.prescriber_email}
-                    onChange={(e) => setField("prescriber_email", e.target.value)}
+                    onChange={(e) =>
+                      setField("prescriber_email", e.target.value)
+                    }
                     placeholder="Email"
                     style={{
                       ...inputBaseStyle(),
-                      border: "1px solid rgba(15,23,42,0.12)",
-                      ...(focusKey === "prescriber_email" ? focusRingStyle() : {}),
+                      borderWidth: 1,
+                      borderStyle: "solid",
+                      borderColor: "rgba(15,23,42,0.12)",
+                      ...(focusKey === "prescriber_email"
+                        ? focusRingStyle()
+                        : {}),
                     }}
                     onFocus={() => setFocusKey("prescriber_email")}
                     onBlur={() => setFocusKey(null)}
@@ -668,11 +877,15 @@ export default function VerificationDetailsPage() {
                 marginBottom: 18,
                 padding: "16px 16px",
                 borderRadius: 14,
-                border: "1px solid rgba(37, 99, 235, 0.35)",
+                borderWidth: 1,
+                borderStyle: "solid",
+                borderColor: "rgba(37, 99, 235, 0.35)",
                 background: "rgba(37, 99, 235, 0.08)",
               }}
             >
-              <div style={{ fontWeight: 900, color: "#ffffff", marginBottom: 8 }}>
+              <div
+                style={{ fontWeight: 900, color: "#ffffff", marginBottom: 8 }}
+              >
                 Optional: Faster & Lower-Cost Approval
               </div>
 
@@ -690,11 +903,15 @@ export default function VerificationDetailsPage() {
                 <input
                   type="checkbox"
                   checked={form.allow_lower_price_adjustment}
-                  onChange={(e) => setField("allow_lower_price_adjustment", e.target.checked)}
+                  onChange={(e) =>
+                    setField("allow_lower_price_adjustment", e.target.checked)
+                  }
                   style={{ marginTop: 3 }}
                 />
                 <span>
-                  If my doctor reduces the quantity or switches to a lower-cost equivalent, go ahead and adjust my order and charge the lower amount automatically.
+                  If my doctor reduces the quantity or switches to a lower-cost
+                  equivalent, go ahead and adjust my order and charge the lower
+                  amount automatically.
                   <div style={{ marginTop: 6, fontSize: 13, color: "#cbd5e1" }}>
                     We will never increase your price without your approval.
                   </div>
@@ -724,7 +941,9 @@ export default function VerificationDetailsPage() {
                 fontSize: 16,
                 border: "none",
                 cursor: submitting ? "not-allowed" : "pointer",
-                boxShadow: submitting ? "none" : "0 14px 42px rgba(37, 99, 235, 0.28)",
+                boxShadow: submitting
+                  ? "none"
+                  : "0 14px 42px rgba(37, 99, 235, 0.28)",
               }}
             >
               {submitting ? "Sending…" : "Send to Doctor"}

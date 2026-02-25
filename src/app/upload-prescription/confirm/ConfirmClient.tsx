@@ -28,6 +28,13 @@ type OcrApiResponse = {
     doctor_name?: string;
     prescriber_phone?: string;
   };
+  ocr_meta?: {
+    brand_constraints?: {
+      lockedManufacturer?: string | null;
+      boostManufacturers?: string[];
+      matchedTokens?: string[];
+    };
+  };
 };
 
 type EyeRxDraft = {
@@ -59,7 +66,8 @@ type OcrExtract = {
 
 export default function ConfirmClient() {
   const searchParams = useSearchParams();
-  const orderId = searchParams.get("orderId");
+  const orderIdParam = searchParams.get("orderId");
+  const orderId = orderIdParam ?? "";
   const source = searchParams.get("source");
 
   const [loading, setLoading] = useState<boolean>(true);
@@ -79,10 +87,7 @@ export default function ConfirmClient() {
         } = await supabase.auth.getSession();
 
         const accessToken = session?.access_token;
-
-        if (!accessToken) {
-          throw new Error("No auth session found");
-        }
+        if (!accessToken) throw new Error("No auth session found");
 
         const res = await fetch(`/api/orders/${orderId}/rx-ocr`, {
           method: "GET",
@@ -103,9 +108,10 @@ export default function ConfirmClient() {
         }
 
         const ocr = data.ocr_json;
+        const constraints = data.ocr_meta?.brand_constraints;
 
         // -----------------------------
-        // Structural detection (Rx-based)
+        // Structural detection
         // -----------------------------
 
         const hasCyl =
@@ -115,20 +121,33 @@ export default function ConfirmClient() {
         const hasAdd = !!ocr.right?.add || !!ocr.left?.add;
 
         // -----------------------------
-        // Brand Resolution
+        // Brand Resolution (Token Lock)
         // -----------------------------
 
         let proposedLensId: string | null = null;
         let proposalConfidence: "high" | "low" | null = null;
 
         if (ocr.brand_raw) {
+          let candidateLenses = rawLenses;
+
+          const lockTokens = constraints?.matchedTokens ?? [];
+
+          // 🔒 HARD LOCK: filter lenses that contain at least one matched LOCK token
+          if (constraints?.lockedManufacturer && lockTokens.length > 0) {
+            candidateLenses = rawLenses.filter((lens) => {
+              const combined = `${lens.brand} ${lens.name}`.toLowerCase();
+
+              return lockTokens.some((token) => combined.includes(token));
+            });
+          }
+
           const result = resolveBrand(
             {
               rawString: ocr.brand_raw,
               hasCyl,
               hasAdd,
             },
-            rawLenses,
+            candidateLenses,
           );
 
           proposedLensId = result.lensId;
@@ -182,9 +201,7 @@ export default function ConfirmClient() {
           }
         }
       } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+        if (isMounted) setLoading(false);
       }
     }
 
@@ -209,10 +226,7 @@ export default function ConfirmClient() {
 
   return (
     <div className="pt-16 px-6 max-w-5xl mx-auto">
-      {/* <h1 className="confirm-title">Confirm Your Prescription</h1> */}
-
       <RxForm
-        orderId={orderId}
         mode="ocr"
         initialDraft={initialDraft}
         ocrExtract={ocrExtract}

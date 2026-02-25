@@ -33,11 +33,17 @@ function isNonEmpty(s: unknown): s is string {
 
 export async function POST(req: Request) {
   try {
+    /* =========================
+       1️⃣ Auth
+    ========================= */
     const user = await getUserFromRequest(req);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    /* =========================
+       2️⃣ Parse body
+    ========================= */
     const raw = (await req.json().catch(() => null)) as unknown;
     if (!raw || typeof raw !== "object") {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
@@ -46,7 +52,7 @@ export async function POST(req: Request) {
     const body = raw as Partial<Body>;
 
     /* =========================
-       Validate required fields
+       3️⃣ Validate required fields
     ========================= */
 
     const required: Array<keyof Body> = [
@@ -82,7 +88,7 @@ export async function POST(req: Request) {
     }
 
     /* =========================
-       Require doctor name OR practice
+       4️⃣ Require doctor name OR practice
     ========================= */
 
     const hasName = isNonEmpty(body.prescriber_name);
@@ -96,21 +102,22 @@ export async function POST(req: Request) {
     }
 
     /* =========================
-       Find latest pending/authorized order
+       5️⃣ Find latest AUTHORIZED order
+       (pending no longer used in payment lifecycle)
     ========================= */
 
     const { data: order, error: orderError } = await supabaseServer
       .from("orders")
       .select("id, status")
       .eq("user_id", user.id)
-      .in("status", ["pending", "authorized"])
+      .eq("status", "authorized")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
     if (orderError || !order) {
       return NextResponse.json(
-        { error: "No pending order found" },
+        { error: "No authorized order found" },
         { status: 400 }
       );
     }
@@ -118,7 +125,7 @@ export async function POST(req: Request) {
     const nowIso = new Date().toISOString();
 
     /* =========================
-       Save details
+       6️⃣ Persist verification details
     ========================= */
 
     const { error: updateError } = await supabaseServer
@@ -168,7 +175,7 @@ export async function POST(req: Request) {
     }
 
     /* =========================
-       Trigger verification send
+       7️⃣ Trigger verification email
     ========================= */
 
     const baseUrl =

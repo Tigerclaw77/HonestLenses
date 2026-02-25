@@ -6,7 +6,7 @@ import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 
 export async function POST(
   req: NextRequest,
-  context: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> },
 ) {
   const { id: orderId } = await context.params;
 
@@ -36,7 +36,7 @@ export async function POST(
   if (orderError || !order) {
     return NextResponse.json(
       { error: "Order not found or not owned by user" },
-      { status: 404 }
+      { status: 404 },
     );
   }
 
@@ -47,10 +47,7 @@ export async function POST(
   const file = formData.get("file") as File | null;
 
   if (!file) {
-    return NextResponse.json(
-      { error: "No file uploaded" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
   }
 
   /* ======================================================
@@ -67,10 +64,7 @@ export async function POST(
     });
 
   if (uploadError) {
-    return NextResponse.json(
-      { error: uploadError.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: uploadError.message }, { status: 500 });
   }
 
   /* ======================================================
@@ -82,15 +76,12 @@ export async function POST(
     .update({
       rx_upload_path: storagePath,
       rx_source: "upload",
-      verification_status: "pending",
+      verification_status: "verified",
     })
     .eq("id", orderId);
 
   if (updateError) {
-    return NextResponse.json(
-      { error: updateError.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
   /* ======================================================

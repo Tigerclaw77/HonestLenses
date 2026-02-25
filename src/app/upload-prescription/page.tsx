@@ -7,7 +7,6 @@ import Link from "next/link";
 import Header from "../../components/Header";
 
 const LS_ORDER_ID = "rx_upload_order_id";
-const LS_FILENAME = "rx_upload_filename";
 
 export default function UploadPrescriptionPage() {
   const router = useRouter();
@@ -15,7 +14,7 @@ export default function UploadPrescriptionPage() {
 
   const [file, setFile] = useState<File | null>(null);
   const [existingOrderId, setExistingOrderId] = useState<string | null>(null);
-  const [existingFilename, setExistingFilename] = useState<string | null>(null);
+  // const [existingFilename, setExistingFilename] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,16 +22,14 @@ export default function UploadPrescriptionPage() {
   // 🔁 Restore local state on mount
   useEffect(() => {
     const savedOrderId = localStorage.getItem(LS_ORDER_ID);
-    const savedFilename = localStorage.getItem(LS_FILENAME);
 
     if (savedOrderId) setExistingOrderId(savedOrderId);
-    if (savedFilename) setExistingFilename(savedFilename);
+    // if (savedFilename) setExistingFilename(savedFilename);
   }, []);
 
   function handleFileSelected(selected: File | null) {
     if (!selected) return;
     setFile(selected);
-    localStorage.setItem(LS_FILENAME, selected.name);
   }
 
   async function submitUpload() {
@@ -52,7 +49,25 @@ export default function UploadPrescriptionPage() {
       }
 
       // 1️⃣ Create or reuse order
-      let orderId = existingOrderId;
+      let orderId: string | null = null;
+
+      if (existingOrderId) {
+        const { data } = await supabase
+          .from("orders")
+          .select("id, status, user_id")
+          .eq("id", existingOrderId)
+          .maybeSingle();
+
+        if (
+          data &&
+          data.user_id === session.user.id &&
+          data.status === "draft"
+        ) {
+          orderId = data.id;
+        } else {
+          localStorage.removeItem(LS_ORDER_ID);
+        }
+      }
 
       if (!orderId) {
         const orderRes = await fetch("/api/orders", {
@@ -95,7 +110,6 @@ export default function UploadPrescriptionPage() {
       }
 
       // 3️⃣ Persist success + filename
-      localStorage.setItem(LS_FILENAME, file.name);
 
       await fetch(`/api/orders/${orderId}/rx-ocr`, {
         method: "POST",
@@ -143,16 +157,49 @@ export default function UploadPrescriptionPage() {
                 Drag & drop here, or tap to upload / take a photo
               </p>
 
-              {existingFilename && !file && (
+              {/* {existingFilename && !file && (
                 <p className="rx-filename">
                   Previously selected: <strong>{existingFilename}</strong>
                 </p>
-              )}
+              )} */}
 
               {file && (
-                <p className="rx-filename">
-                  Selected file: <strong>{file.name}</strong>
-                </p>
+                <div
+                  className="rx-filename"
+                  style={{
+                    marginBottom: 24,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <span>
+                    Selected file: <strong>{file.name}</strong>
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFile(null);
+                      if (fileInputRef.current) {
+                        fileInputRef.current.value = "";
+                      }
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: "#f87171",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      fontSize: 14,
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
               )}
 
               <input
@@ -192,7 +239,16 @@ export default function UploadPrescriptionPage() {
                 form.
               </p>
 
-              <Link href="/enter-prescription" className="primary-btn">
+              <Link
+                href="/enter-prescription"
+                className="primary-btn"
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  textAlign: "center",
+                }}
+              >
                 Enter prescription manually
               </Link>
             </div>

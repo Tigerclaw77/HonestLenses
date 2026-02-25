@@ -10,6 +10,7 @@ import ColorSelector from "../components/ColorSelector";
 import { getColorOptions } from "../data/lensColors";
 import { lenses } from "../data/lenses";
 import { getLensDisplayName } from "../lib/cart/display";
+import ExpirationDatePicker from "@/components/ExpirationDatePicker";
 
 /* =========================
    Types
@@ -69,19 +70,19 @@ type OcrExtract = {
   patientName?: string;
   doctorName?: string;
   doctorPhone?: string;
-  issuedDate?: string; // 🔹 add this (you’re displaying issued)
-  expires?: string; // 🔹 helpful for consistency
+  issuedDate?: string;
+  expires?: string;
   rawText?: string;
   proposedLensId?: string | null;
   proposalConfidence?: "high" | "low" | null;
 };
 
 type Props = {
-  orderId: string; // 🔹 make required (Confirm flow depends on it)
-  mode?: RxFormMode; // manual | ocr
-  initialDraft?: RxDraft; // pre-filled draft (OCR → mapped to draft format)
-  ocrExtract?: OcrExtract; // extracted metadata block
+  mode?: RxFormMode;
+  initialDraft?: RxDraft;
+  ocrExtract?: OcrExtract;
 };
+
 /* =========================
    Numeric Formatters
 ========================= */
@@ -122,25 +123,19 @@ function validateEye(
 
   const e: EyeFieldErrorMap = {};
 
-  // Lens required if anything entered for eye
   if (!d.lens_id || !lensObj) e.lens = true;
-
-  // Sphere required once an eye is being entered
   if (!d.sph) e.sph = true;
 
-  // Toric requires CYL + AXIS
   if (lensObj?.toric) {
     if (!d.cyl) e.cyl = true;
     if (!d.axis) e.axis = true;
   }
 
-  // Multifocal requires ADD if options exist
   if (lensObj?.multifocal) {
     const opts = resolveAddOptions(lensObj);
     if (opts.length > 0 && !d.add) e.add = true;
   }
 
-  // Base curve required if multiBC, or if lens has no bc data
   if (lensObj?.multiBC) {
     if (!d.bc) e.bc = true;
   } else {
@@ -148,7 +143,6 @@ function validateEye(
     if (!bc0) e.bc = true;
   }
 
-  // Color required if options exist
   if (colorOptions.length > 0 && !d.color) e.color = true;
 
   return Object.keys(e).length ? e : null;
@@ -159,7 +153,6 @@ function validateEye(
 ========================= */
 
 export default function RxForm({
-  orderId,
   mode = "manual",
   initialDraft,
   ocrExtract,
@@ -169,7 +162,6 @@ export default function RxForm({
   const [loading, setLoading] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
-  // field-level validation state
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({});
 
   /* =========================
@@ -197,15 +189,33 @@ export default function RxForm({
   const [expires, setExpires] = useState("");
 
   const proposedLensId = ocrExtract?.proposedLensId ?? null;
-  // const proposalConfidence = ocrExtract?.proposalConfidence ?? null;
+  const hasProposal = Boolean(proposedLensId);
 
-  const [proposalAck, setProposalAck] = useState<boolean>(
-    mode !== "ocr" || !proposedLensId,
-  );
-  const locked = mode === "ocr" && proposedLensId && !proposalAck;
-  const [showLensDropdown, setShowLensDropdown] = useState<boolean>(
-    mode !== "ocr",
-  );
+  // Gate: user must acknowledge detected lens before editing Rx values (OCR mode only)
+  const [proposalAck, setProposalAck] = useState<boolean>(mode !== "ocr");
+
+  // Instead of showLensDropdown: track whether we are using the proposed lens (hides dropdown)
+  const [useProposedLens, setUseProposedLens] = useState<boolean>(() => {
+    if (mode !== "ocr") return false;
+    return Boolean(proposedLensId);
+  });
+
+  const [ocrError, setOcrError] = useState(false);
+
+  const locked = mode === "ocr" && hasProposal && !proposalAck;
+
+  // Derived “should show dropdown” (manual always shows; OCR shows when user chose manual OR no proposal)
+  const showLensDropdown = mode !== "ocr" || !hasProposal || !useProposedLens;
+
+  // Lens card state machine (OCR mode only)
+  const lensCardState: "error" | "suggested" | "manual" | "confirmed" =
+    ocrError || !hasProposal
+      ? "error"
+      : !proposalAck
+        ? "suggested"
+        : useProposedLens
+          ? "confirmed"
+          : "manual";
 
   // OCR-only meta (does not exist for manual entry)
   const [patientName, setPatientName] = useState(
@@ -219,16 +229,6 @@ export default function RxForm({
   );
 
   const [confirmGlow, setConfirmGlow] = useState(false);
-
-  const [ocrError, setOcrError] = useState(false);
-
-  const lensCardState = ocrError
-    ? "error"
-    : proposalAck && showLensDropdown
-      ? "manual"
-      : proposalAck && !showLensDropdown
-        ? "confirmed"
-        : "suggested";
 
   const rightLens = lenses.find((l) => l.lens_id === rightlens_id);
   const leftLens = lenses.find((l) => l.lens_id === leftlens_id);
@@ -315,12 +315,10 @@ export default function RxForm({
   }, [applyDraft]);
 
   useEffect(() => {
-    // OCR mode: we do NOT load/overwrite from localStorage
     if (mode === "ocr") {
       setHydrated(true);
       return;
     }
-
     restoreDraftFromLocalStorage();
   }, [mode, restoreDraftFromLocalStorage]);
 
@@ -334,20 +332,18 @@ export default function RxForm({
 
     applyDraft(initialDraft);
 
-    applyDraft(initialDraft);
-
-    // 🔴 TEMP: force OCR error for testing
-    // setOcrError(true);
-    // setShowLensDropdown(true);
-    // setProposalAck(true);
-
     const noSphereDetected =
       !initialDraft?.right?.sph && !initialDraft?.left?.sph;
 
     if (noSphereDetected) {
       setOcrError(true);
-      setShowLensDropdown(true);
       setProposalAck(true);
+      setUseProposedLens(false); // force dropdown (manual pick)
+    } else {
+      // Normal OCR path: if we have proposal, default to using it; else force manual
+      setOcrError(false);
+      setUseProposedLens(Boolean(proposedLensId));
+      setProposalAck(!Boolean(proposedLensId));
     }
 
     // meta from OCR
@@ -356,39 +352,26 @@ export default function RxForm({
     setDoctorPhone(ocrExtract?.doctorPhone ?? "");
 
     setHydrated(true);
-  }, [
-    mode,
-    initialDraft,
-    applyDraft,
-    ocrExtract?.patientName,
-    ocrExtract?.doctorName,
-    ocrExtract?.doctorPhone,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, initialDraft, applyDraft]);
 
   function resetToOcr() {
     if (mode !== "ocr" || !initialDraft) return;
 
-    // Snapshot current OCR extract to avoid re-reading optional chain
     const extract = ocrExtract;
 
-    // 1️⃣ Restore field values from original OCR draft
     applyDraft(initialDraft);
 
-    // 2️⃣ Restore extracted metadata
     setPatientName(extract?.patientName ?? "");
     setDoctorName(extract?.doctorName ?? "");
     setDoctorPhone(extract?.doctorPhone ?? "");
 
-    // 3️⃣ Re-lock proposal gate properly
-    const hasProposal = Boolean(extract?.proposedLensId);
+    const hasProp = Boolean(extract?.proposedLensId);
 
-    // If there was a detected lens, require acknowledgement again
-    setProposalAck(!hasProposal);
+    setOcrError(false);
+    setProposalAck(!hasProp);
+    setUseProposedLens(hasProp);
 
-    // Only show dropdown immediately if there was NO proposal
-    setShowLensDropdown(!hasProposal);
-
-    // 4️⃣ Clear validation highlights
     setFieldErrors({});
   }
 
@@ -553,6 +536,20 @@ export default function RxForm({
     );
   }
 
+  function isValidFutureExpiration(value: string): boolean {
+    if (!value) return false;
+
+    const parsed = new Date(value);
+    if (isNaN(parsed.getTime())) return false;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    parsed.setHours(0, 0, 0, 0);
+
+    return parsed >= today;
+  }
+
   const validateAll = useCallback((): FieldErrorMap => {
     const map: FieldErrorMap = {};
 
@@ -579,14 +576,14 @@ export default function RxForm({
     const rightTouched = isEyeTouched(rightDraft);
     const leftTouched = isEyeTouched(leftDraft);
 
-    // Require at least one eye (GLOBAL flag only)
     if (!rightTouched && !leftTouched) {
       map.noneEntered = true;
       return map;
     }
 
-    // Expiration required if any eye is entered
-    if (!expires) map.expires = true;
+    if (!isValidFutureExpiration(expires)) {
+      map.expires = true;
+    }
 
     const rErr = validateEye(rightDraft, rightLens, rightColorOptions);
     if (rErr) map.right = rErr;
@@ -620,16 +617,6 @@ export default function RxForm({
   /* =========================
      Submit
   ========================= */
-
-  // useEffect(() => {
-  //   if (!rightLens) return;
-  //   if (rightColor && rightColorOptions.length === 0) setRightColor("");
-  // }, [rightLens, rightColor, rightColorOptions]);
-
-  // useEffect(() => {
-  //   if (!leftLens) return;
-  //   if (leftColor && leftColorOptions.length === 0) setLeftColor("");
-  // }, [leftLens, leftColor, leftColorOptions]);
 
   async function submitRx() {
     if (loading) return;
@@ -689,17 +676,7 @@ export default function RxForm({
         return;
       }
 
-      console.log("🟦 [RxForm] session present?", Boolean(session));
-
-      /* =========================================================
-       🔑 ALWAYS RESOLVE A DRAFT ORDER FIRST
-    ========================================================== */
-
       const finalOrderId = await getOrCreateDraftOrder(session.access_token);
-
-      console.log("🟦 [RxForm] orderId =", finalOrderId);
-
-      /* ========================================================= */
 
       const rx: RxPayload & {
         patient_name?: string;
@@ -741,8 +718,6 @@ export default function RxForm({
         rx.prescriber_phone = doctorPhone || undefined;
       }
 
-      console.log("🟦 [RxForm] POST /api/orders/:id/rx payload =", rx);
-
       const rxRes = await fetch(`/api/orders/${finalOrderId}/rx`, {
         method: "POST",
         headers: {
@@ -752,8 +727,6 @@ export default function RxForm({
         body: JSON.stringify(rx),
         cache: "no-store",
       });
-
-      console.log("🟦 [RxForm] /api/orders/:id/rx status =", rxRes.status);
 
       let rxBody: unknown = null;
       try {
@@ -767,21 +740,11 @@ export default function RxForm({
         throw new Error("Prescription submission failed");
       }
 
-      /* =========================================================
-       🔑 RESOLVE CART PRICING
-    ========================================================== */
-
-      console.log("🟦 [RxForm] POST /api/cart/resolve");
-
       const resolveRes = await fetch("/api/cart/resolve", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { Authorization: `Bearer ${session.access_token}` },
         cache: "no-store",
       });
-
-      console.log("🟦 [RxForm] /api/cart/resolve status =", resolveRes.status);
 
       let resolveBody: unknown = null;
       try {
@@ -799,13 +762,11 @@ export default function RxForm({
         throw new Error("Cart resolve failed");
       }
 
-      console.log("🟩 [RxForm] resolve OK → redirecting to /cart");
       router.push("/cart");
     } catch (err) {
       console.error("🔴 [RxForm] submitRx error:", err);
     } finally {
       setLoading(false);
-      console.log("🟦 [RxForm] submitRx end");
     }
   }
 
@@ -829,7 +790,7 @@ export default function RxForm({
     setRightCyl(leftCyl);
     setRightAxis(leftAxis);
     setRightAdd(leftAdd);
-    setRightBC(leftBC);
+    setRightBC(rightBC);
     setRightColor(leftColor);
   }
 
@@ -854,112 +815,97 @@ export default function RxForm({
             >
               <h3 style={{ marginBottom: 12 }}>Scanned prescription details</h3>
 
-              {/* =============================
-       PHASE 3 – Detected Lens Gate
-    ============================== */}
-
-              {proposedLensId && (
-                <div
-                  style={{
-                    fontSize: "0.95rem",
-                    fontWeight: 400,
-                    letterSpacing: "0.4px",
-                  }}
-                  className={`order-card detected-lens-card ${lensCardState} ${
-                    confirmGlow ? "pulse-confirm" : ""
-                  }`}
-                >
-                  {/* <div className="text-sm text-neutral-400 mb-1">
-                    Detected lens
-                  </div> */}
-
-                  {!proposalAck && (
-                    <div className="proposal-row">
-                      <div className="proposal-meta">
-                        <div className="proposal-label">Detected lens</div>
-                        <div className="proposal-name">
-                          {getLensDisplayName(proposedLensId!, null)}
-                        </div>
+              <div
+                style={{
+                  fontSize: "0.95rem",
+                  fontWeight: 400,
+                  letterSpacing: "0.4px",
+                }}
+                className={`order-card detected-lens-card ${lensCardState} ${
+                  confirmGlow ? "pulse-confirm" : ""
+                }`}
+              >
+                {proposedLensId && lensCardState === "suggested" && (
+                  <div className="proposal-row">
+                    <div className="proposal-meta">
+                      <div className="proposal-label">Detected lens</div>
+                      <div className="proposal-name">
+                        {getLensDisplayName(proposedLensId, null)}
                       </div>
+                    </div>
 
-                      <div className="proposal-actions">
-                        <button
-                          type="button"
-                          className="proposal-confirm"
-                          onClick={() => {
-                            setConfirmGlow(true);
+                    <div className="proposal-actions">
+                      <button
+                        type="button"
+                        className="proposal-confirm"
+                        onClick={() => {
+                          setConfirmGlow(true);
+                          setProposalAck(true);
+                          setUseProposedLens(true);
 
-                            setProposalAck(true);
-                            setShowLensDropdown(false);
-
-                            setTimeout(() => {
-                              setConfirmGlow(false);
-                            }, 900);
-                          }}
-                        >
-                          Use this lens
-                        </button>
-
-                        <button
-                          type="button"
-                          className="proposal-change"
-                          onClick={() => {
+                          setTimeout(() => {
                             setConfirmGlow(false);
-                            setProposalAck(true);
-                            setShowLensDropdown(true);
-                          }}
-                        >
-                          Select different lens
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {lensCardState === "confirmed" && (
-                    <div className="rx-hint mt-2">
-                      <span
-                        style={{
-                          fontSize: "0.95rem",
-                          fontWeight: 600,
-                          letterSpacing: "0.25px",
+                          }, 900);
                         }}
                       >
-                        ✓ Lens brand confirmed
-                      </span>
-                    </div>
-                  )}
+                        Use this lens
+                      </button>
 
-                  {lensCardState === "manual" && (
-                    <div className="rx-hint mt-2">
-                      <span style={{ fontSize: "0.9rem", fontWeight: 500 }}>
-                        Please select the lens brand exactly as written on your
-                        prescription below. A licensed optometrist will review
-                        the selection before shipping.
-                      </span>
-                    </div>
-                  )}
-
-                  {lensCardState === "error" && (
-                    <div className="rx-hint mt-2 ">
-                      <span
-                        style={{
-                          fontSize: "0.95rem",
-                          fontWeight: 400,
-                          letterSpacing: "0.25px",
+                      <button
+                        type="button"
+                        className="proposal-change"
+                        onClick={() => {
+                          setConfirmGlow(false);
+                          setProposalAck(true);
+                          setUseProposedLens(false);
                         }}
                       >
-                        We couldn’t confidently extract prescription values from
-                        the uploaded image. Please enter them manually below. A
-                        licensed optometrist will verify before shipping.
-                      </span>
+                        Select different lens
+                      </button>
                     </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
 
-              {/* =============================
-       OCR Metadata Fields
-    ============================== */}
+                {lensCardState === "confirmed" && (
+                  <div className="rx-hint mt-2">
+                    <span
+                      style={{
+                        fontSize: "0.95rem",
+                        fontWeight: 600,
+                        letterSpacing: "0.25px",
+                      }}
+                    >
+                      ✓ Lens brand confirmed
+                    </span>
+                  </div>
+                )}
+
+                {lensCardState === "manual" && (
+                  <div className="rx-hint mt-2">
+                    <span style={{ fontSize: "0.9rem", fontWeight: 500 }}>
+                      Please select the lens brand exactly as written on your
+                      prescription below. A licensed optometrist will review the
+                      selection before shipping.
+                    </span>
+                  </div>
+                )}
+
+                {lensCardState === "error" && (
+                  <div className="rx-hint mt-2">
+                    <span
+                      style={{
+                        fontSize: "0.95rem",
+                        fontWeight: 400,
+                        letterSpacing: "0.25px",
+                      }}
+                    >
+                      We couldn’t confidently extract prescription values from
+                      the uploaded image. Please enter them manually below. A
+                      licensed optometrist will verify before shipping.
+                    </span>
+                  </div>
+                )}
+              </div>
 
               <div className="rx-meta-grid" style={{ marginBottom: 12 }}>
                 <div className="rx-field">
@@ -970,9 +916,6 @@ export default function RxForm({
                     onChange={(e) => setPatientName(e.target.value)}
                     placeholder="Patient name"
                   />
-                  {/* <div className="rx-hint">
-                    Optional — used only for the uploaded Rx flow.
-                  </div> */}
                 </div>
 
                 <div className="rx-field">
@@ -983,9 +926,6 @@ export default function RxForm({
                     onChange={(e) => setDoctorName(e.target.value)}
                     placeholder="Doctor name"
                   />
-                  {/* <div className="rx-hint">
-                    Optional — used only for the uploaded Rx flow.
-                  </div> */}
                 </div>
 
                 <div className="rx-field">
@@ -996,9 +936,6 @@ export default function RxForm({
                     onChange={(e) => setDoctorPhone(e.target.value)}
                     placeholder="(###) ###-####"
                   />
-                  {/* <div className="rx-hint">
-                    Used for verification.
-                  </div> */}
                 </div>
               </div>
 
@@ -1015,14 +952,6 @@ export default function RxForm({
           )}
 
           <div className="order-card">
-            {/* 🔴 OCR Failure Notice */}
-            {/* {mode === "ocr" && ocrError && (
-              <div className="rx-eye-error" style={{ marginBottom: 12 }}>
-                We couldn’t detect valid prescription values from the uploaded
-                image. Please enter your prescription manually below.
-              </div>
-            )} */}
-
             {fieldErrors.noneEntered && (
               <div className="rx-eye-error">
                 Please enter a prescription for at least one eye.
@@ -1033,7 +962,7 @@ export default function RxForm({
             <div className="rx-eye-header">
               <h3 className="rx-eye-title">Right Eye (OD)</h3>
 
-              {mode === "manual" && (
+              {(mode === "manual" || lensCardState === "error") && (
                 <button
                   type="button"
                   className="copy-eye-btn"
@@ -1067,24 +996,18 @@ export default function RxForm({
                   )}
 
                   {mode !== "ocr" || showLensDropdown ? (
-                    <>
-                      <select
-                        className={cls("lens-select", fieldErrors.right?.lens)}
-                        value={rightlens_id}
-                        onChange={(e) => setRightlens_id(e.target.value)}
-                      >
-                        <option value="">Select lens</option>
-                        {lenses.map((l) => (
-                          <option key={l.lens_id} value={l.lens_id}>
-                            {getLensDisplayName(l.lens_id, null)}
-                          </option>
-                        ))}
-                      </select>
-
-                      <div className="rx-hint">
-                        Have our licensed optometrist confirm it.
-                      </div>
-                    </>
+                    <select
+                      className={cls("lens-select", fieldErrors.right?.lens)}
+                      value={rightlens_id}
+                      onChange={(e) => setRightlens_id(e.target.value)}
+                    >
+                      <option value="">Select lens</option>
+                      {lenses.map((l) => (
+                        <option key={l.lens_id} value={l.lens_id}>
+                          {getLensDisplayName(l.lens_id, null)}
+                        </option>
+                      ))}
+                    </select>
                   ) : (
                     <>
                       <input
@@ -1111,6 +1034,7 @@ export default function RxForm({
                     placeholder="Sphere*"
                     value={rightSph}
                     disabled={mode === "ocr" && !proposalAck}
+                    style={{ paddingRight: 2 }}
                     onChange={(e) => {
                       setRightSph(
                         e.target.value === ""
@@ -1245,7 +1169,7 @@ export default function RxForm({
             <div className="rx-eye-header">
               <h3 className="rx-eye-title">Left Eye (OS)</h3>
 
-              {mode === "manual" && (
+              {(mode === "manual" || lensCardState === "error") && (
                 <button
                   type="button"
                   className="copy-eye-btn"
@@ -1279,24 +1203,18 @@ export default function RxForm({
                   )}
 
                   {mode !== "ocr" || showLensDropdown ? (
-                    <>
-                      <select
-                        className={cls("lens-select", fieldErrors.left?.lens)}
-                        value={leftlens_id}
-                        onChange={(e) => setLeftlens_id(e.target.value)}
-                      >
-                        <option value="">Select lens</option>
-                        {lenses.map((l) => (
-                          <option key={l.lens_id} value={l.lens_id}>
-                            {getLensDisplayName(l.lens_id, null)}
-                          </option>
-                        ))}
-                      </select>
-
-                      <div className="rx-hint">
-                        Have our licensed optometrist confirm it.
-                      </div>
-                    </>
+                    <select
+                      className={cls("lens-select", fieldErrors.left?.lens)}
+                      value={leftlens_id}
+                      onChange={(e) => setLeftlens_id(e.target.value)}
+                    >
+                      <option value="">Select lens</option>
+                      {lenses.map((l) => (
+                        <option key={l.lens_id} value={l.lens_id}>
+                          {getLensDisplayName(l.lens_id, null)}
+                        </option>
+                      ))}
+                    </select>
                   ) : (
                     <>
                       <input
@@ -1322,6 +1240,8 @@ export default function RxForm({
                     step="0.25"
                     placeholder="Sphere*"
                     value={leftSph}
+                    disabled={mode === "ocr" && !proposalAck}
+                    style={{ paddingRight: 2 }}
                     onChange={(e) => {
                       setLeftSph(
                         e.target.value === ""
@@ -1449,14 +1369,16 @@ export default function RxForm({
             <div className="rx-footer-row">
               <div className="rx-expiration">
                 <label htmlFor="expires">Expiration date</label>
-                <input
-                  id="expires"
-                  type="date"
-                  className={fieldErrors.expires ? "rx-error" : ""}
-                  value={expires}
-                  onChange={(e) => setExpires(e.target.value)}
-                  required
-                />
+                <ExpirationDatePicker
+  value={expires}
+  onChange={setExpires}
+  hasError={fieldErrors.expires}
+/>
+                {fieldErrors.expires && (
+                  <div className="rx-hint" style={{ marginTop: 4 }}>
+                    A valid, unexpired prescription date is required to proceed.
+                  </div>
+                )}
               </div>
 
               <button

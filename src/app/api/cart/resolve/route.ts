@@ -11,7 +11,7 @@ import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
    Constants
 ========================= */
 
-const MIN_DAYS_FOR_ANNUAL = 150; // ~5 months
+const MIN_DAYS_FOR_ANNUAL = 150; // ~5 months remaining
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 /* =========================
@@ -23,7 +23,7 @@ type EyeRx = {
 };
 
 type RxData = {
-  expires: string;
+  expires: string; // YYYY-MM-DD
   right?: EyeRx;
   left?: EyeRx;
 };
@@ -31,7 +31,6 @@ type RxData = {
 type ResolveBody = {
   right_box_count?: number;
   left_box_count?: number;
-  box_count?: number;
 };
 
 /* =========================
@@ -79,11 +78,9 @@ function isResolveBody(value: unknown): value is ResolveBody {
 
   const r = value.right_box_count;
   const l = value.left_box_count;
-  const b = value.box_count;
 
   if (r !== undefined && r !== null && !isFiniteNonNegativeInt(r)) return false;
   if (l !== undefined && l !== null && !isFiniteNonNegativeInt(l)) return false;
-  if (b !== undefined && b !== null && !isFiniteNonNegativeInt(b)) return false;
 
   return true;
 }
@@ -92,12 +89,29 @@ function isResolveBody(value: unknown): value is ResolveBody {
    Helpers
 ========================= */
 
+/**
+ * Returns whole days until expiration, using date-only (UTC midnight) math.
+ * - expires is valid through the expiration date (remainingDays = 0 is allowed)
+ * - becomes invalid starting the day AFTER expiration (remainingDays < 0)
+ */
 function daysUntil(expires: string): number {
-  const exp = new Date(expires);
-  if (Number.isNaN(exp.getTime())) {
-    throw new Error("Invalid RX expiration date");
-  }
-  return Math.floor((exp.getTime() - Date.now()) / MS_PER_DAY);
+  // expects YYYY-MM-DD
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(expires);
+  if (!m) throw new Error("Invalid RX expiration date");
+
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+
+  const expUTC = Date.UTC(y, mo - 1, d);
+  const now = new Date();
+  const todayUTC = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+  );
+
+  return Math.floor((expUTC - todayUTC) / MS_PER_DAY);
 }
 
 function clamp(n: number, min: number, max: number): number {
@@ -112,11 +126,6 @@ async function safeJson(req: Request): Promise<unknown> {
   } catch {
     return null;
   }
-}
-
-function wasPreviouslyExplicit(price_reason: unknown): boolean {
-  if (typeof price_reason !== "string") return false;
-  return price_reason.includes("explicitQty=true");
 }
 
 /* =========================
@@ -134,31 +143,22 @@ export async function POST(req: Request) {
   const rawBody = await safeJson(req);
   const body: ResolveBody | null = isResolveBody(rawBody) ? rawBody : null;
 
-  const hasExplicitQty =
-    body !== null &&
-    (isFiniteNonNegativeInt(body.right_box_count) ||
-      isFiniteNonNegativeInt(body.left_box_count));
-
-  /* ---------- Load active order ---------- */
-
-  const { data: initialOrder, error } = await supabaseServer
+  /* ---------- Load draft order ---------- */
+  const { data: order, error } = await supabaseServer
     .from("orders")
     .select(
       `
-    id,
-    user_id,
-    status,
-    rx,
-    sku,
-    box_count,
-    right_box_count,
-    left_box_count,
-    price_reason,
-    created_at
-    `,
+      id,
+      user_id,
+      status,
+      rx,
+      sku,
+      right_box_count,
+      left_box_count
+      `,
     )
     .eq("user_id", user.id)
-    .in("status", ["draft", "pending"])
+    .eq("status", "draft")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -167,53 +167,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  let order = initialOrder;
-
-  /* ---------- If no active order → create draft ---------- */
   if (!order?.id) {
-    const { data: created, error: createErr } = await supabaseServer
-      .from("orders")
-      .insert({
-        user_id: user.id,
-        status: "draft",
-        rx: null,
-        sku: null,
-        box_count: null,
-        right_box_count: null,
-        left_box_count: null,
-        total_amount_cents: null,
-        price_reason: "created_by_cart_resolve: awaiting_rx",
-      })
-      .select(
-        `
-        id,
-        user_id,
-        status,
-        rx,
-        sku,
-        box_count,
-        right_box_count,
-        left_box_count,
-        price_reason,
-        created_at
-        `,
-      )
-      .single();
-
-    if (createErr || !created?.id) {
-      return NextResponse.json(
-        { error: createErr?.message ?? "Failed to create order" },
-        { status: 500 },
-      );
-    }
-
-    order = created;
+    return NextResponse.json(
+      { error: "Draft order not found." },
+      { status: 400 },
+    );
   }
 
   /* ---------- RX validation ---------- */
   if (!isRxData(order.rx)) {
     return NextResponse.json(
-      { error: "Order is missing RX. Save prescription first." },
+      { error: "Order missing RX. Save prescription first." },
       { status: 400 },
     );
   }
@@ -224,18 +188,15 @@ export async function POST(req: Request) {
 
   if (!hasRight && !hasLeft) {
     return NextResponse.json(
-      { error: "Order missing RX eyes" },
+      { error: "Order missing RX eyes." },
       { status: 400 },
     );
   }
 
-  /* ---------- Resolve SKU ---------- */
+  /* ---------- SKU resolution ---------- */
   const lens_id = rx.right?.lens_id ?? rx.left?.lens_id ?? null;
   if (!lens_id) {
-    return NextResponse.json(
-      { error: "Order missing lens_id" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Missing lens_id." }, { status: 400 });
   }
 
   const resolvedSku = resolveDefaultSku(lens_id);
@@ -246,28 +207,36 @@ export async function POST(req: Request) {
     );
   }
 
-  const previousSku =
-    typeof order.sku === "string" && order.sku.length > 0 ? order.sku : null;
-
-  const skuChanged = previousSku !== null && previousSku !== resolvedSku;
-
-  /* ---------- RX expiration ---------- */
+  /* ---------- Expiration logic ---------- */
+  let remainingDays: number;
   let targetMonths: 6 | 12;
+
   try {
-    const remainingDays = daysUntil(rx.expires);
+    remainingDays = daysUntil(rx.expires);
+
+    // Hard stop: expiration becomes invalid starting the day AFTER expiration date
+    if (remainingDays < 0) {
+      return NextResponse.json(
+        {
+          error: "Prescription expired. Please upload an updated prescription.",
+        },
+        { status: 400 },
+      );
+    }
+
+    // MVP buckets: 6 mo default unless enough time remains for annual
     targetMonths = remainingDays >= MIN_DAYS_FOR_ANNUAL ? 12 : 6;
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Invalid RX expiration" },
+      { error: e instanceof Error ? e.message : "Invalid expiration" },
       { status: 400 },
     );
   }
 
-  /* ---------- SKU duration ---------- */
   const durationMonths = SKU_BOX_DURATION_MONTHS[resolvedSku];
   if (!durationMonths) {
     return NextResponse.json(
-      { error: `No duration defined for SKU ${resolvedSku}` },
+      { error: `Missing duration for SKU ${resolvedSku}` },
       { status: 500 },
     );
   }
@@ -275,60 +244,42 @@ export async function POST(req: Request) {
   const defaultPerEye = Math.ceil(targetMonths / durationMonths);
   const maxPerEye = defaultPerEye * 2;
 
-  const storedRight =
-    typeof order.right_box_count === "number" ? order.right_box_count : null;
-  const storedLeft =
-    typeof order.left_box_count === "number" ? order.left_box_count : null;
-
-  const bodyRight = body?.right_box_count;
-  const bodyLeft = body?.left_box_count;
-
-  const previouslyExplicit = wasPreviouslyExplicit(order.price_reason);
-
-  /* ---------- Final per-eye quantities ---------- */
+  const requestedRight = body?.right_box_count;
+  const requestedLeft = body?.left_box_count;
 
   const finalRight = hasRight
-    ? hasExplicitQty && typeof bodyRight === "number"
-      ? clamp(bodyRight ?? defaultPerEye, 1, maxPerEye)
-      : skuChanged
-        ? defaultPerEye
-        : previouslyExplicit &&
-            typeof storedRight === "number" &&
-            storedRight > 0
-          ? clamp(storedRight, 1, maxPerEye)
-          : defaultPerEye
+    ? clamp(requestedRight ?? defaultPerEye, 0, maxPerEye)
     : null;
 
   const finalLeft = hasLeft
-    ? hasExplicitQty && typeof bodyLeft === "number"
-      ? clamp(bodyLeft ?? defaultPerEye, 1, maxPerEye)
-      : skuChanged
-        ? defaultPerEye
-        : previouslyExplicit && typeof storedLeft === "number" && storedLeft > 0
-          ? clamp(storedLeft, 1, maxPerEye)
-          : defaultPerEye
+    ? clamp(requestedLeft ?? defaultPerEye, 0, maxPerEye)
     : null;
 
-  const totalBoxes =
-    (typeof finalRight === "number" ? finalRight : 0) +
-    (typeof finalLeft === "number" ? finalLeft : 0);
+  const totalBoxes = (finalRight ?? 0) + (finalLeft ?? 0);
 
   if (totalBoxes <= 0) {
     return NextResponse.json(
-      { error: "Computed total box_count is invalid" },
+      { error: "Invalid total box count." },
+      { status: 400 },
+    );
+  }
+
+  if (totalBoxes <= 0) {
+    return NextResponse.json(
+      { error: "Invalid total box count." },
       { status: 400 },
     );
   }
 
   /* ---------- Pricing ---------- */
   const pricing = getPrice({ sku: resolvedSku, box_count: totalBoxes });
+  const subtotalCents = pricing.total_amount_cents;
 
-  const price_reason =
-    `cart_resolve: sku=${resolvedSku}, skuChanged=${skuChanged}, ` +
-    `targetMonths=${targetMonths}, durationMonths=${durationMonths}, ` +
-    `defaultPerEye=${defaultPerEye}, maxPerEye=${maxPerEye}, ` +
-    `right=${finalRight ?? 0}, left=${finalLeft ?? 0}, total=${totalBoxes}, ` +
-    `explicitQty=${hasExplicitQty}`;
+  const totalMonthsAcrossOrder = totalBoxes * durationMonths;
+
+  /* ---------- Shipping (flat $10 under annual) ---------- */
+  const shippingCents = totalMonthsAcrossOrder >= 12 ? 0 : 1000;
+  const totalAmountCents = subtotalCents + shippingCents;
 
   /* ---------- Persist ---------- */
   const { error: updateError } = await supabaseServer
@@ -338,12 +289,16 @@ export async function POST(req: Request) {
       right_box_count: finalRight,
       left_box_count: finalLeft,
       box_count: totalBoxes,
-      total_amount_cents: pricing.total_amount_cents,
-      price_reason,
-      // status: "pending",
+      shipping_cents: shippingCents,
+      total_amount_cents: totalAmountCents,
+      price_reason:
+        `cart_resolve: sku=${resolvedSku}, remainingDays=${remainingDays}, ` +
+        `targetMonths=${targetMonths}, durationMonths=${durationMonths}, ` +
+        `totalMonths=${totalMonthsAcrossOrder}, shipping=${shippingCents}`,
     })
     .eq("id", order.id)
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .eq("status", "draft");
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
@@ -357,7 +312,9 @@ export async function POST(req: Request) {
       right_box_count: finalRight,
       left_box_count: finalLeft,
       box_count: totalBoxes,
-      total_amount_cents: pricing.total_amount_cents,
+      shipping_cents: shippingCents,
+      subtotal_cents: subtotalCents,
+      total_amount_cents: totalAmountCents,
     },
   });
 }
