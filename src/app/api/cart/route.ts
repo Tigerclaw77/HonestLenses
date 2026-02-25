@@ -51,7 +51,8 @@ export async function GET(req: Request) {
 
   const { data: order, error } = await supabaseServer
     .from("orders")
-    .select(`
+    .select(
+      `
       id,
       status,
       rx,
@@ -62,9 +63,11 @@ export async function GET(req: Request) {
       total_amount_cents,
       price_reason,
       created_at
-    `)
+    `,
+    )
     .eq("user_id", user.id)
-    .in("status", ["draft", "pending"])
+    .eq("status", "draft")
+    // .is("payment_intent_id", null)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -76,14 +79,11 @@ export async function GET(req: Request) {
   if (!order.rx || !isRxData(order.rx)) {
     return NextResponse.json(
       { error: "Cart missing or invalid RX data" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
-  const lens_id =
-    order.rx.right?.lens_id ??
-    order.rx.left?.lens_id ??
-    null;
+  const lens_id = order.rx.right?.lens_id ?? order.rx.left?.lens_id ?? null;
 
   return NextResponse.json({
     hasCart: true,

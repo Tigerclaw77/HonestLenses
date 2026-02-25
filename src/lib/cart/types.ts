@@ -16,4 +16,6 @@ export type CartOrder = {
   left_box_count?: number | null;
 
   total_amount_cents: number | null;
+
+  shipping_cents?: number | null;
 };

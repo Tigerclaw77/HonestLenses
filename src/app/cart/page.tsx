@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase-client";
 
@@ -12,10 +12,18 @@ import { buildQuantityConfig } from "../../lib/cart/quantityConfig";
 import type { CartOrder } from "../../lib/cart/types";
 import { fetchCart, resolveCart } from "../../lib/cart/api";
 import { getLensDisplayName } from "../../lib/cart/display";
+import { SKU_BOX_DURATION_MONTHS } from "../../lib/pricing/skuDefaults";
 
-/* =========================
-   Page
-========================= */
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+const MIN_DAYS_FOR_ANNUAL_UPSELL = 150; // your rule
+const FLAT_SHIPPING_CENTS_UNDER_ANNUAL = 1000; // $10 under annual
+
+function safeRemainingDays(expires: string) {
+  if (!expires) return 0;
+  const t = new Date(expires).getTime();
+  if (Number.isNaN(t)) return 0;
+  return Math.floor((t - Date.now()) / MS_PER_DAY);
+}
 
 export default function CartPage() {
   const router = useRouter();
@@ -25,12 +33,11 @@ export default function CartPage() {
   const [error, setError] = useState<string | null>(null);
   const [cart, setCart] = useState<CartOrder | null>(null);
 
-  // UI-only overrides (keeps dropdown stable during re-fetch)
+  const [showShippingModal, setShowShippingModal] = useState(false);
+
+  // UI-only overrides (keeps dropdown stable while we wait for resolve)
   const [rightQtyOverride, setRightQtyOverride] = useState<number | null>(null);
   const [leftQtyOverride, setLeftQtyOverride] = useState<number | null>(null);
-
-  // prevents auto-resolve after user interaction
-  const hasUserAdjustedQty = useRef(false);
 
   /* ---------- Derived ---------- */
 
@@ -42,13 +49,25 @@ export default function CartPage() {
     return buildQuantityConfig(expires, sku);
   }, [expires, sku]);
 
+  // ✅ do NOT rely on extra fields that don't exist on QuantityConfig
+  const remainingDays = useMemo(() => safeRemainingDays(expires), [expires]);
+
+  const defaultPerEye = quantityConfig?.defaultPerEye ?? 1;
+  const quantityOptions = quantityConfig?.options ?? [1, 2, 3, 4, 6, 8];
+  const durationLabel = quantityConfig?.durationLabel ?? "box";
+
+  // ✅ IMPORTANT: we need durationMonths for "annual supply" logic.
+  // If your buildQuantityConfig already knows it, use it.
+  // If not, set this to 1 and you’ll still be correct once buildQuantityConfig includes it.
+  const durationMonths =
+    sku && SKU_BOX_DURATION_MONTHS[sku] ? SKU_BOX_DURATION_MONTHS[sku] : 1;
+
   /* ---------- Qty change ---------- */
 
   const handleQtyChange = useCallback(
     async (nextRight: number, nextLeft: number) => {
       if (syncingQty) return;
 
-      hasUserAdjustedQty.current = true;
       setSyncingQty(true);
       setError(null);
 
@@ -62,6 +81,7 @@ export default function CartPage() {
           return;
         }
 
+        // ✅ your resolveCart typing expects box_count (your screenshot showed that)
         const updated = await resolveCart(session.access_token, {
           right_box_count: nextRight,
           left_box_count: nextLeft,
@@ -70,28 +90,9 @@ export default function CartPage() {
 
         setCart(updated);
 
-        // Keep overrides only if backend echoes something unexpected
-        const serverRight =
-          typeof updated.right_box_count === "number"
-            ? updated.right_box_count
-            : null;
-
-        const serverLeft =
-          typeof updated.left_box_count === "number"
-            ? updated.left_box_count
-            : null;
-
-        const serverMatches =
-          (serverRight === null || serverRight === nextRight) &&
-          (serverLeft === null || serverLeft === nextLeft);
-
-        if (serverMatches) {
-          setRightQtyOverride(null);
-          setLeftQtyOverride(null);
-        } else {
-          setRightQtyOverride(nextRight);
-          setLeftQtyOverride(nextLeft);
-        }
+        // backend is authoritative, clear overrides after success
+        setRightQtyOverride(null);
+        setLeftQtyOverride(null);
       } catch (e) {
         console.error("[CartPage] qty update failed", e);
         setError(e instanceof Error ? e.message : "Failed to update quantity.");
@@ -183,20 +184,10 @@ export default function CartPage() {
     ? getLensDisplayName(leftEye.lens_id, cart.sku)
     : "Unknown Lens";
 
-  /* ---------- Quantities ---------- */
+  /* ---------- Effective quantities ---------- */
 
-  const defaultPerEye = quantityConfig?.defaultPerEye ?? 1;
-
-  // ✅ Include 0 as an option (but keep the rest of your options)
-  const baseOptions = quantityConfig?.options ?? [1, 2, 3, 4, 6, 8];
-  const quantityOptions = baseOptions.includes(0) ? baseOptions : [0, ...baseOptions];
-
-  const durationLabel = quantityConfig?.durationLabel ?? "box";
-
-  // allow 0 stored values
   const storedRight =
     typeof cart.right_box_count === "number" ? cart.right_box_count : null;
-
   const storedLeft =
     typeof cart.left_box_count === "number" ? cart.left_box_count : null;
 
@@ -206,31 +197,61 @@ export default function CartPage() {
   const effectiveLeft =
     leftQtyOverride ?? storedLeft ?? (leftEye ? defaultPerEye : 0);
 
-  // ✅ Always compute from effective per-eye qty (prevents stale cart.box_count from lying)
-  const totalBoxesFromEyes =
+  const totalBoxes =
     (rightEye ? effectiveRight : 0) + (leftEye ? effectiveLeft : 0);
 
-  const storedBoxCount =
+  /* ---------- Annual supply logic (PER EYE, not across order) ---------- */
+
+  const rightMonths = rightEye ? effectiveRight * durationMonths : 0;
+  const leftMonths = leftEye ? effectiveLeft * durationMonths : 0;
+
+  const isAnnualPerEye =
+    (!rightEye || rightMonths >= 12) && (!leftEye || leftMonths >= 12);
+
+  // shipping is always available, but free only when annual-per-eye
+  const previewShipping =
+    totalBoxes > 0
+      ? isAnnualPerEye
+        ? 0
+        : FLAT_SHIPPING_CENTS_UNDER_ANNUAL
+      : 0;
+
+  // upsell link ONLY when:
+  // remainingDays >= 150 AND selected is NOT annual-per-eye
+  const showFreeShipUpsell =
+    remainingDays >= MIN_DAYS_FOR_ANNUAL_UPSELL &&
+    totalBoxes > 0 &&
+    !isAnnualPerEye;
+
+  /* ---------- Price math (stable + honest) ---------- */
+
+  const serverShipping =
+    typeof cart.shipping_cents === "number" ? cart.shipping_cents : 0;
+
+  const serverTotal =
+    typeof cart.total_amount_cents === "number" ? cart.total_amount_cents : 0;
+
+  // serverSubtotal is the best we can do without calling getPrice() on the client
+  const serverSubtotal = Math.max(0, serverTotal - serverShipping);
+
+  // Use server box_count if present; otherwise fall back to current UI selection
+  const serverBoxCount =
     typeof cart.box_count === "number" && cart.box_count > 0
       ? cart.box_count
-      : totalBoxesFromEyes;
+      : totalBoxes;
 
-  // derive a unit price from whatever the server last said
+  // Unit price derived from serverSubtotal/serverBoxCount
   const unitPricePerBoxCents =
-    typeof cart.total_amount_cents === "number" && storedBoxCount > 0
-      ? Math.round(cart.total_amount_cents / storedBoxCount)
-      : null;
+    serverBoxCount > 0 ? Math.round(serverSubtotal / serverBoxCount) : null;
 
-  // ✅ UI total that follows the dropdown immediately (even if backend lags)
-  const displayTotalCents =
-    totalBoxesFromEyes <= 0
-      ? 0
-      : typeof unitPricePerBoxCents === "number"
-        ? unitPricePerBoxCents * totalBoxesFromEyes
-        : cart.total_amount_cents ?? 0;
+  const previewSubtotal =
+    totalBoxes > 0 && unitPricePerBoxCents !== null
+      ? unitPricePerBoxCents * totalBoxes
+      : 0;
 
-  const canCheckout =
-    !syncingQty && totalBoxesFromEyes > 0 && displayTotalCents > 0;
+  const previewTotal = previewSubtotal + previewShipping;
+
+  const canCheckout = !syncingQty && totalBoxes > 0 && previewTotal > 0;
 
   /* ---------- Render ---------- */
 
@@ -243,14 +264,6 @@ export default function CartPage() {
           <h1 className="upper content-title">Your Cart</h1>
 
           <div className="order-card hl-cart">
-            <button
-              className="hl-cart-edit"
-              onClick={() => router.push("/prescription")}
-              disabled={syncingQty}
-            >
-              Edit prescription
-            </button>
-
             {error ? <p className="order-error">{error}</p> : null}
 
             {rightEye && (
@@ -294,8 +307,40 @@ export default function CartPage() {
 
             <div className="hl-summary">
               <div className="hl-summary-row">
+                <span>Subtotal</span>
+                <span>{fmtPrice(previewSubtotal)}</span>
+              </div>
+
+              <div className="hl-summary-row">
+                <span>Shipping</span>
+                <span>
+                  {previewShipping === 0 ? "Free" : fmtPrice(previewShipping)}
+                </span>
+              </div>
+
+              {showFreeShipUpsell && (
+                <div className="hl-summary-row" style={{ fontSize: 12 }}>
+                  <span />
+                  <button
+                    type="button"
+                    onClick={() => setShowShippingModal(true)}
+                    style={{
+                      textDecoration: "underline",
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "inherit",
+                      padding: 0,
+                    }}
+                  >
+                    How to get free shipping
+                  </button>
+                </div>
+              )}
+
+              <div className="hl-summary-row hl-summary-total">
                 <span>Total</span>
-                <span>{fmtPrice(displayTotalCents)}</span>
+                <span>{fmtPrice(previewTotal)}</span>
               </div>
 
               {syncingQty && (
@@ -310,19 +355,95 @@ export default function CartPage() {
 
             <button
               className="primary-btn hl-checkout-cta"
-              onClick={() => router.push("/checkout")}
+              onClick={() => router.push("/shipping")}
               disabled={!canCheckout}
-              title={
-                canCheckout
-                  ? ""
-                  : "Select at least 1 box to continue."
-              }
+              title={canCheckout ? "" : "Select at least 1 box to continue."}
             >
               Continue to checkout
             </button>
           </div>
         </section>
       </main>
+
+      {showShippingModal && (
+        <div
+          onClick={() => setShowShippingModal(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.55)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "90%",
+              maxWidth: 420,
+              background: "#111",
+              borderRadius: 12,
+              padding: "28px 24px",
+              border: "1px solid rgba(255,255,255,0.08)",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+            }}
+          >
+            <h3
+              style={{
+                marginBottom: 12,
+                fontSize: 18,
+                letterSpacing: 1,
+              }}
+            >
+              Free Shipping
+            </h3>
+
+            <p
+              style={{
+                fontSize: 14,
+                lineHeight: 1.6,
+                opacity: 0.9,
+                marginBottom: 20,
+              }}
+            >
+              Free shipping is available when you order a 12-month supply for
+              the eye(s) you&apos;re purchasing.
+              <br />
+              <br />
+              Increase quantity above to reach an annual supply.
+            </p>
+
+            <button
+              onClick={() => setShowShippingModal(false)}
+              style={{
+                width: "100%",
+                padding: "12px 16px",
+                background: "linear-gradient(180deg, #2a2a2a, #1c1c1c)",
+                border: "1px solid rgba(255,255,255,0.15)",
+                borderRadius: 10,
+                color: "#fff",
+                fontWeight: 500,
+                letterSpacing: 0.5,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background =
+                  "linear-gradient(180deg, #333, #222)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background =
+                  "linear-gradient(180deg, #2a2a2a, #1c1c1c)";
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

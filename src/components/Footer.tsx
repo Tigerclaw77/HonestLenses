@@ -12,6 +12,8 @@ export default function Footer() {
       <nav className="footer-right" aria-label="Footer navigation">
         <Link href="/privacy">Privacy</Link>
         <Link href="/terms">Terms</Link>
+        <Link href="/returns">Returns</Link>
+        <Link href="/verification">Prescription Verification</Link>
         <Link href="/contact">Contact</Link>
       </nav>
     </footer>

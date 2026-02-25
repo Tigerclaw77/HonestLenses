@@ -90,7 +90,7 @@ export async function POST(
       sku,
       box_count: finalBoxCount,
       total_amount_cents: pricing.total_amount_cents,
-      status: "pending", // ✅ VALID ENUM
+      status: "draft",
     })
     .eq("id", orderId);
 
