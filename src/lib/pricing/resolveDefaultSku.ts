@@ -95,32 +95,17 @@ A024: "PRECISION7_AST_27",
 
 export function resolveDefaultSku(
   lens_id: string,
-  targetMonths: 6 | 12
+  targetMonths: 6 | 12 = 12
 ): string | null {
-  const largestSku = SKU_MAP[lens_id]
-  if (!largestSku) return null
+  const largestSku = SKU_MAP[lens_id];
+  if (!largestSku) return null;
 
-  if (targetMonths === 12) {
-    return largestSku
-  }
+  if (targetMonths === 12) return largestSku;
 
-  // Downgrade patterns for 6-month target
-  if (largestSku.endsWith("_24")) {
-    return largestSku.replace("_24", "_12")
-  }
+  if (largestSku.endsWith("_24")) return largestSku.replace("_24", "_12");
+  if (largestSku.endsWith("_12")) return largestSku.replace("_12", "_6");
+  if (largestSku.endsWith("_180")) return largestSku.replace("_180", "_90");
+  if (largestSku.endsWith("_27")) return largestSku.replace("_27", "_12");
 
-  if (largestSku.endsWith("_12")) {
-    return largestSku.replace("_12", "_6")
-  }
-
-  if (largestSku.endsWith("_180")) {
-    return largestSku.replace("_180", "_90")
-  }
-
-  if (largestSku.endsWith("_27")) {
-    return largestSku.replace("_27", "_12")
-  }
-
-  // If no downgrade rule exists, return original
-  return largestSku
+  return largestSku;
 }
