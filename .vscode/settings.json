@@ -7,11 +7,11 @@
     "**/.gitignore": true,
 
     "**/eslint.config.mjs": true,
-    "**/tsconfig.json": false,
+    // "**/tsconfig.json": false,
 
     "**/package-lock.json": false,
 
-    "src/types": true,
+    // "src/types": true,
 
     "public/next.svg": true,
     "public/vercel.svg": true,

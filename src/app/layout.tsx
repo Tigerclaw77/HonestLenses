@@ -1,5 +1,8 @@
 import "../styles/globals.css";
-import "../styles/cart.css"
+import "../styles/cart.css";
+
+import SmallScreenGuard from "@/components/SmallScreenGuard";
+import DeviceModeGate from "@/components/security/DeviceModeGate";
 
 export const metadata = {
   title: "Honest Lenses",
@@ -13,7 +16,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <DeviceModeGate />
+        <SmallScreenGuard>{children}</SmallScreenGuard>
+      </body>
     </html>
   );
 }

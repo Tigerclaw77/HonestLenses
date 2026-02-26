@@ -28,6 +28,16 @@
   --divider-lilac: rgba(111, 106, 122, 0.15);
 }
 
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 /* ==================================================
    BASE
 ================================================== */
@@ -36,12 +46,19 @@ body {
   background: #0b0b0b;
   color: #f5f5f5;
   line-height: 1.6;
+  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 main {
   width: 100%;
+}
+
+.hero-image {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
 }
 
 .upper {
@@ -179,20 +196,6 @@ main {
 .header-search input::placeholder {
   color: rgba(255, 255, 255, 0.5);
 }
-
-/* .header-icons {
-  display: flex;
-  align-items: center;
-  margin-left: 24px;
-  transform: translateY(111px);
-} */
-
-/* .header-icons svg {
-  margin-left: 20px;
-  color: rgba(255, 255, 255, 0.65);
-  transition: color 0.2s ease;
-  transform: translateY(-20px);
-} */
 
 .header-icons svg:hover {
   color: rgba(255, 255, 255, 0.95);
@@ -580,19 +583,23 @@ main {
 
 .assurance ul {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   max-width: 1100px;
+  padding: 0;
   margin: 0 auto;
   align-items: center;
-  gap: 3.5rem;
+  gap: 12px 24px;
   list-style: none;
-  font-size: 0.85rem;
+  font-size: 14px;
   color: #555;
 }
 
 .assurance li {
   position: relative;
   padding: 0 1.75rem;
+  white-space: nowrap;
+  font-size: 14px;
 }
 
 .assurance li:not(:last-child)::after {
@@ -894,6 +901,8 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
+
+  padding: 16px; /* ADD THIS */
 }
 
 /* ===== Entrance Animation ===== */
@@ -1381,17 +1390,84 @@ h1.content-title {
   text-decoration: none;
 }
 
+.header-icon {
+  display: block;
+}
+
 .header-icon-btn {
   color: #cfc7ff;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  cursor: pointer;
+}
+
+.account-wrapper {
+  position: relative;
+}
+
+.account-popover {
+  position: absolute;
+  right: 0;
+  top: 44px;
+
+  background: rgba(18, 18, 22, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+
+  padding: 14px;
+  min-width: 140px;
+
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.65);
+}
+
+.account-popover {
+  position: absolute;
+  right: 0;
+  top: 44px;
+
+  padding: 12px 22px;
+
+  border-radius: 14px;
+  border: 1px solid rgba(198, 190, 255, 0.35);
+
+  background: linear-gradient(
+    to bottom,
+    rgba(198, 190, 255, 0.95),
+    rgba(178, 168, 255, 0.9)
+  );
+
+  color: #111;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+
+  cursor: pointer;
+
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.65);
+
+  transition: all 0.2s ease;
+}
+
+.account-popover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.75);
+}
+
+.cart-wrapper {
+  position: relative;
 }
 
 /* ================================
    Cart badge (dot only)
    ================================ */
-
-.header-icon-btn {
-  position: relative; /* anchor for badge */
-}
 
 /* Hidden by default; shown when rendered */
 .header-cart-badge {
@@ -2180,12 +2256,116 @@ input {
     0 0 20px rgba(220, 38, 38, 0.12);
 }
 
-/* .rx-eye-error {
-  background: rgba(239, 68, 68, 0.10);
-  border-left: 3px solid #ef4444;
-  padding: 10px 12px;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  color: #f87171;
-  letter-spacing: 0.2px;
-} */
+/* =============================
+   Coming Soon Overlay (HL)
+============================= */
+
+.hl-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.88);
+  backdrop-filter: blur(8px);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  z-index: 99999;
+}
+
+.hl-overlay-card {
+  background: linear-gradient(
+    180deg,
+    #0f0f14 0%,
+    #0a0a0e 100%
+  );
+
+  border: 1px solid rgba(207,199,255,.18);
+  border-radius: 18px;
+
+  width: 420px;
+  max-width: 92vw;
+
+  padding: 36px;
+  text-align: center;
+
+  box-shadow:
+    0 20px 60px rgba(0,0,0,.6),
+    0 0 40px rgba(207,199,255,.06);
+}
+
+/* Headline */
+
+.hl-overlay-card h2 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  margin-bottom: 10px;
+}
+
+/* Body text */
+
+.hl-overlay-card p {
+  color: #aaa;
+  font-size: 14px;
+  margin-bottom: 18px;
+}
+
+/* Email input */
+
+.hl-overlay-card input {
+  width: 100%;
+  padding: 12px 14px;
+
+  background: #050505;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 10px;
+
+  color: white;
+  font-size: 14px;
+
+  margin-bottom: 14px;
+}
+
+.hl-overlay-card input:focus {
+  outline: none;
+  border-color: #cfc7ff;
+}
+
+/* Primary button */
+
+.hl-overlay-card button {
+  background: linear-gradient(
+    135deg,
+    #cfc7ff,
+    #8e7bff
+  );
+
+  color: black;
+  border: none;
+  border-radius: 10px;
+
+  padding: 10px 18px;
+  font-weight: 600;
+
+  cursor: pointer;
+  transition: all .2s ease;
+}
+
+.hl-overlay-card button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(142,123,255,.35);
+}
+
+/* Secondary "Go back" */
+
+.hl-overlay-card button:last-of-type {
+  margin-top: 14px;
+  background: transparent;
+  color: #aaa;
+  border: 1px solid rgba(255,255,255,.15);
+}
+
+body:has(.hl-overlay) {
+  overflow: hidden;
+}

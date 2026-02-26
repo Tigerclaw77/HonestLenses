@@ -36,7 +36,7 @@ export default function ShopPage() {
               alignItems: "center",
             }}
           >
-            <Link href="/order" className="primary-btn">
+            <Link href="/upload-prescription" className="primary-btn">
               Have your Rx? Order Contacts
             </Link>
 
@@ -72,7 +72,7 @@ export default function ShopPage() {
             </p>
 
             <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-              <Link href="/order" className="primary-btn">
+              <Link href="/upload-prescription" className="primary-btn">
                 Order Contacts
               </Link>
               <Link href="/" className="primary-btn">
@@ -83,7 +83,7 @@ export default function ShopPage() {
         </section>
 
         {/* Optional sticky CTA just for Shop visitors */}
-        <Link href="/order" className="sticky-order-cta">
+        <Link href="/upload-prescription" className="sticky-order-cta">
           Order Contacts
         </Link>
       </main>
