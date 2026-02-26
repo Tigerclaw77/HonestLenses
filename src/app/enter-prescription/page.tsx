@@ -7,7 +7,7 @@ export default function EnterPrescriptionPage() {
   return (
     <>
       <Header variant="shop" />
-      <RxForm orderId={crypto.randomUUID()} mode="manual" />
+      <RxForm mode="manual" />
     </>
   );
 }

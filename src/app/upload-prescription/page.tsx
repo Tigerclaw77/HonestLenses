@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase-client";
 import Link from "next/link";
@@ -8,28 +8,57 @@ import Header from "../../components/Header";
 
 const LS_ORDER_ID = "rx_upload_order_id";
 
+type CartResponse = {
+  hasCart?: boolean;
+  order?: { id: string };
+};
+
+type CreateOrderResponse = {
+  orderId?: string;
+  error?: string;
+};
+
 export default function UploadPrescriptionPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [file, setFile] = useState<File | null>(null);
-  const [existingOrderId, setExistingOrderId] = useState<string | null>(null);
-  // const [existingFilename, setExistingFilename] = useState<string | null>(null);
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // 🔁 Restore local state on mount
-  useEffect(() => {
-    const savedOrderId = localStorage.getItem(LS_ORDER_ID);
-
-    if (savedOrderId) setExistingOrderId(savedOrderId);
-    // if (savedFilename) setExistingFilename(savedFilename);
-  }, []);
 
   function handleFileSelected(selected: File | null) {
     if (!selected) return;
     setFile(selected);
+  }
+
+  async function getOrCreateDraftOrder(accessToken: string): Promise<string> {
+    // Check existing draft/cart first
+    const cartRes = await fetch("/api/cart", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+
+    if (cartRes.ok) {
+      const cart: CartResponse = await cartRes.json();
+      if (cart.hasCart && cart.order?.id) {
+        return cart.order.id;
+      }
+    }
+
+    // Otherwise create draft order
+    const orderRes = await fetch("/api/orders", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+
+    const body: CreateOrderResponse = await orderRes.json();
+
+    if (!orderRes.ok || !body.orderId) {
+      throw new Error(body.error ?? "Failed to create order");
+    }
+
+    return body.orderId;
   }
 
   async function submitUpload() {
@@ -48,51 +77,9 @@ export default function UploadPrescriptionPage() {
         return;
       }
 
-      // 1️⃣ Create or reuse order
-      let orderId: string | null = null;
+      const orderId = await getOrCreateDraftOrder(session.access_token);
+      localStorage.setItem(LS_ORDER_ID, orderId);
 
-      if (existingOrderId) {
-        const { data } = await supabase
-          .from("orders")
-          .select("id, status, user_id")
-          .eq("id", existingOrderId)
-          .maybeSingle();
-
-        if (
-          data &&
-          data.user_id === session.user.id &&
-          data.status === "draft"
-        ) {
-          orderId = data.id;
-        } else {
-          localStorage.removeItem(LS_ORDER_ID);
-        }
-      }
-
-      if (!orderId) {
-        const orderRes = await fetch("/api/orders", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        });
-
-        const orderBody = await orderRes.json();
-
-        if (!orderRes.ok || !orderBody.orderId) {
-          throw new Error(orderBody.error || "Order creation failed");
-        }
-
-        orderId = orderBody.orderId;
-
-        if (!orderId) {
-          throw new Error("orderId missing when attempting to persist");
-        }
-
-        localStorage.setItem(LS_ORDER_ID, orderId);
-      }
-
-      // 2️⃣ Upload file
       const formData = new FormData();
       formData.append("file", file);
 
@@ -105,11 +92,9 @@ export default function UploadPrescriptionPage() {
       });
 
       if (!uploadRes.ok) {
-        const body = await uploadRes.json();
-        throw new Error(body.error || "Upload failed");
+        const body: { error?: string } = await uploadRes.json();
+        throw new Error(body.error ?? "Upload failed");
       }
-
-      // 3️⃣ Persist success + filename
 
       await fetch(`/api/orders/${orderId}/rx-ocr`, {
         method: "POST",
@@ -119,8 +104,12 @@ export default function UploadPrescriptionPage() {
       });
 
       router.push(`/upload-prescription/confirm?orderId=${orderId}`);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        setError(error.message);
+      } else {
+        setError("Upload failed");
+      }
     } finally {
       setLoading(false);
     }
@@ -137,7 +126,7 @@ export default function UploadPrescriptionPage() {
           </h2>
 
           <div className="rx-choice-grid">
-            {/* Upload / Camera / Drag & Drop */}
+            {/* Upload card */}
             <div
               className={`rx-choice-card rx-dropzone ${file ? "has-file" : ""}`}
               onClick={() => fileInputRef.current?.click()}
@@ -156,12 +145,6 @@ export default function UploadPrescriptionPage() {
               <p className="rx-upload-hint">
                 Drag & drop here, or tap to upload / take a photo
               </p>
-
-              {/* {existingFilename && !file && (
-                <p className="rx-filename">
-                  Previously selected: <strong>{existingFilename}</strong>
-                </p>
-              )} */}
 
               {file && (
                 <div
@@ -227,7 +210,7 @@ export default function UploadPrescriptionPage() {
               {error && <p className="order-error">{error}</p>}
             </div>
 
-            {/* Manual entry */}
+            {/* Manual entry card */}
             <div className="rx-choice-card rx-choice-manual">
               <h3>Enter it manually</h3>
               <p className="rx-manual-subtitle">
