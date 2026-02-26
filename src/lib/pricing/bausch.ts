@@ -37,7 +37,7 @@ export type BauschSKU =
   | "ULTRA_6"
   | "ULTRA_AST_6"
   | "ULTRA_MF_6"
-  | "ULTRA_MF_AST_6"
+  | "ULTRA_AST_MF_6"
 
   // =========================
   // PureVision 2 (Monthly, 6-pack)
@@ -68,19 +68,19 @@ export const BAUSCH_PRICING: Record<BauschSKU, PriceEntry> = {
   // =========================
   // INFUSE (Daily)
   // =========================
-  INFUSE_90: { price_per_box_cents: 9200 },
-  INFUSE_AST_90: { price_per_box_cents: 9200 },
-  INFUSE_MF_90: { price_per_box_cents: 9200 },
+  INFUSE_90: { price_per_box_cents: 9299 },
+  INFUSE_AST_90: { price_per_box_cents: 11299 },
+  INFUSE_MF_90: { price_per_box_cents: 12799 },
 
   // =========================
   // Biotrue ONEday (Daily)
   // =========================
-  BIOTRUE_ONEDAY_30: { price_per_box_cents: 7500 },
-  BIOTRUE_ONEDAY_90: { price_per_box_cents: 7500 },
-  BIOTRUE_ONEDAY_AST_30: { price_per_box_cents: 7500 },
-  BIOTRUE_ONEDAY_AST_90: { price_per_box_cents: 7500 },
-  BIOTRUE_ONEDAY_MF_30: { price_per_box_cents: 7500 },
-  BIOTRUE_ONEDAY_MF_90: { price_per_box_cents: 7500 },
+  BIOTRUE_ONEDAY_30: { price_per_box_cents: 3199 },
+  BIOTRUE_ONEDAY_90: { price_per_box_cents: 6499 },
+  BIOTRUE_ONEDAY_AST_30: { price_per_box_cents: 4099 },
+  BIOTRUE_ONEDAY_AST_90: { price_per_box_cents: 7999 },
+  BIOTRUE_ONEDAY_MF_30: { price_per_box_cents: 4199 },
+  BIOTRUE_ONEDAY_MF_90: { price_per_box_cents: 8999 },
 
   // =========================
   // ULTRA (Monthly, 6-pack)
@@ -88,7 +88,7 @@ export const BAUSCH_PRICING: Record<BauschSKU, PriceEntry> = {
   ULTRA_6: { price_per_box_cents: 5550 },
   ULTRA_AST_6: { price_per_box_cents: 7850 },
   ULTRA_MF_6: { price_per_box_cents: 8025 },
-  ULTRA_MF_AST_6: { price_per_box_cents: 10675 },
+  ULTRA_AST_MF_6: { price_per_box_cents: 10675 },
 
   // =========================
   // PureVision 2 (Monthly, 6-pack)

@@ -26,7 +26,7 @@ export type AlconSKU =
   | "TOTAL30_6"
   | "TOTAL30_AST_6"
   | "TOTAL30_MF_6"
-  | "TOTAL30_MF_AST_6"
+  | "TOTAL30_AST_MF_6"
 
   // =========================
   // Precision1
@@ -90,8 +90,8 @@ export const ALCON_PRICING: Record<AlconSKU, PriceEntry> = {
   // =========================
   TOTAL30_6: { price_per_box_cents: 6599 },
   TOTAL30_AST_6: { price_per_box_cents: 6999 },
-  TOTAL30_MF_6: { price_per_box_cents: 9799 },
-  TOTAL30_MF_AST_6: { price_per_box_cents: 14999 },
+  TOTAL30_MF_6: { price_per_box_cents: 9499 },
+  TOTAL30_AST_MF_6: { price_per_box_cents: 14999 },
 
   // =========================
   // Precision1

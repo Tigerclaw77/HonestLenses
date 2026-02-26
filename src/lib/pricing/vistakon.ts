@@ -20,7 +20,7 @@ export type VistakonSKU =
   | "OASYS_MAX_AST_30"
   | "OASYS_MAX_MF_30"
   | "OASYS_MAX_MF_90"
-  | "OASYS_MAX_MF_AST_30"
+  | "OASYS_MAX_AST_MF_30"
 
   // =========================
   // Acuvue Oasys 1-Day
@@ -57,7 +57,12 @@ export type VistakonSKU =
   // =========================
   // Define (1-Day, 30-pack)
   // =========================
-  | "DEFINE_30";
+  | "DEFINE_30"
+
+  // =========================
+  // Acuvue 2 (Bi-weekly)
+  // =========================
+  | "ACUVUE2_6";
 
 type PriceEntry = {
   price_per_box_cents: number;
@@ -67,12 +72,12 @@ export const VISTAKON_PRICING: Record<VistakonSKU, PriceEntry> = {
   // =========================
   // Oasys MAX 1-Day
   // =========================
-  OASYS_MAX_30: { price_per_box_cents: 4999 },
-  OASYS_MAX_90: { price_per_box_cents: 10899 },
-  OASYS_MAX_AST_30: { price_per_box_cents: 5499 },
-  OASYS_MAX_MF_30: { price_per_box_cents: 5799 },
-  OASYS_MAX_MF_90: { price_per_box_cents: 10899 },
-  OASYS_MAX_MF_AST_30: { price_per_box_cents: 6499 },
+  OASYS_MAX_30: { price_per_box_cents: 4699 },
+  OASYS_MAX_90: { price_per_box_cents: 10399 },
+  OASYS_MAX_AST_30: { price_per_box_cents: 5199 },
+  OASYS_MAX_MF_30: { price_per_box_cents: 5899 },
+  OASYS_MAX_MF_90: { price_per_box_cents: 12999 },
+  OASYS_MAX_AST_MF_30: { price_per_box_cents: 6499 },
 
   // =========================
   // Oasys 1-Day
@@ -84,7 +89,7 @@ export const VISTAKON_PRICING: Record<VistakonSKU, PriceEntry> = {
   // =========================
   // Oasys Bi-weekly
   // =========================
-  OASYS_12: { price_per_box_cents: 72999 },
+  OASYS_12: { price_per_box_cents: 7299 },
   OASYS_24: { price_per_box_cents: 13799 },
   OASYS_AST_6: { price_per_box_cents: 5399 },
   OASYS_MF_6: { price_per_box_cents: 5299 },
@@ -107,7 +112,12 @@ export const VISTAKON_PRICING: Record<VistakonSKU, PriceEntry> = {
   VITA_AST_6: { price_per_box_cents: 6999 },
 
   // =========================
-  // Define (1-Day, -pack)
+  // Define (1-Day, 30-pack)
   // =========================
   DEFINE_30: { price_per_box_cents: 5499 },
+
+  // =========================
+  // Acuvue 2 (Bi-weekly)
+  // =========================
+  ACUVUE2_6: { price_per_box_cents: 4499 },
 };
