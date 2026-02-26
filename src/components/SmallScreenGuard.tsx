@@ -3,29 +3,44 @@
 import { useEffect, useState } from "react";
 import SmallScreenOverlay from "./overlays/SmallScreenOverlay";
 
+const STORAGE_KEY = "hl_small_screen_ok";
+const MIN_WIDTH = 445;
+
 export default function SmallScreenGuard({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const [hydrated, setHydrated] = useState(false);
   const [show, setShow] = useState(false);
 
   useEffect(() => {
-    if (localStorage.getItem("hl_small_screen_ok") === "1") return;
+    const dismissed = sessionStorage.getItem(STORAGE_KEY) === "1";
 
-    function check() {
-      setShow(window.innerWidth < 445);
+    function checkViewport() {
+      if (dismissed) {
+        setShow(false);
+        return;
+      }
+
+      setShow(window.innerWidth < MIN_WIDTH);
     }
 
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
+    checkViewport();
+
+    // 👇 THIS is the fix
+    queueMicrotask(() => setHydrated(true));
+
+    window.addEventListener("resize", checkViewport);
+    return () => window.removeEventListener("resize", checkViewport);
   }, []);
 
   function handleContinue() {
-    localStorage.setItem("hl_small_screen_ok", "1");
+    sessionStorage.setItem(STORAGE_KEY, "1");
     setShow(false);
   }
+
+  if (!hydrated) return null;
 
   return (
     <>
