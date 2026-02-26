@@ -11,9 +11,9 @@ export function getLensDisplayName(
   const brand = lens.brand?.trim() ?? "";
   const name = lens.name.trim();
 
-  // 🔑 De-duplicate brand/name (e.g. "Precision7")
   const baseName =
-    brand && brand.toLowerCase() !== name.toLowerCase()
+    brand &&
+    !name.toLowerCase().startsWith(brand.toLowerCase())
       ? `${brand} ${name}`
       : name;
 

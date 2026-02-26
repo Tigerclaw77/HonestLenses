@@ -1,5 +1,3 @@
-// /lib/resolveBrand.ts
-
 import type { Lens } from "@/data/lenses";
 
 export type ResolveResult = {
@@ -14,11 +12,12 @@ type ResolveInput = {
   hasAdd?: boolean;
   bc?: number | null;
   dia?: number | null;
+  debug?: boolean;
 };
 
-//
-// --- Normalize ---
-//
+/* =========================
+   Normalization
+========================= */
 
 export function normalize(input: string): string {
   return input
@@ -28,185 +27,198 @@ export function normalize(input: string): string {
     .trim();
 }
 
-//
-// --- Tokenize ---
-//
-
 export function tokenize(input: string): string[] {
   return normalize(input).split(" ").filter(Boolean);
 }
 
-//
-// --- Synonym Map ---
-//
+/* =========================
+   Manufacturer Lock
+   (derived from lens_id prefix)
+========================= */
 
-const SYNONYM_MAP: Record<string, string[]> = {
-  av: ["acuvue"],
-  ao: ["optix"],
-  "1d": ["1day", "1", "day"],
-  one: ["1"],
-  astig: ["astigmatism", "toric"],
-  tor: ["toric"],
-  mf: ["multifocal"],
-  multi: ["multifocal"],
-};
-
-function expandTokens(tokens: string[]): string[] {
-  const expanded = new Set<string>();
-
-  for (const token of tokens) {
-    expanded.add(token);
-    if (SYNONYM_MAP[token]) {
-      for (const synonym of SYNONYM_MAP[token]) {
-        expanded.add(synonym);
-      }
-    }
-  }
-
-  return Array.from(expanded);
+function manufacturerPrefix(lensId: string): string | null {
+  if (lensId.startsWith("V")) return "V";
+  if (lensId.startsWith("CV")) return "CV";
+  if (lensId.startsWith("BL")) return "BL";
+  if (lensId.startsWith("A")) return "A";
+  return null;
 }
 
-//
-// --- Score One Lens ---
-//
+function detectManufacturerIntent(raw: string): string | null {
+  const r = normalize(raw);
+
+  if (r.includes("acuvue")) return "V";
+  if (r.includes("coopervision") || r.includes("cvh")) return "CV";
+  if (r.includes("alcon")) return "A";
+  if (r.includes("bausch") || r.includes("b+l")) return "BL";
+
+  return null;
+}
+
+/* =========================
+   STRICT Daily Intent Detection
+   Only explicit cues.
+========================= */
+
+function detectDailyIntent(raw: string): boolean {
+  const r = normalize(raw);
+
+  return (
+    r.includes("1 day") ||
+    r.includes("1-day") ||
+    r.includes("daily disposable") ||
+    r.includes("dailies")
+  );
+}
+
+/* =========================
+   Lens Daily Check
+========================= */
+
+function lensIsDaily(lens: Lens): boolean {
+  const name = normalize(`${lens.brand} ${lens.name}`);
+
+  return (
+    name.includes("1 day") ||
+    name.includes("1-day") ||
+    name.includes("daily disposable") ||
+    name.includes("dailies")
+  );
+}
+
+/* =========================
+   Scoring
+========================= */
 
 function scoreLens(
   inputTokens: string[],
   lens: Lens,
-  input: ResolveInput
+  input: ResolveInput,
 ): number {
   let score = 0;
 
   const brandTokens = tokenize(lens.brand);
   const nameTokens = tokenize(lens.name);
 
-  const fullInput = normalize(inputTokens.join(" "));
-  const fullName = normalize(`${lens.brand} ${lens.name}`);
-
-  //
-  // 1️⃣ BRAND ROOT DOMINANCE (Most Important)
-  //
-
   for (const token of inputTokens) {
-    if (brandTokens.includes(token)) {
-      score += 30; // dominant signal
-    }
+    if (brandTokens.includes(token)) score += 60;
+    if (nameTokens.includes(token)) score += 30;
   }
 
-  //
-  // 2️⃣ NAME TOKEN MATCHES (Secondary Identity)
-  //
-
-  for (const token of inputTokens) {
-    if (nameTokens.includes(token)) {
-      score += 18;
-    }
+  if (input.bc != null && lens.baseCurves?.includes(input.bc)) {
+    score += 5;
   }
 
-  //
-  // 3️⃣ Phrase containment (bonus, but not overpowering)
-  //
-
-  if (fullInput.length > 5 && fullName.includes(fullInput)) {
-    score += 20;
-  }
-
-  //
-  // 4️⃣ Structural Class Matching (Moderate Strength)
-  //
-
-  if (input.hasCyl && lens.toric) score += 20;
-  if (!input.hasCyl && lens.toric) score -= 20; // strong penalty
-
-  if (input.hasAdd && lens.multifocal) score += 20;
-  if (!input.hasAdd && lens.multifocal) score -= 25; // strong penalty
-
-  //
-  // 5️⃣ Negative Evidence (mild)
-  //
-
-  for (const token of nameTokens) {
-    if (!inputTokens.includes(token)) {
-      score -= 2;
-    }
-  }
-
-  //
-  // 6️⃣ BC / DIA Tie-Breakers (Light)
-  //
-
-  if (input.bc != null && lens.baseCurves?.length) {
-    if (lens.baseCurves.includes(input.bc)) {
-      score += 6;
-    } else {
-      score -= 3;
-    }
-  }
-
-  if (input.dia != null && lens.diameter) {
-    if (Math.abs(lens.diameter - input.dia) < 0.15) {
-      score += 6;
-    } else {
-      score -= 3;
-    }
+  if (
+    input.dia != null &&
+    lens.diameter != null &&
+    Math.abs(lens.diameter - input.dia) < 0.2
+  ) {
+    score += 5;
   }
 
   return score;
 }
 
-//
-// --- Resolver ---
-//
+/* =========================
+   MAIN RESOLVER
+========================= */
 
 export function resolveBrand(
   input: ResolveInput,
-  lenses: Lens[]
+  lenses: Lens[],
 ): ResolveResult {
   const { rawString, hasCyl = false, hasAdd = false } = input;
 
-  const baseTokens = tokenize(rawString);
-  const expandedTokens = expandTokens(baseTokens);
+  const tokens = tokenize(rawString);
+  const inputIsDaily = detectDailyIntent(rawString);
 
-  const candidateLenses = lenses.filter((lens) => {
-    if (hasCyl && !lens.toric) return false;
-    if (hasAdd && !lens.multifocal) return false;
-    return true;
-  });
+  let candidateLenses = lenses;
 
-  let bestScore = -Infinity;
-  let secondBestScore = -Infinity;
-  let bestLensId: string | null = null;
+  console.log("[Resolver] Raw:", rawString);
+  console.log("[Resolver] Initial lens count:", candidateLenses.length);
 
-  for (const lens of candidateLenses) {
-    const score = scoreLens(expandedTokens, lens, input);
+  /* 1️⃣ Manufacturer Lock */
 
-    if (score > bestScore) {
-      secondBestScore = bestScore;
-      bestScore = score;
-      bestLensId = lens.lens_id;
-    } else if (score > secondBestScore) {
-      secondBestScore = score;
+  const manufacturerIntent = detectManufacturerIntent(rawString);
+  if (manufacturerIntent) {
+    candidateLenses = candidateLenses.filter(
+      (l) => manufacturerPrefix(l.lens_id) === manufacturerIntent,
+    );
+    console.log("[Resolver] Manufacturer lock:", manufacturerIntent);
+  }
+
+  /* 2️⃣ Structural Filtering */
+
+  candidateLenses = candidateLenses.filter((l) =>
+    hasCyl ? l.toric : !l.toric,
+  );
+
+  candidateLenses = candidateLenses.filter((l) =>
+    hasAdd ? l.multifocal : !l.multifocal,
+  );
+
+  console.log("[Resolver] After structural filter:", candidateLenses.length);
+
+  /* 3️⃣ Daily Partition */
+
+  if (inputIsDaily) {
+    const dailyOnly = candidateLenses.filter((l) => lensIsDaily(l));
+    if (dailyOnly.length > 0) {
+      candidateLenses = dailyOnly;
+    }
+  } else {
+    const nonDaily = candidateLenses.filter((l) => !lensIsDaily(l));
+    if (nonDaily.length > 0) {
+      candidateLenses = nonDaily;
     }
   }
 
-  //
-  // --- Confidence Logic ---
-  //
+  console.log("[Resolver] After daily filter:", candidateLenses.length);
+
+  /* 4️⃣ Score */
+
+  let bestScore = -Infinity;
+  let secondBest = -Infinity;
+  let bestLensId: string | null = null;
+
+  for (const lens of candidateLenses) {
+    const score = scoreLens(tokens, lens, input);
+
+    if (score > bestScore) {
+      secondBest = bestScore;
+      bestScore = score;
+      bestLensId = lens.lens_id;
+    } else if (score > secondBest) {
+      secondBest = score;
+    }
+  }
+
+  const gap = bestScore - secondBest;
+
+  console.log("[Resolver] Best score:", bestScore);
+  console.log("[Resolver] Gap:", gap);
+
+  /* 5️⃣ Hard Fail Rules */
+
+  if (!bestLensId || gap <= 0) {
+    console.log("[Resolver] FAIL (tie or no clear winner)");
+    return { lensId: null, score: 0, confidence: "low" };
+  }
+
+  /* 6️⃣ Confidence */
 
   let confidence: "high" | "medium" | "low" = "low";
 
-  const gap = bestScore - secondBestScore;
+  if (bestScore >= 90 && gap >= 20) confidence = "high";
+  else if (bestScore >= 60 && gap >= 10) confidence = "medium";
 
-  if (bestScore >= 50 && gap >= 15) {
-    confidence = "high";
-  } else if (bestScore >= 35 && gap >= 8) {
-    confidence = "medium";
-  } else {
-    confidence = "low";
-  }
+  console.log(
+    `[Resolver] Final: ${bestLensId} (${confidence})`
+  );
 
   return {
-    lensId: bestLensId,
+    lensId: confidence === "low" ? null : bestLensId,
     score: bestScore,
     confidence,
   };

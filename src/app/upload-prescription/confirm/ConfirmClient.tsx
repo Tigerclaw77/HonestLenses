@@ -5,8 +5,8 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase-client";
 import RxForm from "@/components/RxForm";
-import { resolveBrand } from "@/lib/resolveBrand";
-import { rawLenses } from "@/data/lenses";
+import type { OcrExtract } from "@/types/ocr";
+import ComingSoonOverlay from "../../../components/overlays/ComingSoonOverlay";
 
 type EyeRx = {
   lens_id?: string | null;
@@ -15,6 +15,7 @@ type EyeRx = {
   axis?: number;
   add?: string;
   base_curve?: number;
+  diameter?: number;
 };
 
 type OcrApiResponse = {
@@ -53,27 +54,45 @@ type RxDraft = {
   expires: string;
 };
 
-type OcrExtract = {
-  patientName?: string;
-  doctorName?: string;
-  doctorPhone?: string;
-  issuedDate?: string;
-  expires?: string;
-  rawText?: string;
-  proposedLensId?: string | null;
-  proposalConfidence?: "high" | "low" | null;
-};
+function isMeaningfulCyl(value: unknown): boolean {
+  if (typeof value !== "number") return false;
+  // Treat 0.00 as no cyl; small tolerance for OCR noise.
+  return Math.abs(value) >= 0.12;
+}
+
+function isMeaningfulAdd(add: unknown): boolean {
+  if (typeof add !== "string") return false;
+
+  const s = add.trim().toLowerCase();
+  if (!s) return false;
+
+  // Ignore legend / option-list patterns like: "D,N,H or L"
+  const compact = s.replace(/\s+/g, "");
+  if (s.includes("or") && s.includes(",")) return false;
+  if (compact === "d,n,h,orl" || compact === "d,n,horl") return false;
+
+  // Numeric add like +1.25 / 2.00 / 1.75
+  if (/[+-]?\d+(\.\d+)?/.test(s)) return true;
+
+  // Letter-based adds (keep conservative)
+  if (["h", "hi", "high", "m", "med", "medium", "l", "lo", "low"].includes(s)) {
+    return true;
+  }
+
+  return false;
+}
 
 export default function ConfirmClient() {
   const searchParams = useSearchParams();
-  const orderIdParam = searchParams.get("orderId");
-  const orderId = orderIdParam ?? "";
+  const orderId = searchParams.get("orderId") ?? "";
   const source = searchParams.get("source");
 
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [initialDraft, setInitialDraft] = useState<RxDraft | undefined>();
   const [ocrExtract, setOcrExtract] = useState<OcrExtract | undefined>();
+
+  const [showComingSoon, setShowComingSoon] = useState(false);
 
   useEffect(() => {
     if (!orderId) return;
@@ -89,6 +108,7 @@ export default function ConfirmClient() {
         const accessToken = session?.access_token;
         if (!accessToken) throw new Error("No auth session found");
 
+        // 1) Pull OCR payload for this order
         const res = await fetch(`/api/orders/${orderId}/rx-ocr`, {
           method: "GET",
           cache: "no-store",
@@ -102,65 +122,63 @@ export default function ConfirmClient() {
         }
 
         const data: OcrApiResponse = await res.json();
-
-        if (!data.ocr_json) {
+        if (!data.ocr_json)
           throw new Error("OCR data not found for this order");
-        }
 
         const ocr = data.ocr_json;
-        const constraints = data.ocr_meta?.brand_constraints;
 
-        // -----------------------------
-        // Structural detection
-        // -----------------------------
-
+        // 2) Structural detection (conservative, ignores legend strings)
         const hasCyl =
-          typeof ocr.right?.cylinder === "number" ||
-          typeof ocr.left?.cylinder === "number";
+          isMeaningfulCyl(ocr.right?.cylinder) ||
+          isMeaningfulCyl(ocr.left?.cylinder);
 
-        const hasAdd = !!ocr.right?.add || !!ocr.left?.add;
+        const hasAdd =
+          isMeaningfulAdd(ocr.right?.add) || isMeaningfulAdd(ocr.left?.add);
 
-        // -----------------------------
-        // Brand Resolution (Token Lock)
-        // -----------------------------
-
+        // 3) Resolve lens server-side (hybrid + AI audit)
         let proposedLensId: string | null = null;
-        let proposalConfidence: "high" | "low" | null = null;
+        let proposalConfidence: "high" | "medium" | "low" | null = null;
 
-        if (ocr.brand_raw) {
-          let candidateLenses = rawLenses;
-
-          const lockTokens = constraints?.matchedTokens ?? [];
-
-          // 🔒 HARD LOCK: filter lenses that contain at least one matched LOCK token
-          if (constraints?.lockedManufacturer && lockTokens.length > 0) {
-            candidateLenses = rawLenses.filter((lens) => {
-              const combined = `${lens.brand} ${lens.name}`.toLowerCase();
-
-              return lockTokens.some((token) => combined.includes(token));
-            });
-          }
-
-          const result = resolveBrand(
-            {
+        if (ocr.brand_raw && ocr.brand_raw.trim().length > 0) {
+          const resolveRes = await fetch("/api/resolve-lens", {
+            method: "POST",
+            cache: "no-store",
+            headers: {
+              "Content-Type": "application/json",
+              // keep auth consistent; your resolver route can ignore it if not needed
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
               rawString: ocr.brand_raw,
               hasCyl,
               hasAdd,
-            },
-            candidateLenses,
-          );
+              bc: ocr.right?.base_curve ?? ocr.left?.base_curve ?? null,
+              dia: ocr.right?.diameter ?? ocr.left?.diameter ?? null,
+            }),
+          });
 
-          proposedLensId = result.lensId;
+          if (!resolveRes.ok) {
+            const txt = await resolveRes.text().catch(() => "");
+            throw new Error(
+              `Resolver API failed (${resolveRes.status}) ${txt}`,
+            );
+          }
 
-          const CONFIDENCE_THRESHOLD = 11;
-          proposalConfidence =
-            result.score >= CONFIDENCE_THRESHOLD ? "high" : "low";
+          const resolverData: {
+            finalLensId: string | null;
+            confidence: "high" | "medium" | "low";
+          } = await resolveRes.json();
+
+          proposedLensId = resolverData.finalLensId ?? null;
+          proposalConfidence = resolverData.confidence ?? null;
+
+          // 🔒 CooperVision temporary block
+          if (proposedLensId && proposedLensId.startsWith("CV")) {
+            if (isMounted) setShowComingSoon(true);
+          }
         }
 
-        // -----------------------------
-        // Map Eye → Draft
-        // -----------------------------
-
+        // 4) Map eye -> draft
         const mapEye = (eye?: EyeRx): EyeRxDraft => ({
           lens_id: proposedLensId ?? "",
           sph: eye?.sphere != null ? Number(eye.sphere).toFixed(2) : "",
@@ -177,12 +195,13 @@ export default function ConfirmClient() {
           expires: ocr.expires ?? "",
         };
 
+        // 5) Build OcrExtract (use shared type from @/types/ocr)
         const meta: OcrExtract = {
-          patientName: ocr.patient_name,
-          doctorName: ocr.doctor_name,
-          doctorPhone: ocr.prescriber_phone,
-          issuedDate: ocr.issued_date,
-          expires: ocr.expires,
+          patientName: ocr.patient_name ?? undefined,
+          doctorName: ocr.doctor_name ?? undefined,
+          doctorPhone: ocr.prescriber_phone ?? undefined,
+          issuedDate: ocr.issued_date ?? undefined,
+          expires: ocr.expires ?? undefined,
           rawText: ocr.brand_raw ?? undefined,
           proposedLensId,
           proposalConfidence,
@@ -193,13 +212,10 @@ export default function ConfirmClient() {
           setOcrExtract(meta);
         }
       } catch (err: unknown) {
-        if (isMounted) {
-          if (err instanceof Error) {
-            setError(err.message);
-          } else {
-            setError("Error loading prescription");
-          }
-        }
+        if (!isMounted) return;
+
+        if (err instanceof Error) setError(err.message);
+        else setError("Error loading prescription");
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -225,23 +241,29 @@ export default function ConfirmClient() {
   }
 
   return (
-    <div className="pt-16 px-6 max-w-5xl mx-auto">
-      <RxForm
-        mode="ocr"
-        initialDraft={initialDraft}
-        ocrExtract={ocrExtract}
-      />
-
-      {source === "manual" && (
-        <div className="mt-8">
-          <Link
-            href="/upload-prescription"
-            className="text-sm text-neutral-400 hover:text-white underline"
-          >
-            Upload prescription instead
-          </Link>
-        </div>
+    <>
+      {showComingSoon && (
+        <ComingSoonOverlay onClose={() => setShowComingSoon(false)} />
       )}
-    </div>
+
+      <div className="pt-16 px-6 max-w-5xl mx-auto">
+        <RxForm
+          mode="ocr"
+          initialDraft={initialDraft}
+          ocrExtract={ocrExtract}
+        />
+
+        {source === "manual" && (
+          <div className="mt-8">
+            <Link
+              href="/upload-prescription"
+              className="text-sm text-neutral-400 hover:text-white underline"
+            >
+              Upload prescription instead
+            </Link>
+          </div>
+        )}
+      </div>
+    </>
   );
 }

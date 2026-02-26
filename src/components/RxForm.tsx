@@ -11,6 +11,7 @@ import { getColorOptions } from "../data/lensColors";
 import { lenses } from "../data/lenses";
 import { getLensDisplayName } from "../lib/cart/display";
 import ExpirationDatePicker from "@/components/ExpirationDatePicker";
+import type { OcrExtract } from "@/types/ocr";
 
 /* =========================
    Types
@@ -65,17 +66,6 @@ type FieldErrorMap = {
 };
 
 type RxFormMode = "manual" | "ocr";
-
-type OcrExtract = {
-  patientName?: string;
-  doctorName?: string;
-  doctorPhone?: string;
-  issuedDate?: string;
-  expires?: string;
-  rawText?: string;
-  proposedLensId?: string | null;
-  proposalConfidence?: "high" | "low" | null;
-};
 
 type Props = {
   mode?: RxFormMode;
@@ -191,6 +181,9 @@ export default function RxForm({
   const proposedLensId = ocrExtract?.proposedLensId ?? null;
   const hasProposal = Boolean(proposedLensId);
 
+  const proposalConfidence =
+  mode === "ocr" ? ocrExtract?.proposalConfidence ?? null : null;
+
   // Gate: user must acknowledge detected lens before editing Rx values (OCR mode only)
   const [proposalAck, setProposalAck] = useState<boolean>(mode !== "ocr");
 
@@ -209,13 +202,17 @@ export default function RxForm({
 
   // Lens card state machine (OCR mode only)
   const lensCardState: "error" | "suggested" | "manual" | "confirmed" =
-    ocrError || !hasProposal
-      ? "error"
-      : !proposalAck
-        ? "suggested"
-        : useProposedLens
-          ? "confirmed"
-          : "manual";
+  ocrError || !hasProposal
+    ? "error"
+    : proposalConfidence === "high" && !proposalAck
+      ? "suggested"
+      : proposalConfidence === "high" && proposalAck && useProposedLens
+        ? "confirmed"
+        : proposalConfidence === "medium"
+          ? "manual"
+          : proposalConfidence === "low"
+            ? "error"
+            : "manual";
 
   // OCR-only meta (does not exist for manual entry)
   const [patientName, setPatientName] = useState(

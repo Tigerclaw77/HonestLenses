@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import Header from "../../components/Header";
 import Footer from "../../components/Footer";
 
@@ -68,9 +69,10 @@ export default function AboutPage() {
       ================================================== */}
         <section className="assurance">
           <ul>
-            <li>Authorized manufacturers only</li>
-            <li>Prescription verification required</li>
-            <li>No gray-market lenses</li>
+            <li>Valid prescription required</li>
+            <li>Manufacturer-direct fulfillment</li>
+            <li>No gray market lenses</li>
+            <li>Optometrist-owned</li>
           </ul>
         </section>
 
@@ -83,7 +85,9 @@ export default function AboutPage() {
             If you already have a valid prescription, you can begin shopping
             confidently with Honest Lenses.
           </p>
-          <button className="primary-btn">Shop contact lenses</button>
+          <Link href="/upload-prescription" className="primary-btn">
+            Shop contact lenses
+          </Link>
         </section>
       </main>
       <Footer />

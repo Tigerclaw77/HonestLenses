@@ -6,6 +6,7 @@ import { supabase } from "../../lib/supabase-client";
 
 import Header from "../../components/Header";
 import EyeRow from "../../components/cart/EyeRow";
+import ComingSoonOverlay from "@/components/overlays/ComingSoonOverlay";
 
 import { fmtPrice } from "../../lib/cart/formatters";
 import { buildQuantityConfig } from "../../lib/cart/quantityConfig";
@@ -15,8 +16,8 @@ import { getLensDisplayName } from "../../lib/cart/display";
 import { SKU_BOX_DURATION_MONTHS } from "../../lib/pricing/skuDefaults";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
-const MIN_DAYS_FOR_ANNUAL_UPSELL = 150; // your rule
-const FLAT_SHIPPING_CENTS_UNDER_ANNUAL = 1000; // $10 under annual
+const MIN_DAYS_FOR_ANNUAL_UPSELL = 150;
+const FLAT_SHIPPING_CENTS_UNDER_ANNUAL = 1000;
 
 function safeRemainingDays(expires: string) {
   if (!expires) return 0;
@@ -34,8 +35,8 @@ export default function CartPage() {
   const [cart, setCart] = useState<CartOrder | null>(null);
 
   const [showShippingModal, setShowShippingModal] = useState(false);
+  // const [showComingSoon, setShowComingSoon] = useState(false);
 
-  // UI-only overrides (keeps dropdown stable while we wait for resolve)
   const [rightQtyOverride, setRightQtyOverride] = useState<number | null>(null);
   const [leftQtyOverride, setLeftQtyOverride] = useState<number | null>(null);
 
@@ -49,16 +50,12 @@ export default function CartPage() {
     return buildQuantityConfig(expires, sku);
   }, [expires, sku]);
 
-  // ✅ do NOT rely on extra fields that don't exist on QuantityConfig
   const remainingDays = useMemo(() => safeRemainingDays(expires), [expires]);
 
   const defaultPerEye = quantityConfig?.defaultPerEye ?? 1;
   const quantityOptions = quantityConfig?.options ?? [1, 2, 3, 4, 6, 8];
   const durationLabel = quantityConfig?.durationLabel ?? "box";
 
-  // ✅ IMPORTANT: we need durationMonths for "annual supply" logic.
-  // If your buildQuantityConfig already knows it, use it.
-  // If not, set this to 1 and you’ll still be correct once buildQuantityConfig includes it.
   const durationMonths =
     sku && SKU_BOX_DURATION_MONTHS[sku] ? SKU_BOX_DURATION_MONTHS[sku] : 1;
 
@@ -81,7 +78,6 @@ export default function CartPage() {
           return;
         }
 
-        // ✅ your resolveCart typing expects box_count (your screenshot showed that)
         const updated = await resolveCart(session.access_token, {
           right_box_count: nextRight,
           left_box_count: nextLeft,
@@ -89,8 +85,6 @@ export default function CartPage() {
         });
 
         setCart(updated);
-
-        // backend is authoritative, clear overrides after success
         setRightQtyOverride(null);
         setLeftQtyOverride(null);
       } catch (e) {
@@ -128,7 +122,6 @@ export default function CartPage() {
           return;
         }
 
-        // authoritative resolve on load ONLY
         const finalized = await resolveCart(session.access_token);
         if (!alive) return;
 
@@ -147,6 +140,19 @@ export default function CartPage() {
       alive = false;
     };
   }, [router]);
+
+  /* ---------- CV Block Detection ---------- */
+
+  const rx = cart?.rx;
+  const rightEye = rx?.right ?? null;
+  const leftEye = rx?.left ?? null;
+
+  const hasCVLens =
+    rightEye?.lens_id?.startsWith("CV") || leftEye?.lens_id?.startsWith("CV");
+
+  // useEffect(() => {
+  //   if (hasCVLens) setShowComingSoon(true);
+  // }, [hasCVLens]);
 
   /* ---------- Guards ---------- */
 
@@ -172,10 +178,6 @@ export default function CartPage() {
 
   /* ---------- RX ---------- */
 
-  const rx = cart.rx;
-  const rightEye = rx.right ?? null;
-  const leftEye = rx.left ?? null;
-
   const rightLensName = rightEye
     ? getLensDisplayName(rightEye.lens_id, cart.sku)
     : "Unknown Lens";
@@ -188,6 +190,7 @@ export default function CartPage() {
 
   const storedRight =
     typeof cart.right_box_count === "number" ? cart.right_box_count : null;
+
   const storedLeft =
     typeof cart.left_box_count === "number" ? cart.left_box_count : null;
 
@@ -200,7 +203,7 @@ export default function CartPage() {
   const totalBoxes =
     (rightEye ? effectiveRight : 0) + (leftEye ? effectiveLeft : 0);
 
-  /* ---------- Annual supply logic (PER EYE, not across order) ---------- */
+  /* ---------- Annual supply logic ---------- */
 
   const rightMonths = rightEye ? effectiveRight * durationMonths : 0;
   const leftMonths = leftEye ? effectiveLeft * durationMonths : 0;
@@ -208,7 +211,6 @@ export default function CartPage() {
   const isAnnualPerEye =
     (!rightEye || rightMonths >= 12) && (!leftEye || leftMonths >= 12);
 
-  // shipping is always available, but free only when annual-per-eye
   const previewShipping =
     totalBoxes > 0
       ? isAnnualPerEye
@@ -216,14 +218,12 @@ export default function CartPage() {
         : FLAT_SHIPPING_CENTS_UNDER_ANNUAL
       : 0;
 
-  // upsell link ONLY when:
-  // remainingDays >= 150 AND selected is NOT annual-per-eye
   const showFreeShipUpsell =
     remainingDays >= MIN_DAYS_FOR_ANNUAL_UPSELL &&
     totalBoxes > 0 &&
     !isAnnualPerEye;
 
-  /* ---------- Price math (stable + honest) ---------- */
+  /* ---------- Price math ---------- */
 
   const serverShipping =
     typeof cart.shipping_cents === "number" ? cart.shipping_cents : 0;
@@ -231,16 +231,13 @@ export default function CartPage() {
   const serverTotal =
     typeof cart.total_amount_cents === "number" ? cart.total_amount_cents : 0;
 
-  // serverSubtotal is the best we can do without calling getPrice() on the client
   const serverSubtotal = Math.max(0, serverTotal - serverShipping);
 
-  // Use server box_count if present; otherwise fall back to current UI selection
   const serverBoxCount =
     typeof cart.box_count === "number" && cart.box_count > 0
       ? cart.box_count
       : totalBoxes;
 
-  // Unit price derived from serverSubtotal/serverBoxCount
   const unitPricePerBoxCents =
     serverBoxCount > 0 ? Math.round(serverSubtotal / serverBoxCount) : null;
 
@@ -251,7 +248,8 @@ export default function CartPage() {
 
   const previewTotal = previewSubtotal + previewShipping;
 
-  const canCheckout = !syncingQty && totalBoxes > 0 && previewTotal > 0;
+  const canCheckout =
+    !syncingQty && totalBoxes > 0 && previewTotal > 0 && !hasCVLens;
 
   /* ---------- Render ---------- */
 
@@ -342,22 +340,12 @@ export default function CartPage() {
                 <span>Total</span>
                 <span>{fmtPrice(previewTotal)}</span>
               </div>
-
-              {syncingQty && (
-                <div className="hl-summary-row">
-                  <span />
-                  <span style={{ fontSize: 12, opacity: 0.8 }}>
-                    Updating quantity…
-                  </span>
-                </div>
-              )}
             </div>
 
             <button
               className="primary-btn hl-checkout-cta"
               onClick={() => router.push("/shipping")}
               disabled={!canCheckout}
-              title={canCheckout ? "" : "Select at least 1 box to continue."}
             >
               Continue to checkout
             </button>
@@ -391,58 +379,21 @@ export default function CartPage() {
               boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
             }}
           >
-            <h3
-              style={{
-                marginBottom: 12,
-                fontSize: 18,
-                letterSpacing: 1,
-              }}
-            >
-              Free Shipping
-            </h3>
-
-            <p
-              style={{
-                fontSize: 14,
-                lineHeight: 1.6,
-                opacity: 0.9,
-                marginBottom: 20,
-              }}
-            >
+            <h3 style={{ marginBottom: 12 }}>Free Shipping</h3>
+            <p>
               Free shipping is available when you order a 12-month supply for
               the eye(s) you&apos;re purchasing.
-              <br />
-              <br />
-              Increase quantity above to reach an annual supply.
             </p>
-
-            <button
-              onClick={() => setShowShippingModal(false)}
-              style={{
-                width: "100%",
-                padding: "12px 16px",
-                background: "linear-gradient(180deg, #2a2a2a, #1c1c1c)",
-                border: "1px solid rgba(255,255,255,0.15)",
-                borderRadius: 10,
-                color: "#fff",
-                fontWeight: 500,
-                letterSpacing: 0.5,
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background =
-                  "linear-gradient(180deg, #333, #222)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background =
-                  "linear-gradient(180deg, #2a2a2a, #1c1c1c)";
-              }}
-            >
-              Close
-            </button>
+            <button onClick={() => setShowShippingModal(false)}>Close</button>
           </div>
         </div>
+      )}
+
+      {hasCVLens && (
+        <ComingSoonOverlay
+          brand="CooperVision"
+          onClose={() => router.push("/")}
+        />
       )}
     </>
   );

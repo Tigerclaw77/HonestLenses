@@ -59,6 +59,7 @@ export default function HomePage() {
           <li>Valid prescription required</li>
           <li>Manufacturer-direct fulfillment</li>
           <li>No gray market lenses</li>
+          <li>Optometrist-owned</li>
         </ul>
       </section>
 
@@ -178,7 +179,7 @@ export default function HomePage() {
         }}
         onHasPrescription={() => {
           setIsShopIntentOpen(false);
-          router.push("/order");
+          router.push("/upload-prescription");
         }}
       />
     </main>

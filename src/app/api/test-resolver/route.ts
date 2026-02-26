@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { resolveBrand } from "@/lib/resolveBrand";
 import { rawLenses } from "@/data/lenses";
 
+
+
 const CONFIDENCE_THRESHOLD = 11;
 
 export async function GET() {
