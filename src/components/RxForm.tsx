@@ -504,8 +504,6 @@ export default function RxForm({
       }
     }
 
-    console.log("🟦 [RxForm] No cart found; creating /api/orders (POST)");
-
     const orderRes = await fetch("/api/orders", {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}` },
