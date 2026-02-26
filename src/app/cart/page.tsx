@@ -310,7 +310,29 @@ export default function CartPage() {
               </div>
 
               <div className="hl-summary-row">
-                <span>Shipping</span>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <span>Shipping</span>
+
+                  {!isAnnualPerEye && totalBoxes > 0 && (
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 500,
+                        color: "#a78bfa",
+                        letterSpacing: "0.2px",
+                      }}
+                    >
+                      Annual supplies ship free
+                    </span>
+                  )}
+                </div>
+
                 <span>
                   {previewShipping === 0 ? "Free" : fmtPrice(previewShipping)}
                 </span>

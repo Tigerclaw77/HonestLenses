@@ -34,25 +34,25 @@ export type CooperVisionSKU =
   // Monthly / Biweekly
   // =========================
   | "AVAIRA_VITALITY_6"
-  | "AVAIRA_VITALITY_TORIC_6"
+  | "AVAIRA_VITALITY_AST_6"
 
   | "BIOFINITY_6"
   | "BIOFINITY_ENERGYS_6"
   | "BIOFINITY_XR_6"
-  | "BIOFINITY_TORIC_6"
-  | "BIOFINITY_XR_TORIC_6"
+  | "BIOFINITY_AST_6"
+  | "BIOFINITY_XR_AST_6"
   | "BIOFINITY_MF_6"
   | "BIOFINITY_AST_MF_6"
 
   | "BIOMEDICS_55_6"
-  | "BIOMEDICS_TORIC_6"
+  | "BIOMEDICS_AST_6"
 
   | "PROCLEAR_6"
-  | "PROCLEAR_TORIC_6"
-  | "PROCLEAR_TORIC_XR_6"
+  | "PROCLEAR_AST_6"
+  | "PROCLEAR_XR_AST_6"
   | "PROCLEAR_MF_6"
-  | "PROCLEAR_MF_XR_6"
-  | "PROCLEAR_MF_AST_6";
+  | "PROCLEAR_XR_MF_6"
+  | "PROCLEAR_AST_MF_6";
 
 type PriceEntry = {
   price_per_box_cents: number;
@@ -88,7 +88,7 @@ export const COOPERVISION_PRICING: Record<CooperVisionSKU, PriceEntry> = {
   // Avaira Vitality
   // =========================
   AVAIRA_VITALITY_6: { price_per_box_cents: 2625 },
-  AVAIRA_VITALITY_TORIC_6: { price_per_box_cents: 3075 },
+  AVAIRA_VITALITY_AST_6: { price_per_box_cents: 3075 },
 
   // =========================
   // Biofinity
@@ -96,8 +96,8 @@ export const COOPERVISION_PRICING: Record<CooperVisionSKU, PriceEntry> = {
   BIOFINITY_6: { price_per_box_cents: 3600 },
   BIOFINITY_ENERGYS_6: { price_per_box_cents: 3750 },
   BIOFINITY_XR_6: { price_per_box_cents: 3600 },
-  BIOFINITY_TORIC_6: { price_per_box_cents: 4725 },
-  BIOFINITY_XR_TORIC_6: { price_per_box_cents: 8950 },
+  BIOFINITY_AST_6: { price_per_box_cents: 4725 },
+  BIOFINITY_XR_AST_6: { price_per_box_cents: 8950 },
   BIOFINITY_MF_6: { price_per_box_cents: 6350 },
   BIOFINITY_AST_MF_6: { price_per_box_cents: 9650 },
 
@@ -105,15 +105,15 @@ export const COOPERVISION_PRICING: Record<CooperVisionSKU, PriceEntry> = {
   // Biomedics
   // =========================
   BIOMEDICS_55_6: { price_per_box_cents: 3075 },
-  BIOMEDICS_TORIC_6: { price_per_box_cents: 3575 },
+  BIOMEDICS_AST_6: { price_per_box_cents: 3575 },
 
   // =========================
   // Proclear Monthly
   // =========================
   PROCLEAR_6: { price_per_box_cents: 4450 },
-  PROCLEAR_TORIC_6: { price_per_box_cents: 5550 },
-  PROCLEAR_TORIC_XR_6: { price_per_box_cents: 10100 },
+  PROCLEAR_AST_6: { price_per_box_cents: 5550 },
+  PROCLEAR_XR_AST_6: { price_per_box_cents: 10100 },
   PROCLEAR_MF_6: { price_per_box_cents: 6450 },
-  PROCLEAR_MF_XR_6: { price_per_box_cents: 10275 },
-  PROCLEAR_MF_AST_6: { price_per_box_cents: 12200 },
+  PROCLEAR_XR_MF_6: { price_per_box_cents: 10275 },
+  PROCLEAR_AST_MF_6: { price_per_box_cents: 12200 },
 };
