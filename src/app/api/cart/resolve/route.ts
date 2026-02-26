@@ -29,6 +29,7 @@ type RxData = {
 };
 
 type ResolveBody = {
+  order_id?: string;
   right_box_count?: number;
   left_box_count?: number;
 };
@@ -69,19 +70,19 @@ function isRxData(value: unknown): value is RxData {
 
 function isFiniteNonNegativeInt(n: unknown): n is number {
   return (
-    typeof n === "number" &&
-    Number.isFinite(n) &&
-    Number.isInteger(n) &&
-    n >= 0
+    typeof n === "number" && Number.isFinite(n) && Number.isInteger(n) && n >= 0
   );
 }
 
 function isResolveBody(value: unknown): value is ResolveBody {
   if (!isObject(value)) return false;
 
+  const oid = value.order_id;
   const r = value.right_box_count;
   const l = value.left_box_count;
 
+  if (oid !== undefined && oid !== null && typeof oid !== "string")
+    return false;
   if (r !== undefined && r !== null && !isFiniteNonNegativeInt(r)) return false;
   if (l !== undefined && l !== null && !isFiniteNonNegativeInt(l)) return false;
 
@@ -105,7 +106,7 @@ function daysUntil(expires: string): number {
   const todayUTC = Date.UTC(
     now.getUTCFullYear(),
     now.getUTCMonth(),
-    now.getUTCDate()
+    now.getUTCDate(),
   );
 
   return Math.floor((expUTC - todayUTC) / MS_PER_DAY);
@@ -141,9 +142,10 @@ export async function POST(req: Request) {
   const body: ResolveBody | null = isResolveBody(rawBody) ? rawBody : null;
 
   /* ---------- Load draft order ---------- */
-  const { data: order, error } = await supabaseServer
+  let query = supabaseServer
     .from("orders")
-    .select(`
+    .select(
+      `
       id,
       user_id,
       status,
@@ -151,12 +153,18 @@ export async function POST(req: Request) {
       sku,
       right_box_count,
       left_box_count
-    `)
+    `,
+    )
     .eq("user_id", user.id)
-    .eq("status", "draft")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .eq("status", "draft");
+
+  if (body?.order_id) {
+    query = query.eq("id", body.order_id);
+  } else {
+    query = query.order("created_at", { ascending: false }).limit(1);
+  }
+
+  const { data: order, error } = await query.maybeSingle();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -165,7 +173,7 @@ export async function POST(req: Request) {
   if (!order?.id) {
     return NextResponse.json(
       { error: "Draft order not found." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -173,7 +181,7 @@ export async function POST(req: Request) {
   if (!isRxData(order.rx)) {
     return NextResponse.json(
       { error: "Order missing RX. Save prescription first." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -184,7 +192,7 @@ export async function POST(req: Request) {
   if (!hasRight && !hasLeft) {
     return NextResponse.json(
       { error: "Order missing RX eyes." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -198,31 +206,36 @@ export async function POST(req: Request) {
   let targetMonths: 6 | 12;
   let resolvedSku: string | null = null;
 
+  console.log("RX expires:", rx.expires);
+
   try {
     remainingDays = daysUntil(rx.expires);
 
+    console.log("Remaining days:", remainingDays);
+
     if (remainingDays < 0) {
       return NextResponse.json(
-        { error: "Prescription expired. Please upload an updated prescription." },
-        { status: 400 }
+        {
+          error: "Prescription expired. Please upload an updated prescription.",
+        },
+        { status: 400 },
       );
     }
 
-    targetMonths =
-      remainingDays >= MIN_DAYS_FOR_ANNUAL ? 12 : 6;
+    targetMonths = remainingDays >= MIN_DAYS_FOR_ANNUAL ? 12 : 6;
 
     resolvedSku = resolveDefaultSku(lens_id, targetMonths);
 
     if (!resolvedSku) {
       return NextResponse.json(
         { error: `No default SKU for lens_id ${lens_id}` },
-        { status: 400 }
+        { status: 400 },
       );
     }
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Invalid expiration" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -231,7 +244,7 @@ export async function POST(req: Request) {
   if (!durationMonths) {
     return NextResponse.json(
       { error: `Missing duration for SKU ${resolvedSku}` },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
@@ -254,7 +267,7 @@ export async function POST(req: Request) {
   if (totalBoxes <= 0) {
     return NextResponse.json(
       { error: "Invalid total box count." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -288,10 +301,7 @@ export async function POST(req: Request) {
     .eq("status", "draft");
 
   if (updateError) {
-    return NextResponse.json(
-      { error: updateError.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
   return NextResponse.json({
