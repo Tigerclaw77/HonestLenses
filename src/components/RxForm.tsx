@@ -182,7 +182,7 @@ export default function RxForm({
   const hasProposal = Boolean(proposedLensId);
 
   const proposalConfidence =
-  mode === "ocr" ? ocrExtract?.proposalConfidence ?? null : null;
+    mode === "ocr" ? (ocrExtract?.proposalConfidence ?? null) : null;
 
   // Gate: user must acknowledge detected lens before editing Rx values (OCR mode only)
   const [proposalAck, setProposalAck] = useState<boolean>(mode !== "ocr");
@@ -202,17 +202,17 @@ export default function RxForm({
 
   // Lens card state machine (OCR mode only)
   const lensCardState: "error" | "suggested" | "manual" | "confirmed" =
-  ocrError || !hasProposal
-    ? "error"
-    : proposalConfidence === "high" && !proposalAck
-      ? "suggested"
-      : proposalConfidence === "high" && proposalAck && useProposedLens
-        ? "confirmed"
-        : proposalConfidence === "medium"
-          ? "manual"
-          : proposalConfidence === "low"
-            ? "error"
-            : "manual";
+    ocrError || !hasProposal
+      ? "error"
+      : proposalConfidence === "high" && !proposalAck
+        ? "suggested"
+        : proposalConfidence === "high" && proposalAck && useProposedLens
+          ? "confirmed"
+          : proposalConfidence === "medium"
+            ? "manual"
+            : proposalConfidence === "low"
+              ? "error"
+              : "manual";
 
   // OCR-only meta (does not exist for manual entry)
   const [patientName, setPatientName] = useState(
@@ -737,7 +737,11 @@ export default function RxForm({
 
       const resolveRes = await fetch("/api/cart/resolve", {
         method: "POST",
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ order_id: finalOrderId }),
         cache: "no-store",
       });
 
@@ -1365,10 +1369,10 @@ export default function RxForm({
               <div className="rx-expiration">
                 <label htmlFor="expires">Expiration date</label>
                 <ExpirationDatePicker
-  value={expires}
-  onChange={setExpires}
-  hasError={fieldErrors.expires}
-/>
+                  value={expires}
+                  onChange={setExpires}
+                  hasError={fieldErrors.expires}
+                />
                 {fieldErrors.expires && (
                   <div className="rx-hint" style={{ marginTop: 4 }}>
                     A valid, unexpired prescription date is required to proceed.
