@@ -7,6 +7,7 @@ import { supabase } from "../../lib/supabase-client";
 import Header from "../../components/Header";
 import EyeRow from "../../components/cart/EyeRow";
 import ComingSoonOverlay from "@/components/overlays/ComingSoonOverlay";
+import AuthGate from "@/components/AuthGate";
 
 import { fmtPrice } from "../../lib/cart/formatters";
 import { buildQuantityConfig } from "../../lib/cart/quantityConfig";
@@ -29,13 +30,14 @@ function safeRemainingDays(expires: string) {
 export default function CartPage() {
   const router = useRouter();
 
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [syncingQty, setSyncingQty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cart, setCart] = useState<CartOrder | null>(null);
 
   const [showShippingModal, setShowShippingModal] = useState(false);
-  // const [showComingSoon, setShowComingSoon] = useState(false);
 
   const [rightQtyOverride, setRightQtyOverride] = useState<number | null>(null);
   const [leftQtyOverride, setLeftQtyOverride] = useState<number | null>(null);
@@ -64,21 +66,16 @@ export default function CartPage() {
   const handleQtyChange = useCallback(
     async (nextRight: number, nextLeft: number) => {
       if (syncingQty) return;
+      if (!accessToken) {
+        setError("Session missing. Please log in again.");
+        return;
+      }
 
       setSyncingQty(true);
       setError(null);
 
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        if (!session) {
-          router.push("/login");
-          return;
-        }
-
-        const updated = await resolveCart(session.access_token, {
+        const updated = await resolveCart(accessToken, {
           right_box_count: nextRight,
           left_box_count: nextLeft,
           box_count: nextRight + nextLeft,
@@ -94,7 +91,7 @@ export default function CartPage() {
         setSyncingQty(false);
       }
     },
-    [router, syncingQty],
+    [accessToken, syncingQty],
   );
 
   /* ---------- Initial load ---------- */
@@ -104,14 +101,25 @@ export default function CartPage() {
 
     async function loadCart() {
       try {
+        setLoading(true);
+        setError(null);
+
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
+        // AuthGate should prevent this in practice, but keep it safe.
         if (!session) {
-          router.push("/login");
+          if (!alive) return;
+          setAccessToken(null);
+          setCart(null);
+          setError("Please log in to view your cart.");
+          setLoading(false);
           return;
         }
+
+        if (!alive) return;
+        setAccessToken(session.access_token);
 
         const initial = await fetchCart(session.access_token);
         if (!alive) return;
@@ -139,7 +147,7 @@ export default function CartPage() {
     return () => {
       alive = false;
     };
-  }, [router]);
+  }, []);
 
   /* ---------- CV Block Detection ---------- */
 
@@ -149,10 +157,6 @@ export default function CartPage() {
 
   const hasCVLens =
     rightEye?.lens_id?.startsWith("CV") || leftEye?.lens_id?.startsWith("CV");
-
-  // useEffect(() => {
-  //   if (hasCVLens) setShowComingSoon(true);
-  // }, [hasCVLens]);
 
   /* ---------- Guards ---------- */
 
@@ -167,12 +171,14 @@ export default function CartPage() {
 
   if (!cart || !cart.rx) {
     return (
-      <>
-        <Header variant="shop" />
-        <main className="content-shell">
-          <p className="order-error">{error ?? "Cart unavailable."}</p>
-        </main>
-      </>
+      <AuthGate>
+        <>
+          <Header variant="shop" />
+          <main className="content-shell">
+            <p className="order-error">{error ?? "Cart unavailable."}</p>
+          </main>
+        </>
+      </AuthGate>
     );
   }
 
@@ -254,169 +260,188 @@ export default function CartPage() {
   /* ---------- Render ---------- */
 
   return (
-    <>
-      <Header variant="shop" />
+    <AuthGate>
+      <>
+        <Header variant="shop" />
 
-      <main>
-        <section className="content-shell">
-          <h1 className="upper content-title">Your Cart</h1>
+        <main>
+          <section className="content-shell">
+            <h1 className="upper content-title">Your Cart</h1>
 
-          <div className="order-card hl-cart">
-            {error ? <p className="order-error">{error}</p> : null}
+            <div className="order-card hl-cart">
+              {error ? <p className="order-error">{error}</p> : null}
 
-            {rightEye && (
-              <EyeRow
-                label="RIGHT EYE"
-                lensName={rightLensName}
-                rx={rightEye}
-                qty={effectiveRight}
-                onQty={(v) => {
-                  setRightQtyOverride(v);
-                  void handleQtyChange(v, effectiveLeft);
-                }}
-                unitPricePerBoxCents={unitPricePerBoxCents}
-                durationLabel={durationLabel}
-                quantityOptions={quantityOptions}
-                disabled={syncingQty}
-              />
-            )}
-
-            {leftEye && (
-              <>
-                <hr className="hl-divider" />
+              {rightEye && (
                 <EyeRow
-                  label="LEFT EYE"
-                  lensName={leftLensName}
-                  rx={leftEye}
-                  qty={effectiveLeft}
+                  label="RIGHT EYE"
+                  lensName={rightLensName}
+                  rx={rightEye}
+                  qty={effectiveRight}
                   onQty={(v) => {
-                    setLeftQtyOverride(v);
-                    void handleQtyChange(effectiveRight, v);
+                    setRightQtyOverride(v);
+                    void handleQtyChange(v, effectiveLeft);
                   }}
                   unitPricePerBoxCents={unitPricePerBoxCents}
                   durationLabel={durationLabel}
                   quantityOptions={quantityOptions}
                   disabled={syncingQty}
                 />
-              </>
-            )}
-
-            <hr className="hl-divider" />
-
-            <div className="hl-summary">
-              <div className="hl-summary-row">
-                <span>Subtotal</span>
-                <span>{fmtPrice(previewSubtotal)}</span>
-              </div>
-
-              <div className="hl-summary-row">
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                  }}
-                >
-                  <span>Shipping</span>
-
-                  {!isAnnualPerEye && totalBoxes > 0 && (
-                    <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 500,
-                        color: "#a78bfa",
-                        letterSpacing: "0.2px",
-                      }}
-                    >
-                      Annual supplies ship free
-                    </span>
-                  )}
-                </div>
-
-                <span>
-                  {previewShipping === 0 ? "Free" : fmtPrice(previewShipping)}
-                </span>
-              </div>
-
-              {showFreeShipUpsell && (
-                <div className="hl-summary-row" style={{ fontSize: 12 }}>
-                  <span />
-                  <button
-                    type="button"
-                    onClick={() => setShowShippingModal(true)}
-                    style={{
-                      textDecoration: "underline",
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      color: "inherit",
-                      padding: 0,
-                    }}
-                  >
-                    How to get free shipping
-                  </button>
-                </div>
               )}
 
-              <div className="hl-summary-row hl-summary-total">
-                <span>Total</span>
-                <span>{fmtPrice(previewTotal)}</span>
+              {leftEye && (
+                <>
+                  <hr className="hl-divider" />
+                  <EyeRow
+                    label="LEFT EYE"
+                    lensName={leftLensName}
+                    rx={leftEye}
+                    qty={effectiveLeft}
+                    onQty={(v) => {
+                      setLeftQtyOverride(v);
+                      void handleQtyChange(effectiveRight, v);
+                    }}
+                    unitPricePerBoxCents={unitPricePerBoxCents}
+                    durationLabel={durationLabel}
+                    quantityOptions={quantityOptions}
+                    disabled={syncingQty}
+                  />
+                </>
+              )}
+
+              <hr className="hl-divider" />
+
+              <div className="hl-summary">
+                <div className="hl-summary-row">
+                  <span>Subtotal</span>
+                  <span>{fmtPrice(previewSubtotal)}</span>
+                </div>
+
+                <div className="hl-summary-row">
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                  >
+                    <span>Shipping</span>
+
+                    {!isAnnualPerEye && totalBoxes > 0 && (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 500,
+                          color: "#a78bfa",
+                          letterSpacing: "0.2px",
+                        }}
+                      >
+                        Annual supplies ship free
+                      </span>
+                    )}
+                  </div>
+
+                  <span>
+                    {previewShipping === 0 ? "Free" : fmtPrice(previewShipping)}
+                  </span>
+                </div>
+
+                {showFreeShipUpsell && (
+                  <div className="hl-summary-row" style={{ fontSize: 12 }}>
+                    <span />
+                    <button
+                      type="button"
+                      onClick={() => setShowShippingModal(true)}
+                      style={{
+                        textDecoration: "underline",
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "inherit",
+                        padding: 0,
+                      }}
+                    >
+                      How to get free shipping
+                    </button>
+                  </div>
+                )}
+
+                <div className="hl-summary-row hl-summary-total">
+                  <span>Total</span>
+                  <span>{fmtPrice(previewTotal)}</span>
+                </div>
               </div>
+
+              <button
+                className="primary-btn hl-checkout-cta"
+                onClick={() => router.push("/shipping")}
+                disabled={!canCheckout}
+              >
+                Continue to checkout
+              </button>
             </div>
+          </section>
+        </main>
 
-            <button
-              className="primary-btn hl-checkout-cta"
-              onClick={() => router.push("/shipping")}
-              disabled={!canCheckout}
-            >
-              Continue to checkout
-            </button>
-          </div>
-        </section>
-      </main>
-
-      {showShippingModal && (
-        <div
-          onClick={() => setShowShippingModal(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.55)",
-            backdropFilter: "blur(4px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-          }}
-        >
+        {showShippingModal && (
           <div
-            onClick={(e) => e.stopPropagation()}
+            onClick={() => setShowShippingModal(false)}
             style={{
-              width: "90%",
-              maxWidth: 420,
-              background: "#111",
-              borderRadius: 12,
-              padding: "28px 24px",
-              border: "1px solid rgba(255,255,255,0.08)",
-              boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.55)",
+              backdropFilter: "blur(4px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 1000,
             }}
           >
-            <h3 style={{ marginBottom: 12 }}>Free Shipping</h3>
-            <p>
-              Free shipping is available when you order a 12-month supply for
-              the eye(s) you&apos;re purchasing.
-            </p>
-            <button onClick={() => setShowShippingModal(false)}>Close</button>
-          </div>
-        </div>
-      )}
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: "90%",
+                maxWidth: 420,
+                background: "#111",
+                borderRadius: 12,
+                padding: "28px 24px",
+                border: "1px solid rgba(255,255,255,0.08)",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+              }}
+            >
+              <h3 style={{ marginBottom: 12 }}>Free Shipping</h3>
+              <p style={{ color: "#e5e7eb", lineHeight: 1.5 }}>
+                Free shipping is available when you order a 12-month supply for
+                the eye(s) you&apos;re purchasing.
+              </p>
 
-      {hasCVLens && (
-        <ComingSoonOverlay
-          brand="CooperVision"
-          onClose={() => router.push("/")}
-        />
-      )}
-    </>
+              <button
+                type="button"
+                onClick={() => setShowShippingModal(false)}
+                style={{
+                  marginTop: 16,
+                  width: "100%",
+                  padding: "14px 16px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "#fff",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+
+        {hasCVLens && (
+          <ComingSoonOverlay
+            brand="CooperVision"
+            onClose={() => router.push("/")}
+          />
+        )}
+      </>
+    </AuthGate>
   );
 }

@@ -31,8 +31,14 @@ export default function UploadPrescriptionPage() {
     setFile(selected);
   }
 
+  function clearFile() {
+    setFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
   async function getOrCreateDraftOrder(accessToken: string): Promise<string> {
-    // Check existing draft/cart first
     const cartRes = await fetch("/api/cart", {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
@@ -45,7 +51,6 @@ export default function UploadPrescriptionPage() {
       }
     }
 
-    // Otherwise create draft order
     const orderRes = await fetch("/api/orders", {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -104,9 +109,9 @@ export default function UploadPrescriptionPage() {
       });
 
       router.push(`/upload-prescription/confirm?orderId=${orderId}`);
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        setError(error.message);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
       } else {
         setError("Upload failed");
       }
@@ -126,9 +131,11 @@ export default function UploadPrescriptionPage() {
           </h2>
 
           <div className="rx-choice-grid">
-            {/* Upload card */}
+            {/* Upload Card */}
             <div
-              className={`rx-choice-card rx-dropzone ${file ? "has-file" : ""}`}
+              className={`rx-choice-card rx-dropzone ${
+                file ? "has-file" : ""
+              }`}
               onClick={() => fileInputRef.current?.click()}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
@@ -138,6 +145,7 @@ export default function UploadPrescriptionPage() {
               }}
             >
               <h3>Upload or take a photo</h3>
+
               <p className="rx-upload-subtitle">
                 Upload a photo or PDF of your prescription.
               </p>
@@ -148,36 +156,51 @@ export default function UploadPrescriptionPage() {
 
               {file && (
                 <div
-                  className="rx-filename"
                   style={{
+                    marginTop: 20,
                     marginBottom: 24,
+                    padding: 14,
+                    borderRadius: 14,
+                    background: "rgba(34,197,94,0.08)",
+                    border: "1px solid rgba(34,197,94,0.25)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    gap: 12,
+                    gap: 16,
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <span>
-                    Selected file: <strong>{file.name}</strong>
-                  </span>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                  >
+                    <span style={{ fontSize: 18 }}>✔</span>
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        fontSize: 15,
+                        letterSpacing: 0.2,
+                      }}
+                    >
+                      Prescription uploaded
+                    </span>
+                  </div>
 
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setFile(null);
-                      if (fileInputRef.current) {
-                        fileInputRef.current.value = "";
-                      }
+                      clearFile();
                     }}
                     style={{
                       background: "transparent",
                       border: "none",
                       color: "#f87171",
-                      fontWeight: 700,
+                      fontSize: 16,
                       cursor: "pointer",
-                      fontSize: 14,
                     }}
                   >
                     ✕
@@ -210,9 +233,10 @@ export default function UploadPrescriptionPage() {
               {error && <p className="order-error">{error}</p>}
             </div>
 
-            {/* Manual entry card */}
+            {/* Manual Entry Card */}
             <div className="rx-choice-card rx-choice-manual">
               <h3>Enter it manually</h3>
+
               <p className="rx-manual-subtitle">
                 Don’t have it with you right now?
               </p>
