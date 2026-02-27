@@ -73,7 +73,7 @@ export async function POST(req: Request) {
         if (typeof val !== "boolean") {
           return NextResponse.json(
             { error: "Invalid allow_lower_price_adjustment" },
-            { status: 400 }
+            { status: 400 },
           );
         }
         continue;
@@ -82,7 +82,7 @@ export async function POST(req: Request) {
       if (!isNonEmpty(val)) {
         return NextResponse.json(
           { error: `Missing ${String(key)}` },
-          { status: 400 }
+          { status: 400 },
         );
       }
     }
@@ -97,7 +97,7 @@ export async function POST(req: Request) {
     if (!hasName && !hasPractice) {
       return NextResponse.json(
         { error: "Doctor name or practice name required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -118,7 +118,7 @@ export async function POST(req: Request) {
     if (orderError || !order) {
       return NextResponse.json(
         { error: "No authorized order found" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -132,35 +132,25 @@ export async function POST(req: Request) {
       .from("orders")
       .update({
         patient_first_name: body.patient_first_name!.trim(),
-        patient_middle_name:
-          (body.patient_middle_name || "").trim() || null,
+        patient_middle_name: (body.patient_middle_name || "").trim() || null,
         patient_last_name: body.patient_last_name!.trim(),
         patient_dob: body.patient_dob,
 
         patient_address_line1: body.patient_address1!.trim(),
-        patient_address_line2:
-          (body.patient_address2 || "").trim() || null,
+        patient_address_line2: (body.patient_address2 || "").trim() || null,
         patient_city: body.patient_city!.trim(),
         patient_state: body.patient_state!.trim(),
         patient_zip: body.patient_zip!.trim(),
 
-        prescriber_name:
-          (body.prescriber_name || "").trim() || null,
-        prescriber_practice:
-          (body.prescriber_practice || "").trim() || null,
-        prescriber_phone:
-          (body.prescriber_phone || "").trim() || null,
-        prescriber_fax:
-          (body.prescriber_fax || "").trim() || null,
-        prescriber_email:
-          (body.prescriber_email || "").trim() || null,
-        prescriber_city:
-          (body.prescriber_city || "").trim() || null,
-        prescriber_state:
-          (body.prescriber_state || "").trim() || null,
+        prescriber_name: (body.prescriber_name || "").trim() || null,
+        prescriber_practice: (body.prescriber_practice || "").trim() || null,
+        prescriber_phone: (body.prescriber_phone || "").trim() || null,
+        prescriber_fax: (body.prescriber_fax || "").trim() || null,
+        prescriber_email: (body.prescriber_email || "").trim() || null,
+        prescriber_city: (body.prescriber_city || "").trim() || null,
+        prescriber_state: (body.prescriber_state || "").trim() || null,
 
-        allow_lower_price_adjustment:
-          body.allow_lower_price_adjustment,
+        allow_lower_price_adjustment: body.allow_lower_price_adjustment,
 
         verification_details_submitted_at: nowIso,
       })
@@ -168,21 +158,15 @@ export async function POST(req: Request) {
       .eq("user_id", user.id);
 
     if (updateError) {
-      return NextResponse.json(
-        { error: updateError.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
     /* =========================
        7️⃣ Trigger verification email
     ========================= */
-
     const baseUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      (process.env.VERCEL_URL?.startsWith("http")
-        ? process.env.VERCEL_URL
-        : process.env.VERCEL_URL
+      process.env.SITE_URL ||
+      (process.env.VERCEL_URL
         ? `https://${process.env.VERCEL_URL}`
         : "http://localhost:3000");
 
@@ -199,7 +183,7 @@ export async function POST(req: Request) {
     if (!sendRes.ok) {
       return NextResponse.json(
         { error: sendBody?.error || "Verification send failed" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -210,12 +194,9 @@ export async function POST(req: Request) {
   } catch (err: unknown) {
     return NextResponse.json(
       {
-        error:
-          err instanceof Error
-            ? err.message
-            : "Unexpected server error",
+        error: err instanceof Error ? err.message : "Unexpected server error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
