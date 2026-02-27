@@ -1,30 +1,12 @@
-"use client";
+import { Suspense } from "react";
+import AuthCallbackClient from "./AuthCallbackClient";
 
-import { useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabase-client";
+export const dynamic = "force-dynamic";
 
-export default function AuthCallback() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  useEffect(() => {
-    async function finish() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      const next = searchParams.get("next");
-
-      if (session) {
-        router.replace(next ?? "/");
-      } else {
-        router.replace("/login");
-      }
-    }
-
-    finish();
-  }, [router, searchParams]);
-
-  return <main className="content-shell">Signing you in…</main>;
+export default function Page() {
+  return (
+    <Suspense fallback={<main className="content-shell">Signing you in…</main>}>
+      <AuthCallbackClient />
+    </Suspense>
+  );
 }

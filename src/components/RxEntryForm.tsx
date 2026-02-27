@@ -23,7 +23,8 @@ export default function RxEntryForm() {
       } = await supabase.auth.getSession();
 
       if (!session) {
-        router.push("/login");
+        const next = window.location.pathname + window.location.search;
+        router.replace(`/login?next=${encodeURIComponent(next)}`);
         return;
       }
 

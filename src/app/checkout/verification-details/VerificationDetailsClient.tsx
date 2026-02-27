@@ -211,7 +211,9 @@ export default function VerificationDetailsPage() {
         } = await supabase.auth.getSession();
 
         if (!session) {
-          router.replace("/login");
+          const current = window.location.pathname + window.location.search;
+
+          router.replace(`/login?next=${encodeURIComponent(current)}`);
           return;
         }
 

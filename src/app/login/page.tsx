@@ -34,9 +34,13 @@ export default function LoginPage() {
     setLoading(true);
     setMessage(null);
 
+    console.log("Login next param:", next);
+
     const redirectTo = `${window.location.origin}/auth/callback${
       next ? `?next=${encodeURIComponent(next)}` : ""
     }`;
+
+    console.log("Redirect being sent to Supabase:", redirectTo);
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
