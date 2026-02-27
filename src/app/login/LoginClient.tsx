@@ -7,14 +7,12 @@ import { supabase } from "@/lib/supabase-client";
 export default function LoginClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-
   const next = searchParams.get("next");
 
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  // If already logged in, go where intended
   useEffect(() => {
     async function checkSession() {
       const {
@@ -34,13 +32,9 @@ export default function LoginClient() {
     setLoading(true);
     setMessage(null);
 
-    console.log("Login next param:", next);
-
     const redirectTo = `${window.location.origin}/auth/callback${
       next ? `?next=${encodeURIComponent(next)}` : ""
     }`;
-
-    console.log("Redirect being sent to Supabase:", redirectTo);
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
@@ -52,104 +46,174 @@ export default function LoginClient() {
     if (error) {
       setMessage(error.message);
     } else {
-      setMessage("Check your email for the login link.");
+      setMessage("Check your email for a secure access link.");
     }
 
     setLoading(false);
   }
 
-  return (
-    <main style={outerShell}>
-      <div style={card}>
-        <h1 style={title}>Continue</h1>
+  console.log("LOGIN CLIENT V2 RENDERED");
 
-        <form onSubmit={handleSubmit}>
+  return (
+    <main className="hl-login-shell">
+      <div className="hl-login-card">
+        <div className="hl-login-header">
+          <div className="hl-login-brand">HONEST LENSES</div>
+          <h1 className="hl-login-title">Secure Sign In</h1>
+          <p className="hl-login-subtitle">
+            We’ll email you a one-time secure login link.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="hl-login-form">
           <input
             type="email"
             placeholder="you@example.com"
             value={email}
             required
             onChange={(e) => setEmail(e.target.value)}
-            style={inputStyle}
+            className="hl-login-input"
           />
 
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              ...buttonStyle,
-              opacity: loading ? 0.7 : 1,
-              cursor: loading ? "not-allowed" : "pointer",
-            }}
-          >
-            {loading ? "Sending link…" : "Continue with Email"}
+          <button type="submit" disabled={loading} className="hl-login-button">
+            {loading ? "Sending…" : "Continue with Email"}
           </button>
         </form>
 
-        {message && <p style={messageStyle}>{message}</p>}
+        {message && <p className="hl-login-message">{message}</p>}
+
+        <div className="hl-login-footer">
+          Secure • Prescription Verified • Optometrist-Owned
+        </div>
       </div>
+
+      <style>{`
+        .hl-login-shell {
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 40px 24px;
+
+          position: fixed;
+          inset: 0;
+
+          background:
+            linear-gradient(
+            rgba(5, 10, 25, 0.88),
+            rgba(5, 10, 25, 0.88)
+            ),
+            radial-gradient(
+            1400px 900px at 50% 35%,
+            rgba(79, 70, 229, 0.05),
+            transparent 60%
+            ),
+            linear-gradient(180deg, #060913 0%, #0d1628 100%);
+        }
+
+        .hl-login-card {
+          width: 100%;
+          max-width: 460px;
+          background: rgba(15, 23, 42, 0.95);
+          border: 1px solid rgba(148, 163, 184, 0.14);
+          border-radius: 16px;
+          padding: 48px 42px;
+          box-shadow: 0 50px 120px rgba(0, 0, 0, 0.6);
+          backdrop-filter: blur(12px);
+          animation: hlFadeIn 480ms ease-out;
+        }
+
+        @keyframes hlFadeIn {
+          from {
+          opacity: 0;
+          transform: translateY(6px);
+         }
+         to {
+          opacity: 1;
+          transform: translateY(0);
+         }
+        }
+
+        .hl-login-brand {
+          font-size: 11px;
+          letter-spacing: 0.2em;
+          color: rgba(148, 163, 184, 0.6);
+          margin-bottom: 16px;
+        }
+
+        .hl-login-title {
+          font-size: 36px;
+          font-weight: 650;
+          color: #ffffff;
+          margin: 0 0 12px 0;
+          letter-spacing: -0.02em;
+        }
+
+        .hl-login-subtitle {
+          font-size: 14px;
+          color: rgba(148, 163, 184, 0.75);
+          margin-bottom: 36px;
+        }
+
+        .hl-login-form {
+          display: flex;
+          flex-direction: column;
+          gap: 18px;
+        }
+
+        .hl-login-input {
+          padding: 16px 18px;
+          font-size: 15px;
+          border-radius: 14px;
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          background: rgba(15, 23, 42, 0.85);
+          color: #ffffff;
+          outline: none;
+          transition: border 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .hl-login-input:focus {
+          border: 1px solid #6366f1;
+          box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+        }
+
+        .hl-login-button {
+          padding: 18px;
+          font-size: 15px;
+          font-weight: 600;
+          border-radius: 14px;
+          border: none;
+          color: #ffffff;
+          background: #3730a3;
+          box-shadow: 0 10px 40px rgba(55, 48, 163, 0.35);
+          cursor: pointer;
+          transition: all 0.15s ease;
+          box-shadow: 0 20px 60px rgba(79, 70, 229, 0.35);
+        }
+
+        .hl-login-button:hover {
+          background: #4338ca;
+          transform: translateY(-1px);
+        }
+
+        .hl-login-button:disabled {
+          opacity: 0.7;
+          cursor: not-allowed;
+        }
+
+        .hl-login-message {
+          margin-top: 18px;
+          font-size: 14px;
+          color: rgba(148, 163, 184, 0.85);
+        }
+
+        .hl-login-footer {
+          margin-top: 34px;
+          font-size: 12px;
+          color: rgba(148, 163, 184, 0.55);
+          letter-spacing: 0.05em;
+        }
+      `}</style>
     </main>
   );
 }
-
-/* =========================
-   Styles
-========================= */
-
-const outerShell: React.CSSProperties = {
-  minHeight: "100vh",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "24px",
-  background: "linear-gradient(180deg, #05070f 0%, #0b1220 100%)",
-};
-
-const card: React.CSSProperties = {
-  width: "100%",
-  maxWidth: "420px",
-  background: "rgba(15, 23, 42, 0.85)",
-  border: "1px solid rgba(148,163,184,0.18)",
-  borderRadius: 20,
-  padding: "40px 32px",
-  boxShadow: "0 30px 80px rgba(0,0,0,0.55)",
-  backdropFilter: "blur(6px)",
-};
-
-const title: React.CSSProperties = {
-  fontSize: 42,
-  fontWeight: 800,
-  color: "#ffffff",
-  marginBottom: 32,
-  letterSpacing: "-0.02em",
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "16px 18px",
-  fontSize: 16,
-  borderRadius: 14,
-  border: "1px solid rgba(148,163,184,0.25)",
-  background: "rgba(255,255,255,0.04)",
-  color: "#ffffff",
-  outline: "none",
-  marginBottom: 18,
-};
-
-const buttonStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "18px",
-  fontSize: 16,
-  fontWeight: 800,
-  borderRadius: 14,
-  border: "none",
-  color: "#ffffff",
-  background: "linear-gradient(90deg, #2563eb 0%, #1d4ed8 100%)",
-  boxShadow: "0 20px 50px rgba(37,99,235,0.35)",
-};
-
-const messageStyle: React.CSSProperties = {
-  marginTop: 18,
-  fontSize: 14,
-  color: "#94a3b8",
-};

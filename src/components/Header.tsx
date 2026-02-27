@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase-client";
 import type { User } from "@supabase/supabase-js";
+import { clearSessionState } from "@/lib/clearSessionState";
 
 type HeaderVariant = "home" | "shop" | "about" | "content";
 
@@ -21,10 +22,7 @@ export default function Header({
 
   const [isNavOpen, setIsNavOpen] = useState(false);
   const [hasItems, setHasItems] = useState(false);
-
   const [user, setUser] = useState<User | null>(null);
-  const [accountOpen, setAccountOpen] = useState(false);
-  const accountRef = useRef<HTMLDivElement>(null);
 
   const isHome = variant === "home";
   const showShop = variant !== "shop";
@@ -66,29 +64,21 @@ export default function Header({
     };
   }, []);
 
-  // Close popover on outside click
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (
-        accountRef.current &&
-        !accountRef.current.contains(event.target as Node)
-      ) {
-        setAccountOpen(false);
-      }
+  async function handleAccountClick() {
+    if (!user) {
+      router.push("/login");
+      return;
     }
 
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  async function handleLogout() {
-    localStorage.removeItem("manualRxDraft");
-    localStorage.removeItem("rxUploadDraft");
-    localStorage.removeItem("rx_upload_order_d");
-
+    // Logged in → logout immediately
+    clearSessionState();
     await supabase.auth.signOut();
-    setAccountOpen(false);
-    router.refresh();
+
+    if (window.location.pathname !== "/") {
+      router.replace("/");
+    } else {
+      router.refresh();
+    }
   }
 
   return (
@@ -126,41 +116,33 @@ export default function Header({
               {showAbout && <Link href="/about">About</Link>}
             </nav>
 
-            {/* ACCOUNT */}
-            <div className="account-wrapper" ref={accountRef}>
-              <button
-                className="header-icon-btn"
-                aria-label="Account"
-                onClick={() => {
-                  if (!user) {
-                    router.push("/login"); // Magic Link page
-                  } else {
-                    setAccountOpen((v) => !v);
-                  }
-                }}
+            {/* ACCOUNT ICON */}
+            <button
+              className={`header-icon-btn account-btn ${
+                user ? "account-signed-in" : ""
+              }`}
+              aria-label={user ? "Log out" : "Sign in"}
+              onClick={handleAccountClick}
+            >
+              <svg
+                className="header-icon"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               >
-                <svg
-                  className="header-icon"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="12" cy="8" r="4" />
-                  <path d="M4 20c0-4 4-6 8-6s8 2 8 6" />
-                </svg>
-              </button>
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 20c0-4 4-6 8-6s8 2 8 6" />
+              </svg>
 
-              {user && accountOpen && (
-                <button className="account-popover" onClick={handleLogout}>
-                  Log out
-                </button>
-              )}
-            </div>
+              <span className="account-tooltip">
+                {user ? "Log out" : "Sign in"}
+              </span>
+            </button>
 
             {/* CART */}
             <div className="cart-wrapper">
