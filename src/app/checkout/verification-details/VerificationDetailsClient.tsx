@@ -1,6 +1,7 @@
 "use client";
 
 export const dynamic = "force-dynamic";
+
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabase-client";
@@ -24,7 +25,6 @@ type DraftOrPendingOrder = {
   shipping_state: string | null;
   shipping_zip: string | null;
 
-  // used to bypass for OCR/upload flows
   verification_status?: string | null;
 };
 
@@ -32,7 +32,7 @@ type FormState = {
   patient_first_name: string;
   patient_middle_name: string;
   patient_last_name: string;
-  patient_dob: string; // display: MM/DD/YYYY
+  patient_dob: string;
 
   patient_address1: string;
   patient_address2: string;
@@ -106,18 +106,13 @@ const US_STATES = [
 function inputBaseStyle(): React.CSSProperties {
   return {
     width: "100%",
-    padding: "14px 14px",
+    padding: "14px",
     borderRadius: 12,
-
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "rgba(148, 163, 184, 0.35)",
-
+    border: "1px solid rgba(148, 163, 184, 0.35)",
     outline: "none",
     fontSize: 14,
     background: "#f8fafc",
-    transition:
-      "box-shadow 140ms ease, border-color 140ms ease, background 140ms ease",
+    transition: "box-shadow 140ms ease, border-color 140ms ease",
   };
 }
 
@@ -135,12 +130,11 @@ function labelStyle(): React.CSSProperties {
 function focusRingStyle(): React.CSSProperties {
   return {
     borderColor: "#2563eb",
-    boxShadow: "0 0 0 4px rgba(37, 99, 235, 0.38)",
+    boxShadow: "0 0 0 4px rgba(37, 99, 235, 0.35)",
     background: "#ffffff",
   };
 }
 
-/** Keep digits only, format as MM/DD/YYYY */
 function formatDobMMDDYYYY(raw: string) {
   const digits = raw.replace(/\D/g, "").slice(0, 8);
   const mm = digits.slice(0, 2);
@@ -153,10 +147,9 @@ function formatDobMMDDYYYY(raw: string) {
   return out;
 }
 
-/** Convert display MM/DD/YYYY -> ISO YYYY-MM-DD (best effort) */
 function dobToIso(display: string): string {
   const digits = display.replace(/\D/g, "");
-  if (digits.length !== 8) return ""; // require full
+  if (digits.length !== 8) return "";
   const mm = digits.slice(0, 2);
   const dd = digits.slice(2, 4);
   const yyyy = digits.slice(4, 8);
@@ -167,6 +160,13 @@ function normalizePhone(s: string) {
   return s.replace(/[^\d]/g, "");
 }
 
+function clearManualRxLocalStorage() {
+  // wipe all manual RX keys
+  localStorage.removeItem("rx_manual_order_draft");
+  localStorage.removeItem("rx_manual_form_state");
+  localStorage.removeItem("rx_upload_order_d");
+}
+
 export default function VerificationDetailsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -174,12 +174,9 @@ export default function VerificationDetailsPage() {
 
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [order, setOrder] = useState<DraftOrPendingOrder | null>(null);
-
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-
   const [error, setError] = useState<string | null>(null);
-
   const [focusKey, setFocusKey] = useState<string | null>(null);
 
   const [form, setForm] = useState<FormState>({
@@ -187,28 +184,20 @@ export default function VerificationDetailsPage() {
     patient_middle_name: "",
     patient_last_name: "",
     patient_dob: "",
-
     patient_address1: "",
     patient_address2: "",
     patient_city: "",
     patient_state: "",
     patient_zip: "",
-
     prescriber_name: "",
     prescriber_practice: "",
     prescriber_city: "",
     prescriber_state: "",
     prescriber_phone: "",
     prescriber_email: "",
-
     allow_lower_price_adjustment: false,
   });
 
-  /**
-   * IMPORTANT:
-   * - ONE effect only (no double-init, no partial commented blocks)
-   * - depends on stable primitives only: router + orderId
-   */
   useEffect(() => {
     let cancelled = false;
 
@@ -227,12 +216,11 @@ export default function VerificationDetailsPage() {
         }
 
         if (!orderId) {
-          setError("Missing order id. Please try checkout again.");
+          setError("Missing order id.");
           setLoading(false);
           return;
         }
 
-        if (cancelled) return;
         setAccessToken(session.access_token);
 
         const { data: orderData, error: orderError } = await supabase
@@ -257,29 +245,26 @@ export default function VerificationDetailsPage() {
           .maybeSingle();
 
         if (orderError || !orderData) {
-          throw new Error("No pending order found. Please try checkout again.");
+          throw new Error("Order not found.");
         }
 
         if (cancelled) return;
 
         const typedOrder = orderData as DraftOrPendingOrder;
 
-        const vs = typedOrder.verification_status;
+        const isUploaded =
+          typedOrder.verification_status === "verified" ||
+          typedOrder.verification_status === "ocr_verified" ||
+          typedOrder.verification_status === "upload_verified";
 
-        const isUploadedMode =
-          vs === "verified" ||
-          vs === "ocr_verified" ||
-          vs === "uploaded" ||
-          vs === "upload_verified";
-
-        if (isUploadedMode) {
+        if (isUploaded) {
+          clearManualRxLocalStorage();
           router.replace("/checkout/success?mode=uploaded");
           return;
         }
 
         setOrder(typedOrder);
 
-        // Prefill from shipping columns (if they are truly NULL in DB, these will remain blank)
         setForm((prev) => ({
           ...prev,
           patient_first_name: typedOrder.shipping_first_name ?? "",
@@ -292,9 +277,9 @@ export default function VerificationDetailsPage() {
         }));
 
         setLoading(false);
-      } catch (err: unknown) {
+      } catch (err) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load");
+        setError(err instanceof Error ? err.message : "Failed to load.");
         setLoading(false);
       }
     }
@@ -306,48 +291,25 @@ export default function VerificationDetailsPage() {
   }, [router, orderId]);
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
+    setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   function validate(): string | null {
-    // flip this to true if you want to hard-require email for Vistakon flows
-    const REQUIRE_PRESCRIBER_EMAIL = false;
-
-    if (!form.patient_first_name.trim())
-      return "Please enter the patient’s first name.";
-    if (!form.patient_last_name.trim())
-      return "Please enter the patient’s last name.";
-
-    const isoDob = dobToIso(form.patient_dob);
-    if (!isoDob)
-      return "Please enter the patient’s date of birth (MM / DD / YYYY).";
-
-    if (!form.patient_address1.trim())
-      return "Please enter the patient’s address.";
-    if (!form.patient_city.trim()) return "Please enter the city.";
-    if (!form.patient_state.trim()) return "Please choose a state.";
-    if (!form.patient_zip.trim()) return "Please enter the ZIP code.";
-
-    const hasName = form.prescriber_name.trim().length > 0;
-    const hasPractice = form.prescriber_practice.trim().length > 0;
-    if (!hasName && !hasPractice) {
-      return "Please enter either the doctor’s name or the practice name.";
-    }
-
-    if (REQUIRE_PRESCRIBER_EMAIL && !form.prescriber_email.trim()) {
-      return "Please enter the doctor’s email address.";
-    }
-
+    if (!form.patient_first_name.trim()) return "Enter first name.";
+    if (!form.patient_last_name.trim()) return "Enter last name.";
+    if (!dobToIso(form.patient_dob)) return "Enter DOB (MM / DD / YYYY).";
+    if (!form.patient_address1.trim()) return "Enter address.";
+    if (!form.patient_city.trim()) return "Enter city.";
+    if (!form.patient_state.trim()) return "Choose state.";
+    if (!form.patient_zip.trim()) return "Enter ZIP.";
+    if (!form.prescriber_name.trim() && !form.prescriber_practice.trim())
+      return "Enter doctor or practice name.";
     return null;
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!accessToken) return;
-    if (submitting) return;
+    if (!accessToken || submitting) return;
 
     const v = validate();
     if (v) {
@@ -363,20 +325,17 @@ export default function VerificationDetailsPage() {
       patient_middle_name: form.patient_middle_name.trim(),
       patient_last_name: form.patient_last_name.trim(),
       patient_dob: dobToIso(form.patient_dob),
-
       patient_address1: form.patient_address1.trim(),
       patient_address2: form.patient_address2.trim(),
       patient_city: form.patient_city.trim(),
       patient_state: form.patient_state.trim(),
       patient_zip: form.patient_zip.trim(),
-
       prescriber_name: form.prescriber_name.trim(),
       prescriber_practice: form.prescriber_practice.trim(),
       prescriber_city: form.prescriber_city.trim(),
       prescriber_state: form.prescriber_state.trim(),
       prescriber_phone: normalizePhone(form.prescriber_phone),
       prescriber_email: form.prescriber_email.trim(),
-
       allow_lower_price_adjustment: form.allow_lower_price_adjustment,
     };
 
@@ -393,22 +352,25 @@ export default function VerificationDetailsPage() {
     const body: DetailsResponse = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      setError(body?.error || "Failed to submit verification details.");
+      setError(body?.error || "Submission failed.");
       setSubmitting(false);
       return;
     }
 
+    clearManualRxLocalStorage();
+
     if (body.passive_deadline_at) {
-      const encoded = encodeURIComponent(body.passive_deadline_at);
-      router.replace(`/checkout/success?deadline=${encoded}`);
+      router.replace(
+        `/checkout/success?deadline=${encodeURIComponent(
+          body.passive_deadline_at,
+        )}`,
+      );
     } else {
       router.replace("/checkout/success");
     }
   }
 
-  if (loading) {
-    return <main className="content-shell">Loading…</main>;
-  }
+  if (loading) return <main className="content-shell">Loading…</main>;
 
   if (error && !order) {
     return (
@@ -421,68 +383,9 @@ export default function VerificationDetailsPage() {
   return (
     <main>
       <section className="content-shell">
-        <style>{`
-          .hl-card {
-            margin-top: 22px;
-            background: rgba(15, 23, 42, 0.65);
-            border-width: 1px;
-            border-style: solid;
-            border-color: rgba(148, 163, 184, 0.18);
-            box-shadow: 0 18px 60px rgba(0,0,0,0.5);
-            border-radius: 18px;
-            padding: 26px;
-          }
-
-          .hl-grid {
-            display: grid;
-            grid-template-columns: repeat(12, 1fr);
-            gap: 12px;
-            margin-bottom: 14px;
-          }
-
-          /* Mobile: 1 column stack */
-          @media (max-width: 720px) {
-            .hl-grid {
-              grid-template-columns: 1fr;
-              gap: 12px;
-            }
-            .col { grid-column: auto !important; }
-          }
-
-          /* Helpful subtle divider between sections */
-          .hl-divider {
-            height: 1px;
-            background: rgba(148, 163, 184, 0.12);
-            margin: 22px 0;
-          }
-
-          /* A calmer “light” panel that still fits your dark UI */
-          .hl-light-panel {
-            margin-top: 18px;
-            padding: 22px;
-            background: #ffffff;
-            border-radius: 16px;
-            border-width: 1px;
-            border-style: solid;
-            border-color: #e2e8f0;
-          }
-
-          .hl-helper {
-            font-size: 14px;
-            color: #64748b;
-            margin-top: 6px;
-            margin-bottom: 18px;
-            line-height: 1.45;
-          }
-        `}</style>
-
         <h1 className="upper content-title">
           Final Step — Prescription Verification
         </h1>
-        <p style={{ color: "#cbd5e1", marginTop: 6, maxWidth: 760 }}>
-          We’ll contact your doctor to confirm your prescription. This usually
-          takes up to 8 business hours.
-        </p>
 
         <div className="hl-card">
           <form onSubmit={handleSubmit}>

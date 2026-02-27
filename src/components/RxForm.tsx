@@ -244,6 +244,15 @@ export default function RxForm({
   const EmptyHint = () => <div className="rx-hint">&nbsp;</div>;
   const EmptyLabel = () => <label className="rx-label">&nbsp;</label>;
 
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth <= 899);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
   /* =========================
      Error helpers
   ========================= */
@@ -1381,11 +1390,15 @@ export default function RxForm({
               </div>
 
               <button
-                className="primary-btn"
+                className={
+                  isMobile
+                    ? `mobile-cta ${!loading ? "active" : "disabled"}`
+                    : "primary-btn"
+                }
                 onClick={submitRx}
                 disabled={loading}
               >
-                {loading ? "Processing…" : "Continue to cart"}
+                {loading ? "Processing…" : <>Review & Continue ➜</>}
               </button>
             </div>
           </div>

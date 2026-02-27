@@ -1,7 +1,6 @@
 import "../styles/globals.css";
 import "../styles/cart.css";
 
-import SmallScreenGuard from "@/components/SmallScreenGuard";
 import DeviceModeGate from "@/components/security/DeviceModeGate";
 
 export const metadata = {
@@ -18,7 +17,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <DeviceModeGate />
-        <SmallScreenGuard>{children}</SmallScreenGuard>
+        {children}
       </body>
     </html>
   );

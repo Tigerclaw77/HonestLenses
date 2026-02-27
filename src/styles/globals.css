@@ -55,11 +55,11 @@ main {
   width: 100%;
 }
 
-.hero-image {
+/* .hero-image {
   width: 100vw;
   margin-left: calc(50% - 50vw);
   margin-right: calc(50% - 50vw);
-}
+} */
 
 .upper {
   text-transform: uppercase;
@@ -84,6 +84,33 @@ main {
   transition:
     background 0.4s ease,
     backdrop-filter 0.4s ease;
+}
+
+@media (max-width: 480px) {
+  .header {
+    padding: 14px 16px;
+    height: auto;
+  }
+
+  .header-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .logo {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 8px;
+  }
+
+  .header-actions {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 26px;
+    width: auto; /* critical */
+  }
 }
 
 @media (min-width: 900px) {
@@ -460,10 +487,7 @@ main {
 }
 
 .hero-image {
-  width: 100vw;
-  margin-left: calc(50% - 50vw);
-  margin-right: calc(50% - 50vw);
-
+  width: 100%;
   min-height: 420px;
   height: clamp(420px, 65vh, 600px);
 
@@ -1499,12 +1523,15 @@ h1.content-title {
 .rx-grid {
   display: grid;
   grid-template-columns:
-    minmax(160px, 1.4fr)
-    90px
-    repeat(auto-fit, 80px);
-  gap: 10px;
+    minmax(200px, 1.5fr)
+    110px
+    repeat(auto-fit, 90px);
+  gap: 12px;
   align-items: start;
 }
+
+/* key: allow grid items to shrink instead of overflowing */
+/* .rx-grid > * { min-width: 0; } */
 
 .rx-field {
   display: flex;
@@ -1519,24 +1546,34 @@ h1.content-title {
 /* =========================
    RX Grid – Responsive
 ========================= */
-
-/* Tablet / narrow desktop */
-@media (max-width: 700px) {
-  .rx-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .rx-grid .lens-select {
-    grid-column: 1 / -1;
-  }
-}
-
-/* Mobile */
-@media (max-width: 480px) {
+/* Large mobile + below: stack */
+@media (max-width: 899px) {
   .rx-grid {
     grid-template-columns: 1fr;
   }
 }
+
+/* Optional: tighten spacing on small mobile */
+@media (max-width: 600px) {
+  .rx-grid {
+    gap: 10px;
+  }
+}
+
+/* @media (max-width: 600px) {
+  .rx-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lens-select {
+    width: 100%;
+  }
+
+  .sph-input {
+    width: 100%;
+  }
+} */
 
 /* Inputs */
 .rx-grid input {
@@ -1580,9 +1617,9 @@ h1.content-title {
   max-width: 120px;
 } */
 
-.rx-grid .lens-select {
+/* .rx-grid .lens-select {
   min-width: 180px;
-}
+} */
 
 .rx-grid input:disabled {
   opacity: 0.65;
@@ -1608,34 +1645,29 @@ h1.content-title {
   color: #ff9a9a;
 }
 
-/* Mobile */
-@media (max-width: 899px) {
-  .rx-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .rx-grid input {
-    font-size: 0.9rem;
-  }
-}
-
 /* ==================================================
    RX FOOTER (EXPIRATION + CTA)
 ================================================== */
-
-/* .rx-footer-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: end;
-  gap: 1.5rem;
-  margin-top: 2rem;
-} */
 
 .rx-footer-row {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
+  gap: 24px;
   margin-top: 36px;
+}
+
+/* Mobile layout */
+@media (max-width: 899px) {
+  .rx-footer-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 18px;
+  }
+
+  .rx-footer-row .primary-btn {
+    width: 100%;
+  }
 }
 
 /* Expiration */
@@ -1952,18 +1984,6 @@ input {
   }
 }
 
-/* .rx-grid-top {
-  display: grid;
-  grid-template-columns:
-    minmax(220px, 2fr)
-    120px
-    120px
-    120px
-    120px;
-  gap: 18px 24px;
-  align-items: start;
-} */
-
 .detected-lens-card {
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: linear-gradient(
@@ -2263,7 +2283,7 @@ input {
 .hl-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.88);
+  background: rgba(0, 0, 0, 0.88);
   backdrop-filter: blur(8px);
 
   display: flex;
@@ -2274,13 +2294,9 @@ input {
 }
 
 .hl-overlay-card {
-  background: linear-gradient(
-    180deg,
-    #0f0f14 0%,
-    #0a0a0e 100%
-  );
+  background: linear-gradient(180deg, #0f0f14 0%, #0a0a0e 100%);
 
-  border: 1px solid rgba(207,199,255,.18);
+  border: 1px solid rgba(207, 199, 255, 0.18);
   border-radius: 18px;
 
   width: 420px;
@@ -2290,8 +2306,8 @@ input {
   text-align: center;
 
   box-shadow:
-    0 20px 60px rgba(0,0,0,.6),
-    0 0 40px rgba(207,199,255,.06);
+    0 20px 60px rgba(0, 0, 0, 0.6),
+    0 0 40px rgba(207, 199, 255, 0.06);
 }
 
 /* Headline */
@@ -2299,7 +2315,7 @@ input {
 .hl-overlay-card h2 {
   font-size: 22px;
   font-weight: 600;
-  letter-spacing: .02em;
+  letter-spacing: 0.02em;
   margin-bottom: 10px;
 }
 
@@ -2318,7 +2334,7 @@ input {
   padding: 12px 14px;
 
   background: #050505;
-  border: 1px solid rgba(255,255,255,.12);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
 
   color: white;
@@ -2335,11 +2351,7 @@ input {
 /* Primary button */
 
 .hl-overlay-card button {
-  background: linear-gradient(
-    135deg,
-    #cfc7ff,
-    #8e7bff
-  );
+  background: linear-gradient(135deg, #cfc7ff, #8e7bff);
 
   color: black;
   border: none;
@@ -2349,12 +2361,12 @@ input {
   font-weight: 600;
 
   cursor: pointer;
-  transition: all .2s ease;
+  transition: all 0.2s ease;
 }
 
 .hl-overlay-card button:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(142,123,255,.35);
+  box-shadow: 0 6px 18px rgba(142, 123, 255, 0.35);
 }
 
 /* Secondary "Go back" */
@@ -2363,9 +2375,68 @@ input {
   margin-top: 14px;
   background: transparent;
   color: #aaa;
-  border: 1px solid rgba(255,255,255,.15);
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 body:has(.hl-overlay) {
   overflow: hidden;
 }
+
+/* =========================
+   Mobile Green 3D CTA
+========================= */
+
+.mobile-cta {
+  width: 100%;
+  height: 54px;
+  border-radius: 14px;
+  font-size: 0.9rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 600;
+  border: none;
+  transition: all 0.2s ease;
+}
+
+/* Disabled state */
+.mobile-cta.disabled {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.35);
+  cursor: not-allowed;
+}
+
+/* Active green 3D */
+.mobile-cta.active {
+  background: linear-gradient(180deg, #34d399, #16a34a);
+  color: white;
+  box-shadow:
+    0 10px 28px rgba(22, 163, 74, 0.35),
+    inset 0 2px 0 rgba(255, 255, 255, 0.25),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.25);
+
+  cursor: pointer;
+}
+
+/* .mobile-cta.active:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 16px 40px rgba(22, 163, 74, 0.45),
+    inset 0 2px 0 rgba(255, 255, 255, 0.25),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.25);
+} */
+
+.mobile-cta.active:active {
+  transform: translateY(2px);
+  box-shadow:
+    0 4px 12px rgba(22,163,74,0.35),
+    inset 0 3px 6px rgba(0,0,0,0.35);
+}
+
+.mobile-cta.active span {
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+
+/* .mobile-cta.active:hover span {
+  transform: translateX(4px);
+} */

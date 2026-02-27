@@ -10,9 +10,10 @@ import {
   useElements,
 } from "@stripe/react-stripe-js";
 import { supabase } from "@/lib/supabase-client";
+import AuthGate from "@/components/AuthGate";
 
 const stripePromise = loadStripe(
-  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!,
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
 );
 
 /* =========================
@@ -40,10 +41,8 @@ type AuthorizedResponse = {
 ========================= */
 
 function CheckoutForm({
-  accessToken,
   onAuthorized,
 }: {
-  accessToken: string;
   onAuthorized: () => void;
 }) {
   const stripe = useStripe();
@@ -82,22 +81,34 @@ function CheckoutForm({
 
     if (result.paymentIntent.status !== "requires_capture") {
       setError(
-        `Authorization not complete (status: ${result.paymentIntent.status})`,
+        `Authorization not complete (status: ${result.paymentIntent.status})`
       );
       setSubmitting(false);
       return;
     }
 
-    // Mark authorized in DB (draft -> pending / whatever your route does)
+    // Get fresh session for API call
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      setError("Session expired. Please log in again.");
+      setSubmitting(false);
+      return;
+    }
+
     const markRes = await fetch("/api/checkout/authorized", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${session.access_token}`,
       },
       cache: "no-store",
     });
 
-    const markBody: AuthorizedResponse = await markRes.json().catch(() => ({}));
+    const markBody: AuthorizedResponse = await markRes
+      .json()
+      .catch(() => ({}));
 
     if (!markRes.ok) {
       setError(markBody?.error || "Failed to finalize authorization");
@@ -105,7 +116,6 @@ function CheckoutForm({
       return;
     }
 
-    // ✅ Next step is the verification-details form (not verification/send yet)
     onAuthorized();
   }
 
@@ -158,7 +168,6 @@ export default function CheckoutPage() {
   const router = useRouter();
 
   const [order, setOrder] = useState<Order | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
@@ -176,13 +185,8 @@ export default function CheckoutPage() {
           data: { session },
         } = await supabase.auth.getSession();
 
-        if (!session) {
-          router.replace("/login");
-          return;
-        }
-
-        if (cancelled) return;
-        setAccessToken(session.access_token);
+        // AuthGate protects this page — no redirect needed
+        if (!session) return;
 
         const { data: orderData, error: orderError } = await supabase
           .from("orders")
@@ -215,7 +219,9 @@ export default function CheckoutPage() {
           cache: "no-store",
         });
 
-        const body: CheckoutPayResponse = await res.json().catch(() => ({}));
+        const body: CheckoutPayResponse = await res
+          .json()
+          .catch(() => ({}));
 
         if (!res.ok || !body?.clientSecret) {
           throw new Error(body?.error || "Payment initialization failed");
@@ -236,7 +242,7 @@ export default function CheckoutPage() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, []);
 
   if (loading) {
     return <main className="content-shell">Loading checkout…</main>;
@@ -250,7 +256,7 @@ export default function CheckoutPage() {
     );
   }
 
-  if (!order || !accessToken || !clientSecret) {
+  if (!order || !clientSecret) {
     return (
       <main className="content-shell">
         <p className="order-error">Unable to initialize payment.</p>
@@ -259,49 +265,56 @@ export default function CheckoutPage() {
   }
 
   return (
-    <main>
-      <section className="content-shell">
-        <h1 className="upper content-title">Secure Checkout</h1>
+    <AuthGate>
+      <main>
+        <section className="content-shell">
+          <h1 className="upper content-title">Secure Checkout</h1>
 
-        <div
-          className="order-card"
-          style={{
-            background: "#0f172a",
-            padding: 32,
-            borderRadius: 12,
-            boxShadow: "0 8px 40px rgba(0,0,0,0.4)",
-          }}
-        >
           <div
+            className="order-card"
             style={{
-              background: "#ffffff",
-              color: "#0f172a",
-              padding: 20,
-              borderRadius: 10,
-              marginBottom: 18,
+              background: "#0f172a",
+              padding: 32,
+              borderRadius: 12,
+              boxShadow: "0 8px 40px rgba(0,0,0,0.4)",
             }}
           >
-            <h2 style={{ marginBottom: 10, fontSize: 22 }}>Order Summary</h2>
-            <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
-              <div style={{ fontWeight: 800, fontSize: 16 }}>Total:</div>
-              <div style={{ fontWeight: 900, fontSize: 20 }}>
-                ${(order.total_amount_cents / 100).toFixed(2)}
+            <div
+              style={{
+                background: "#ffffff",
+                color: "#0f172a",
+                padding: 20,
+                borderRadius: 10,
+                marginBottom: 18,
+              }}
+            >
+              <h2 style={{ marginBottom: 10, fontSize: 22 }}>
+                Order Summary
+              </h2>
+              <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>Total:</div>
+                <div style={{ fontWeight: 900, fontSize: 20 }}>
+                  ${(order.total_amount_cents / 100).toFixed(2)}
+                </div>
               </div>
+              <p style={{ marginTop: 8, fontSize: 13, color: "#475569" }}>
+                Authorization only. Your card will not be charged until
+                prescription verification is complete.
+              </p>
             </div>
-            <p style={{ marginTop: 8, fontSize: 13, color: "#475569" }}>
-              Authorization only. Your card will not be charged until
-              prescription verification is complete.
-            </p>
-          </div>
 
-          <Elements stripe={stripePromise} options={{ clientSecret }}>
-            <CheckoutForm
-              accessToken={accessToken}
-              onAuthorized={() => router.replace(`/checkout/verification-details?orderId=${order.id}`)}
-            />
-          </Elements>
-        </div>
-      </section>
-    </main>
+            <Elements stripe={stripePromise} options={{ clientSecret }}>
+              <CheckoutForm
+                onAuthorized={() =>
+                  router.replace(
+                    `/checkout/verification-details?orderId=${order.id}`
+                  )
+                }
+              />
+            </Elements>
+          </div>
+        </section>
+      </main>
+    </AuthGate>
   );
 }
