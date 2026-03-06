@@ -17,8 +17,7 @@ import { getLensDisplayName } from "../../lib/cart/display";
 import { getSkuBoxDurationMonths } from "../../lib/pricing/skuDefaults";
 
 const DEV_MODE =
-  process.env.NODE_ENV === "development" &&
-  process.env.VERCEL !== "1";
+  process.env.NODE_ENV === "development" && process.env.VERCEL !== "1";
 
 const DEV_ACCESS_TOKEN = "dev-local-token";
 
@@ -65,10 +64,7 @@ export default function CartPage() {
     }
   }, [expires, sku]);
 
-  const remainingDays = useMemo(
-    () => safeRemainingDays(expires),
-    [expires],
-  );
+  const remainingDays = useMemo(() => safeRemainingDays(expires), [expires]);
 
   const defaultPerEye = quantityConfig?.defaultPerEye ?? 1;
   const quantityOptions = quantityConfig?.options ?? [1, 2, 3, 4, 6, 8];
@@ -105,7 +101,6 @@ export default function CartPage() {
         const updated = await resolveCart(token, {
           right_box_count: nextRight,
           left_box_count: nextLeft,
-          box_count: nextRight + nextLeft,
         });
 
         setCart(updated);
@@ -113,9 +108,7 @@ export default function CartPage() {
         setLeftQtyOverride(null);
       } catch (e) {
         console.error("[CartPage] qty update failed", e);
-        setError(
-          e instanceof Error ? e.message : "Failed to update quantity.",
-        );
+        setError(e instanceof Error ? e.message : "Failed to update quantity.");
       } finally {
         setSyncingQty(false);
       }
@@ -167,6 +160,9 @@ export default function CartPage() {
           return;
         }
 
+        // show cart immediately
+        setCart(initial);
+
         const finalized = await resolveCart(token);
         if (!alive) return;
 
@@ -177,10 +173,7 @@ export default function CartPage() {
 
         if (!alive) return;
 
-        setError(
-          err instanceof Error ? err.message : "Failed to load cart.",
-        );
-
+        setError(err instanceof Error ? err.message : "Failed to load cart.");
         setLoading(false);
       }
     }
@@ -199,8 +192,7 @@ export default function CartPage() {
   const leftEye = rx?.left ?? null;
 
   const hasCVLens =
-    rightEye?.coreId?.startsWith("CV") ||
-    leftEye?.coreId?.startsWith("CV");
+    rightEye?.coreId?.startsWith("CV") || leftEye?.coreId?.startsWith("CV");
 
   /* ---------- Guards ---------- */
 
@@ -218,9 +210,7 @@ export default function CartPage() {
       <>
         <Header variant="shop" />
         <main className="content-shell">
-          <p className="order-error">
-            {error ?? "Cart unavailable."}
-          </p>
+          <p className="order-error">{error ?? "Cart unavailable."}</p>
         </main>
       </>
     ) : (
@@ -228,9 +218,7 @@ export default function CartPage() {
         <>
           <Header variant="shop" />
           <main className="content-shell">
-            <p className="order-error">
-              {error ?? "Cart unavailable."}
-            </p>
+            <p className="order-error">{error ?? "Cart unavailable."}</p>
           </main>
         </>
       </AuthGate>
@@ -250,42 +238,27 @@ export default function CartPage() {
   /* ---------- Effective quantities ---------- */
 
   const storedRight =
-    typeof cart.right_box_count === "number"
-      ? cart.right_box_count
-      : null;
+    typeof cart.right_box_count === "number" ? cart.right_box_count : null;
 
   const storedLeft =
-    typeof cart.left_box_count === "number"
-      ? cart.left_box_count
-      : null;
+    typeof cart.left_box_count === "number" ? cart.left_box_count : null;
 
   const effectiveRight =
-    rightQtyOverride ??
-    storedRight ??
-    (rightEye ? defaultPerEye : 0);
+    rightQtyOverride ?? storedRight ?? (rightEye ? defaultPerEye : 0);
 
   const effectiveLeft =
-    leftQtyOverride ??
-    storedLeft ??
-    (leftEye ? defaultPerEye : 0);
+    leftQtyOverride ?? storedLeft ?? (leftEye ? defaultPerEye : 0);
 
   const totalBoxes =
-    (rightEye ? effectiveRight : 0) +
-    (leftEye ? effectiveLeft : 0);
+    (rightEye ? effectiveRight : 0) + (leftEye ? effectiveLeft : 0);
 
   /* ---------- Annual supply logic ---------- */
 
-  const rightMonths = rightEye
-    ? effectiveRight * durationMonths
-    : 0;
-
-  const leftMonths = leftEye
-    ? effectiveLeft * durationMonths
-    : 0;
+  const rightMonths = rightEye ? effectiveRight * durationMonths : 0;
+  const leftMonths = leftEye ? effectiveLeft * durationMonths : 0;
 
   const isAnnualPerEye =
-    (!rightEye || rightMonths >= 12) &&
-    (!leftEye || leftMonths >= 12);
+    (!rightEye || rightMonths >= 12) && (!leftEye || leftMonths >= 12);
 
   const previewShipping =
     totalBoxes > 0
@@ -295,51 +268,35 @@ export default function CartPage() {
       : 0;
 
   const showAnnualFreeShippingHint =
-    !isAnnualPerEye &&
-    totalBoxes > 0 &&
-    remainingDays >= 150;
+    !isAnnualPerEye && totalBoxes > 0 && remainingDays >= 150;
 
   /* ---------- Price math ---------- */
 
   const serverShipping =
-    typeof cart.shipping_cents === "number"
-      ? cart.shipping_cents
-      : 0;
+    typeof cart.shipping_cents === "number" ? cart.shipping_cents : 0;
 
   const serverTotal =
-    typeof cart.total_amount_cents === "number"
-      ? cart.total_amount_cents
-      : 0;
+    typeof cart.total_amount_cents === "number" ? cart.total_amount_cents : 0;
 
-  const serverSubtotal = Math.max(
-    0,
-    serverTotal - serverShipping,
-  );
+  const serverSubtotal = Math.max(0, serverTotal - serverShipping);
 
   const serverBoxCount =
-    typeof cart.box_count === "number" &&
-    cart.box_count > 0
+    typeof cart.box_count === "number" && cart.box_count > 0
       ? cart.box_count
       : totalBoxes;
 
   const unitPricePerBoxCents =
-    serverBoxCount > 0
-      ? Math.round(serverSubtotal / serverBoxCount)
-      : null;
+    serverBoxCount > 0 ? Math.round(serverSubtotal / serverBoxCount) : null;
 
   const previewSubtotal =
     totalBoxes > 0 && unitPricePerBoxCents !== null
       ? unitPricePerBoxCents * totalBoxes
       : 0;
 
-  const previewTotal =
-    previewSubtotal + previewShipping;
+  const previewTotal = previewSubtotal + previewShipping;
 
   const canCheckout =
-    !syncingQty &&
-    totalBoxes > 0 &&
-    previewTotal > 0 &&
-    !hasCVLens;
+    !syncingQty && totalBoxes > 0 && previewTotal > 0 && !hasCVLens;
 
   /* ---------- Render ---------- */
 
@@ -349,15 +306,10 @@ export default function CartPage() {
 
       <main>
         <section className="content-shell">
-          <h1 className="upper content-title">
-            Your Cart
-          </h1>
+          <h1 className="upper content-title">Your Cart</h1>
 
           <div className="order-card hl-cart">
-
-            {error && (
-              <p className="order-error">{error}</p>
-            )}
+            {error && <p className="order-error">{error}</p>}
 
             {rightEye && (
               <EyeRow
@@ -400,7 +352,6 @@ export default function CartPage() {
             <hr className="hl-divider" />
 
             <div className="hl-summary">
-
               <div className="hl-summary-row">
                 <span>Subtotal</span>
                 <span>{fmtPrice(previewSubtotal)}</span>
@@ -409,9 +360,7 @@ export default function CartPage() {
               <div className="hl-summary-row">
                 <span>Shipping</span>
                 <span>
-                  {previewShipping === 0
-                    ? "Free"
-                    : fmtPrice(previewShipping)}
+                  {previewShipping === 0 ? "Free" : fmtPrice(previewShipping)}
                 </span>
               </div>
 
@@ -432,7 +381,6 @@ export default function CartPage() {
                 <span>Total</span>
                 <span>{fmtPrice(previewTotal)}</span>
               </div>
-
             </div>
 
             <button
@@ -445,7 +393,6 @@ export default function CartPage() {
             >
               Continue to checkout
             </button>
-
           </div>
         </section>
       </main>
