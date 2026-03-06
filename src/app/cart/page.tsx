@@ -363,8 +363,8 @@ export default function CartPage() {
             </div>
 
             {showAnnualFreeShippingHint && (
-              <div style={{ fontSize: 12, color: "#a78bfa", marginTop: 6, textAlign: "right" }}>
-                (Free with annual supply)
+              <div style={{ fontSize: 12, color: "#c4b5fd", marginTop: 6, textAlign: "right" }}>
+                Free shipping when you update to an annual supply
               </div>
             )}
 
