@@ -13,9 +13,9 @@ export const CORE_TO_SKUS: Record<string, string[]> = {
   OASYS_1D: ["OASYS_1D_90"],
   OASYS_1D_AST: ["OASYS_1D_AST_30", "OASYS_1D_AST_90"],
 
-  OASYS_2W: ["OASYS_12", "OASYS_24"],
-  OASYS_2W_AST: ["OASYS_AST_6"],
-  OASYS_2W_MF: ["OASYS_MF_6"],
+  OASYS_2W: ["OASYS_2W_12", "OASYS_24"],
+  OASYS_2W_AST: ["OASYS_2W_AST_6"],
+  OASYS_2W_MF: ["OASYS_2W_MF_6"],
 
   MOIST: ["MOIST_30", "MOIST_90"],
   MOIST_AST: ["MOIST_AST_30", "MOIST_AST_90"],
