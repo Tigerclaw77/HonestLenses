@@ -160,7 +160,6 @@ export default function CartPage() {
           return;
         }
 
-        // show cart immediately
         setCart(initial);
 
         const finalized = await resolveCart(token);
@@ -192,7 +191,8 @@ export default function CartPage() {
   const leftEye = rx?.left ?? null;
 
   const hasCVLens =
-    rightEye?.coreId?.startsWith("CV") || leftEye?.coreId?.startsWith("CV");
+    rightEye?.coreId?.startsWith("CV") ||
+    leftEye?.coreId?.startsWith("CV");
 
   /* ---------- Guards ---------- */
 
@@ -206,22 +206,13 @@ export default function CartPage() {
   }
 
   if (!cart || !cart.rx) {
-    return DEV_MODE ? (
+    return (
       <>
         <Header variant="shop" />
         <main className="content-shell">
           <p className="order-error">{error ?? "Cart unavailable."}</p>
         </main>
       </>
-    ) : (
-      <AuthGate>
-        <>
-          <Header variant="shop" />
-          <main className="content-shell">
-            <p className="order-error">{error ?? "Cart unavailable."}</p>
-          </main>
-        </>
-      </AuthGate>
     );
   }
 
@@ -258,7 +249,8 @@ export default function CartPage() {
   const leftMonths = leftEye ? effectiveLeft * durationMonths : 0;
 
   const isAnnualPerEye =
-    (!rightEye || rightMonths >= 12) && (!leftEye || leftMonths >= 12);
+    (!rightEye || rightMonths >= 12) &&
+    (!leftEye || leftMonths >= 12);
 
   const previewShipping =
     totalBoxes > 0
@@ -273,10 +265,14 @@ export default function CartPage() {
   /* ---------- Price math ---------- */
 
   const serverShipping =
-    typeof cart.shipping_cents === "number" ? cart.shipping_cents : 0;
+    typeof cart.shipping_cents === "number"
+      ? cart.shipping_cents
+      : 0;
 
   const serverTotal =
-    typeof cart.total_amount_cents === "number" ? cart.total_amount_cents : 0;
+    typeof cart.total_amount_cents === "number"
+      ? cart.total_amount_cents
+      : 0;
 
   const serverSubtotal = Math.max(0, serverTotal - serverShipping);
 
@@ -286,7 +282,9 @@ export default function CartPage() {
       : totalBoxes;
 
   const unitPricePerBoxCents =
-    serverBoxCount > 0 ? Math.round(serverSubtotal / serverBoxCount) : null;
+    serverBoxCount > 0
+      ? Math.round(serverSubtotal / serverBoxCount)
+      : null;
 
   const previewSubtotal =
     totalBoxes > 0 && unitPricePerBoxCents !== null
@@ -300,102 +298,103 @@ export default function CartPage() {
 
   /* ---------- Render ---------- */
 
-  return DEV_MODE ? (
-    <>
-      <Header variant="shop" />
+  const cartUI = (
+    <main>
+      <section className="content-shell">
+        <h1 className="upper content-title">Your Cart</h1>
 
-      <main>
-        <section className="content-shell">
-          <h1 className="upper content-title">Your Cart</h1>
+        <div className="order-card hl-cart">
 
-          <div className="order-card hl-cart">
-            {error && <p className="order-error">{error}</p>}
+          {error && <p className="order-error">{error}</p>}
 
-            {rightEye && (
+          {rightEye && (
+            <EyeRow
+              label="RIGHT EYE"
+              lensName={rightLensName}
+              rx={rightEye}
+              qty={effectiveRight}
+              onQty={(v) => {
+                setRightQtyOverride(v);
+                void handleQtyChange(v, effectiveLeft);
+              }}
+              unitPricePerBoxCents={unitPricePerBoxCents}
+              durationLabel={durationLabel}
+              quantityOptions={quantityOptions}
+              disabled={syncingQty}
+            />
+          )}
+
+          {leftEye && (
+            <>
+              <hr className="hl-divider" />
+
               <EyeRow
-                label="RIGHT EYE"
-                lensName={rightLensName}
-                rx={rightEye}
-                qty={effectiveRight}
+                label="LEFT EYE"
+                lensName={leftLensName}
+                rx={leftEye}
+                qty={effectiveLeft}
                 onQty={(v) => {
-                  setRightQtyOverride(v);
-                  void handleQtyChange(v, effectiveLeft);
+                  setLeftQtyOverride(v);
+                  void handleQtyChange(effectiveRight, v);
                 }}
                 unitPricePerBoxCents={unitPricePerBoxCents}
                 durationLabel={durationLabel}
                 quantityOptions={quantityOptions}
                 disabled={syncingQty}
               />
-            )}
+            </>
+          )}
 
-            {leftEye && (
-              <>
-                <hr className="hl-divider" />
+          <hr className="hl-divider" />
 
-                <EyeRow
-                  label="LEFT EYE"
-                  lensName={leftLensName}
-                  rx={leftEye}
-                  qty={effectiveLeft}
-                  onQty={(v) => {
-                    setLeftQtyOverride(v);
-                    void handleQtyChange(effectiveRight, v);
-                  }}
-                  unitPricePerBoxCents={unitPricePerBoxCents}
-                  durationLabel={durationLabel}
-                  quantityOptions={quantityOptions}
-                  disabled={syncingQty}
-                />
-              </>
-            )}
-
-            <hr className="hl-divider" />
-
-            <div className="hl-summary">
-              <div className="hl-summary-row">
-                <span>Subtotal</span>
-                <span>{fmtPrice(previewSubtotal)}</span>
-              </div>
-
-              <div className="hl-summary-row">
-                <span>Shipping</span>
-                <span>
-                  {previewShipping === 0 ? "Free" : fmtPrice(previewShipping)}
-                </span>
-              </div>
-
-              {showAnnualFreeShippingHint && (
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "#a78bfa",
-                    marginTop: 6,
-                    textAlign: "right",
-                  }}
-                >
-                  (Free with annual supply)
-                </div>
-              )}
-
-              <div className="hl-summary-row hl-summary-total">
-                <span>Total</span>
-                <span>{fmtPrice(previewTotal)}</span>
-              </div>
+          <div className="hl-summary">
+            <div className="hl-summary-row">
+              <span>Subtotal</span>
+              <span>{fmtPrice(previewSubtotal)}</span>
             </div>
 
-            <button
-              className="primary-btn hl-checkout-cta"
-              onClick={() => {
-                if (syncingQty) return;
-                router.push("/shipping");
-              }}
-              disabled={!canCheckout}
-            >
-              Continue to checkout
-            </button>
+            <div className="hl-summary-row">
+              <span>Shipping</span>
+              <span>
+                {previewShipping === 0
+                  ? "Free"
+                  : fmtPrice(previewShipping)}
+              </span>
+            </div>
+
+            {showAnnualFreeShippingHint && (
+              <div style={{ fontSize: 12, color: "#a78bfa", marginTop: 6, textAlign: "right" }}>
+                (Free with annual supply)
+              </div>
+            )}
+
+            <div className="hl-summary-row hl-summary-total">
+              <span>Total</span>
+              <span>{fmtPrice(previewTotal)}</span>
+            </div>
           </div>
-        </section>
-      </main>
+
+          <button
+            className="primary-btn hl-checkout-cta"
+            onClick={() => {
+              if (syncingQty) return;
+              router.push("/shipping");
+            }}
+            disabled={!canCheckout}
+          >
+            Continue to checkout
+          </button>
+
+        </div>
+      </section>
+    </main>
+  );
+
+  return (
+    <>
+      <Header variant="shop" />
+
+      {DEV_MODE ? cartUI : <AuthGate>{cartUI}</AuthGate>}
 
       {hasCVLens && (
         <ComingSoonOverlay
@@ -404,11 +403,5 @@ export default function CartPage() {
         />
       )}
     </>
-  ) : (
-    <AuthGate>
-      <>
-        <Header variant="shop" />
-      </>
-    </AuthGate>
   );
 }
