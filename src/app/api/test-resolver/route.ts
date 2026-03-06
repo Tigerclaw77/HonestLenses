@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveBrand } from "@/lib/resolveBrand";
-import { rawLenses } from "@/data/lenses";
-
-
-
-const CONFIDENCE_THRESHOLD = 11;
+import { lenses } from "@/LensCore";
 
 export async function GET() {
   const tests = [
@@ -25,11 +21,10 @@ export async function GET() {
         rawString: t.input,
         hasCyl: t.hasCyl,
         hasAdd: t.hasAdd,
+        debug: true,
       },
-      rawLenses
+      lenses,
     );
-
-    const isHighConfidence = result.score >= CONFIDENCE_THRESHOLD;
 
     return {
       input: t.input,
@@ -37,7 +32,8 @@ export async function GET() {
       hasAdd: t.hasAdd,
       lensId: result.lensId,
       score: result.score,
-      confidence: isHighConfidence ? "high" : "low",
+      confidence: result.confidence,
+      reason: result.reason,
     };
   });
 

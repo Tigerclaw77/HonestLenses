@@ -5,20 +5,33 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase-client";
 import Link from "next/link";
 import AddSelector from "../components/AddSelector";
-import { resolveAddOptions } from "../lib/resolveAddOptions";
+import { resolveAxisOptions } from "@/LensCore/helpers/resolveAxisOptions";
+import { resolveAddOptions } from "../LensCore/helpers/resolveAddOptions";
 import ColorSelector from "../components/ColorSelector";
 import { getColorOptions } from "../data/lensColors";
-import { lenses } from "../data/lenses";
 import { getLensDisplayName } from "../lib/cart/display";
 import ExpirationDatePicker from "@/components/ExpirationDatePicker";
 import type { OcrExtract } from "@/types/ocr";
+import { lenses } from "@/LensCore";
+import type { LensCore } from "@/LensCore";
+import { formatSphere } from "@/LensCore";
+import { resolveSphereOptions } from "@/LensCore/helpers/resolveSphereOptions";
+import { resolveCylinderOptions } from "@/LensCore/helpers/resolveCylinderOptions";
+
+import {
+  formatBC,
+  formatHundredths,
+  // AXIS_OPTIONS,
+  isEyeTouched,
+  isValidFutureExpiration,
+} from "./RxFormUtils";
 
 /* =========================
    Types
 ========================= */
 
 type EyeRxDraft = {
-  lens_id: string;
+  coreId: string;
   sph: string;
   cyl: string;
   axis: string;
@@ -34,7 +47,7 @@ type RxDraft = {
 };
 
 type EyeRx = {
-  lens_id?: string | null;
+  coreId?: string | null;
   sphere: number;
   cylinder?: number;
   axis?: number;
@@ -74,63 +87,43 @@ type Props = {
 };
 
 /* =========================
-   Numeric Formatters
-========================= */
-
-// Base Curve: tenths only (8.4, 8.6)
-function formatBC(value: number | null | undefined): string {
-  if (value === null || value === undefined || isNaN(value)) return "";
-  return value.toFixed(1);
-}
-
-// SPH / CYL / ADD: hundredths (−1.25, +2.00)
-function formatHundredths(value: number | null | undefined): string {
-  if (value === null || value === undefined || isNaN(value)) return "";
-  return value.toFixed(2);
-}
-
-/* =========================
    Constants
 ========================= */
 
 const LS_RX_DRAFT = "hl_rx_draft_v1";
 
-const CYL_OPTIONS = (() => {
-  const values: number[] = [];
-  for (let v = -0.75; v >= -6.0; v -= 0.5) values.push(Number(v.toFixed(2)));
-  return values;
-})();
-
-const AXIS_OPTIONS = Array.from({ length: 18 }, (_, i) => (i + 1) * 10);
-
 function validateEye(
   d: EyeRxDraft,
-  lensObj: (typeof lenses)[number] | undefined,
+  lensObj: LensCore | undefined,
   colorOptions: string[],
 ): EyeFieldErrorMap | null {
-  if (!(d.lens_id || d.sph || d.cyl || d.axis || d.add || d.bc || d.color))
+  if (!(d.coreId || d.sph || d.cyl || d.axis || d.add || d.bc || d.color))
     return null;
 
   const e: EyeFieldErrorMap = {};
 
-  if (!d.lens_id || !lensObj) e.lens = true;
+  if (!d.coreId || !lensObj) e.lens = true;
   if (!d.sph) e.sph = true;
 
-  if (lensObj?.toric) {
+  if (lensObj?.type.toric) {
     if (!d.cyl) e.cyl = true;
     if (!d.axis) e.axis = true;
   }
 
-  if (lensObj?.multifocal) {
-    const opts = resolveAddOptions(lensObj);
+  if (lensObj?.type.multifocal) {
+    const opts = resolveAddOptions(
+      lensObj,
+      d.bc ? Number(d.bc) : null,
+      d.sph ? Number(d.sph) : null,
+    );
+
     if (opts.length > 0 && !d.add) e.add = true;
   }
 
-  if (lensObj?.multiBC) {
-    if (!d.bc) e.bc = true;
-  } else {
-    const bc0 = lensObj?.baseCurves?.[0];
-    if (!bc0) e.bc = true;
+  const bcList = lensObj?.parameters.baseCurve;
+
+  if (bcList && bcList.length > 1 && !d.bc) {
+    e.bc = true;
   }
 
   if (colorOptions.length > 0 && !d.color) e.color = true;
@@ -157,7 +150,7 @@ export default function RxForm({
   /* =========================
      State – Right Eye
   ========================= */
-  const [rightlens_id, setRightlens_id] = useState("");
+  const [rightcoreId, setRightcoreId] = useState("");
   const [rightSph, setRightSph] = useState("");
   const [rightCyl, setRightCyl] = useState("");
   const [rightAxis, setRightAxis] = useState("");
@@ -168,7 +161,7 @@ export default function RxForm({
   /* =========================
      State – Left Eye
   ========================= */
-  const [leftlens_id, setLeftlens_id] = useState("");
+  const [leftcoreId, setLeftcoreId] = useState("");
   const [leftSph, setLeftSph] = useState("");
   const [leftCyl, setLeftCyl] = useState("");
   const [leftAxis, setLeftAxis] = useState("");
@@ -227,18 +220,111 @@ export default function RxForm({
 
   const [confirmGlow, setConfirmGlow] = useState(false);
 
-  const rightLens = lenses.find((l) => l.lens_id === rightlens_id);
-  const leftLens = lenses.find((l) => l.lens_id === leftlens_id);
+  const rightLens = lenses.find((l) => l.coreId === rightcoreId);
+  const leftLens = lenses.find((l) => l.coreId === leftcoreId);
+
+  const rightSphereOptions = useMemo(() => {
+    if (!rightLens) return [];
+
+    return resolveSphereOptions(
+      rightLens,
+      rightBC ? Number(rightBC) : null,
+      rightCyl ? Number(rightCyl) : null,
+      rightAxis ? Number(rightAxis) : null,
+      rightAdd ?? null,
+    );
+  }, [rightLens, rightBC, rightCyl, rightAxis, rightAdd]);
+
+  const leftSphereOptions = useMemo(() => {
+    if (!leftLens) return [];
+
+    return resolveSphereOptions(
+      leftLens,
+      leftBC ? Number(leftBC) : null,
+      leftCyl ? Number(leftCyl) : null,
+      leftAxis ? Number(leftAxis) : null,
+      leftAdd ?? null,
+    );
+  }, [leftLens, leftBC, leftCyl, leftAxis, leftAdd]);
 
   const rightColorOptions = useMemo(() => {
-    if (!rightLens?.name) return [];
-    return getColorOptions(rightLens.name);
-  }, [rightLens?.name]);
+    if (!rightLens) return [];
+    return getColorOptions(rightLens.coreId);
+  }, [rightLens]);
 
   const leftColorOptions = useMemo(() => {
-    if (!leftLens?.name) return [];
-    return getColorOptions(leftLens.name);
-  }, [leftLens?.name]);
+    if (!leftLens) return [];
+    return getColorOptions(leftLens.coreId);
+  }, [leftLens]);
+
+  /* =========================
+     CYL (LensCore-driven)
+     Source of truth: lens.parameters.toric.groups[].cylinders
+  ========================= */
+
+  // const rightCylOptions = useMemo(() => {
+  //   if (!rightLens?.type.toric) return [];
+  //   const groups = rightLens.parameters.toric?.groups ?? [];
+  //   const set = new Set<number>();
+
+  //   for (const g of groups) {
+  //     for (const c of g.cylinders) set.add(c);
+  //   }
+
+  //   return Array.from(set).sort((a, b) => a - b);
+  // }, [rightLens]);
+
+  const rightCylOptions = useMemo(() => {
+    if (!rightLens?.type.toric) return [];
+
+    const axis = rightAxis ? Number(rightAxis) : null;
+    const sph = rightSph ? Number(rightSph) : null;
+
+    return resolveCylinderOptions(rightLens, axis, sph);
+  }, [rightLens, rightAxis, rightSph]);
+
+  // const leftCylOptions = useMemo(() => {
+  //   if (!leftLens?.type.toric) return [];
+  //   const groups = leftLens.parameters.toric?.groups ?? [];
+  //   const set = new Set<number>();
+
+  //   for (const g of groups) {
+  //     for (const c of g.cylinders) set.add(c);
+  //   }
+
+  //   return Array.from(set).sort((a, b) => a - b);
+  // }, [leftLens]);
+
+  const leftCylOptions = useMemo(() => {
+    if (!leftLens?.type.toric) return [];
+
+    const axis = leftAxis ? Number(leftAxis) : null;
+    const sph = leftSph ? Number(leftSph) : null;
+
+    return resolveCylinderOptions(leftLens, axis, sph);
+  }, [leftLens, leftAxis, leftSph]);
+
+  /* =========================
+   AXIS (LensCore-driven)
+========================= */
+
+  const rightAxisOptions = useMemo(() => {
+    if (!rightLens?.type.toric) return [];
+
+    const cyl = rightCyl ? Number(rightCyl) : null;
+    const sph = rightSph ? Number(rightSph) : null;
+
+    return resolveAxisOptions(rightLens, cyl, sph);
+  }, [rightLens, rightCyl, rightSph]);
+
+  const leftAxisOptions = useMemo(() => {
+    if (!leftLens?.type.toric) return [];
+
+    const cyl = leftCyl ? Number(leftCyl) : null;
+    const sph = leftSph ? Number(leftSph) : null;
+
+    return resolveAxisOptions(leftLens, cyl, sph);
+  }, [leftLens, leftCyl, leftSph]);
 
   const PLANO_HINT = "0.00 indicates Plano (PL)";
   const EmptyHint = () => <div className="rx-hint">&nbsp;</div>;
@@ -279,7 +365,7 @@ export default function RxForm({
   ========================= */
 
   const applyDraft = useCallback((d: RxDraft) => {
-    setRightlens_id(d.right.lens_id);
+    setRightcoreId(d.right.coreId);
     setRightSph(d.right.sph);
     setRightCyl(d.right.cyl);
     setRightAxis(d.right.axis);
@@ -287,7 +373,7 @@ export default function RxForm({
     setRightBC(d.right.bc);
     setRightColor(d.right.color);
 
-    setLeftlens_id(d.left.lens_id);
+    setLeftcoreId(d.left.coreId);
     setLeftSph(d.left.sph);
     setLeftCyl(d.left.cyl);
     setLeftAxis(d.left.axis);
@@ -382,60 +468,6 @@ export default function RxForm({
   }
 
   /* =========================
-     Effects - Lens constraints
-  ========================= */
-
-  useEffect(() => {
-    if (!rightLens) return;
-
-    if (!rightLens.toric) {
-      setRightCyl("");
-      setRightAxis("");
-    }
-
-    if (!rightLens.multifocal) {
-      setRightAdd("");
-    }
-
-    if (!rightLens.multiBC && rightLens.baseCurves?.length === 1) {
-      setRightBC(formatBC(rightLens.baseCurves[0]));
-    }
-
-    if (
-      rightColor &&
-      rightColorOptions.length > 0 &&
-      !rightColorOptions.includes(rightColor)
-    ) {
-      setRightColor("");
-    }
-  }, [rightLens, rightColor, rightColorOptions]);
-
-  useEffect(() => {
-    if (!leftLens) return;
-
-    if (!leftLens.toric) {
-      setLeftCyl("");
-      setLeftAxis("");
-    }
-
-    if (!leftLens.multifocal) {
-      setLeftAdd("");
-    }
-
-    if (!leftLens.multiBC && leftLens.baseCurves?.length === 1) {
-      setLeftBC(formatBC(leftLens.baseCurves[0]));
-    }
-
-    if (
-      leftColor &&
-      leftColorOptions.length > 0 &&
-      !leftColorOptions.includes(leftColor)
-    ) {
-      setLeftColor("");
-    }
-  }, [leftLens, leftColor, leftColorOptions]);
-
-  /* =========================
      Persist to localStorage (manual only)
   ========================= */
 
@@ -445,7 +477,7 @@ export default function RxForm({
 
     const draft: RxDraft = {
       right: {
-        lens_id: rightlens_id,
+        coreId: rightcoreId,
         sph: rightSph,
         cyl: rightCyl,
         axis: rightAxis,
@@ -454,7 +486,7 @@ export default function RxForm({
         color: rightColor,
       },
       left: {
-        lens_id: leftlens_id,
+        coreId: leftcoreId,
         sph: leftSph,
         cyl: leftCyl,
         axis: leftAxis,
@@ -469,14 +501,14 @@ export default function RxForm({
   }, [
     hydrated,
     mode,
-    rightlens_id,
+    rightcoreId,
     rightSph,
     rightCyl,
     rightAxis,
     rightAdd,
     rightBC,
     rightColor,
-    leftlens_id,
+    leftcoreId,
     leftSph,
     leftCyl,
     leftAxis,
@@ -534,31 +566,11 @@ export default function RxForm({
      Validation (Lens-driven)
   ========================= */
 
-  function isEyeTouched(d: EyeRxDraft) {
-    return Boolean(
-      d.lens_id || d.sph || d.cyl || d.axis || d.add || d.bc || d.color,
-    );
-  }
-
-  function isValidFutureExpiration(value: string): boolean {
-    if (!value) return false;
-
-    const parsed = new Date(value);
-    if (isNaN(parsed.getTime())) return false;
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    parsed.setHours(0, 0, 0, 0);
-
-    return parsed >= today;
-  }
-
   const validateAll = useCallback((): FieldErrorMap => {
     const map: FieldErrorMap = {};
 
     const rightDraft: EyeRxDraft = {
-      lens_id: rightlens_id,
+      coreId: rightcoreId,
       sph: rightSph,
       cyl: rightCyl,
       axis: rightAxis,
@@ -568,7 +580,7 @@ export default function RxForm({
     };
 
     const leftDraft: EyeRxDraft = {
-      lens_id: leftlens_id,
+      coreId: leftcoreId,
       sph: leftSph,
       cyl: leftCyl,
       axis: leftAxis,
@@ -597,14 +609,14 @@ export default function RxForm({
 
     return map;
   }, [
-    rightlens_id,
+    rightcoreId,
     rightSph,
     rightCyl,
     rightAxis,
     rightAdd,
     rightBC,
     rightColor,
-    leftlens_id,
+    leftcoreId,
     leftSph,
     leftCyl,
     leftAxis,
@@ -637,7 +649,7 @@ export default function RxForm({
     if (hasAnyErrors(map)) return;
 
     const rightDraft: EyeRxDraft = {
-      lens_id: rightlens_id,
+      coreId: rightcoreId,
       sph: rightSph,
       cyl: rightCyl,
       axis: rightAxis,
@@ -647,7 +659,7 @@ export default function RxForm({
     };
 
     const leftDraft: EyeRxDraft = {
-      lens_id: leftlens_id,
+      coreId: leftcoreId,
       sph: leftSph,
       cyl: leftCyl,
       axis: leftAxis,
@@ -675,29 +687,55 @@ export default function RxForm({
         data: { session },
       } = await supabase.auth.getSession();
 
-      if (!session) {
+      let accessToken = session?.access_token;
+
+      if (!accessToken && process.env.NODE_ENV === "development") {
+        console.log("🟨 DEV MODE: using local token");
+        accessToken = "dev-local-token";
+      }
+
+      // if (!accessToken) {
+      //   const next = window.location.pathname + window.location.search;
+      //   router.replace(`/login?next=${encodeURIComponent(next)}`);
+      //   return;
+      // }
+
+      // if (!session) {
+      //   const next = window.location.pathname + window.location.search;
+      //   router.replace(`/login?next=${encodeURIComponent(next)}`);
+      //   return;
+      // }
+
+      if (!accessToken) {
         const next = window.location.pathname + window.location.search;
         router.replace(`/login?next=${encodeURIComponent(next)}`);
         return;
       }
 
-      const finalOrderId = await getOrCreateDraftOrder(session.access_token);
+      console.log("STEP 1: starting draft order creation");
+      const finalOrderId = await getOrCreateDraftOrder(accessToken);
+      console.log("STEP 2: draft order id =", finalOrderId);
 
       const rx: RxPayload & {
         patient_name?: string;
         prescriber_name?: string;
         prescriber_phone?: string;
+        brand_confidence?: "high" | "medium" | "low" | "unknown";
       } = { expires };
+
+      if (mode === "ocr") {
+        rx.brand_confidence = proposalConfidence ?? "unknown";
+      }
 
       if (rightTouched && rightLens) {
         rx.right = {
-          lens_id: rightlens_id,
+          coreId: rightcoreId,
           sphere: Number(rightSph),
-          ...(rightLens.toric && {
+          ...(rightLens.type.toric && {
             cylinder: Number(rightCyl),
             axis: Number(rightAxis),
           }),
-          ...(rightLens.multifocal && rightAdd && { add: rightAdd }),
+          ...(rightLens.type.multifocal && rightAdd && { add: rightAdd }),
           ...(rightBC && { base_curve: Number(rightBC) }),
           ...(rightColor && { color: rightColor }),
         };
@@ -705,13 +743,13 @@ export default function RxForm({
 
       if (leftTouched && leftLens) {
         rx.left = {
-          lens_id: leftlens_id,
+          coreId: leftcoreId,
           sphere: Number(leftSph),
-          ...(leftLens.toric && {
+          ...(leftLens.type.toric && {
             cylinder: Number(leftCyl),
             axis: Number(leftAxis),
           }),
-          ...(leftLens.multifocal && leftAdd && { add: leftAdd }),
+          ...(leftLens.type.multifocal && leftAdd && { add: leftAdd }),
           ...(leftBC && { base_curve: Number(leftBC) }),
           ...(leftColor && { color: leftColor }),
         };
@@ -722,12 +760,13 @@ export default function RxForm({
         rx.prescriber_name = doctorName || undefined;
         rx.prescriber_phone = doctorPhone || undefined;
       }
+      console.log("STEP 3: posting RX");
 
       const rxRes = await fetch(`/api/orders/${finalOrderId}/rx`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify(rx),
         cache: "no-store",
@@ -745,10 +784,12 @@ export default function RxForm({
         throw new Error("Prescription submission failed");
       }
 
+      console.log("STEP 4: resolving cart");
+
       const resolveRes = await fetch("/api/cart/resolve", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ order_id: finalOrderId }),
@@ -774,15 +815,16 @@ export default function RxForm({
       router.push("/cart");
     } catch (err) {
       console.error("🔴 [RxForm] submitRx error:", err);
+      alert(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
   }
 
   function copyRightToLeft() {
-    if (!rightlens_id) return;
+    if (!rightcoreId) return;
 
-    setLeftlens_id(rightlens_id);
+    setLeftcoreId(rightcoreId);
     setLeftSph(rightSph);
     setLeftCyl(rightCyl);
     setLeftAxis(rightAxis);
@@ -792,9 +834,9 @@ export default function RxForm({
   }
 
   function copyLeftToRight() {
-    if (!leftlens_id) return;
+    if (!leftcoreId) return;
 
-    setRightlens_id(leftlens_id);
+    setRightcoreId(leftcoreId);
     setRightSph(leftSph);
     setRightCyl(leftCyl);
     setRightAxis(leftAxis);
@@ -975,7 +1017,7 @@ export default function RxForm({
                 <button
                   type="button"
                   className="copy-eye-btn"
-                  disabled={!rightlens_id}
+                  disabled={!rightcoreId}
                   onClick={copyRightToLeft}
                 >
                   Copy to left eye
@@ -1007,13 +1049,13 @@ export default function RxForm({
                   {mode !== "ocr" || showLensDropdown ? (
                     <select
                       className={cls("lens-select", fieldErrors.right?.lens)}
-                      value={rightlens_id}
-                      onChange={(e) => setRightlens_id(e.target.value)}
+                      value={rightcoreId}
+                      onChange={(e) => setRightcoreId(e.target.value)}
                     >
                       <option value="">Select lens</option>
                       {lenses.map((l) => (
-                        <option key={l.lens_id} value={l.lens_id}>
-                          {getLensDisplayName(l.lens_id, null)}
+                        <option key={l.coreId} value={l.coreId}>
+                          {getLensDisplayName(l.coreId, null)}
                         </option>
                       ))}
                     </select>
@@ -1022,8 +1064,8 @@ export default function RxForm({
                       <input
                         className="rx-input"
                         value={
-                          rightlens_id
-                            ? getLensDisplayName(rightlens_id, null)
+                          rightcoreId
+                            ? getLensDisplayName(rightcoreId, null)
                             : ""
                         }
                         disabled
@@ -1036,22 +1078,43 @@ export default function RxForm({
                 {/* ===== SPHERE ===== */}
                 <div className="rx-field">
                   <EmptyLabel />
-                  <input
-                    className={cls("rx-input", fieldErrors.right?.sph)}
-                    type="number"
-                    step="0.25"
-                    placeholder="Sphere*"
+                  <select
+                    className={cls("rx-select", fieldErrors.right?.sph)}
                     value={rightSph}
                     disabled={mode === "ocr" && !proposalAck}
-                    style={{ paddingRight: 2 }}
                     onChange={(e) => {
-                      setRightSph(
-                        e.target.value === ""
-                          ? ""
-                          : formatHundredths(Number(e.target.value)),
-                      );
+                      const v = e.target.value;
+                      setRightSph(v);
+
+                      const nextSph = v ? Number(v) : null;
+
+                      const nextAxisOptions = rightLens
+                        ? resolveAxisOptions(
+                            rightLens,
+                            rightCyl ? Number(rightCyl) : null,
+                            nextSph,
+                          )
+                        : [];
+
+                      if (
+                        rightAxis &&
+                        nextAxisOptions.length &&
+                        !nextAxisOptions.includes(Number(rightAxis))
+                      ) {
+                        setRightAxis("");
+                      }
                     }}
-                  />
+                  >
+                    <option value="">SPH</option>
+                    {rightSphereOptions.map((v) => {
+                      const str = formatSphere(v);
+                      return (
+                        <option key={v} value={str}>
+                          {str}
+                        </option>
+                      );
+                    })}
+                  </select>
                   <div className="rx-hint">
                     {mode === "ocr" && !proposalAck
                       ? "Confirm detected lens before editing values."
@@ -1060,16 +1123,55 @@ export default function RxForm({
                 </div>
 
                 {/* ===== CYL ===== */}
-                {rightLens?.toric && (
+                {rightLens?.type.toric && (
                   <div className="rx-field">
                     <EmptyLabel />
                     <select
                       className={cls("rx-select", fieldErrors.right?.cyl)}
                       value={rightCyl}
-                      onChange={(e) => setRightCyl(e.target.value)}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setRightCyl(v);
+
+                        const nextCyl = v ? Number(v) : null;
+
+                        const nextAxisOptions = rightLens
+                          ? resolveAxisOptions(
+                              rightLens,
+                              nextCyl,
+                              rightSph ? Number(rightSph) : null,
+                            )
+                          : [];
+
+                        if (
+                          rightAxis &&
+                          nextAxisOptions.length &&
+                          !nextAxisOptions.includes(Number(rightAxis))
+                        ) {
+                          setRightAxis("");
+                        }
+
+                        const nextSphereOptions = rightLens
+                          ? resolveSphereOptions(
+                              rightLens,
+                              rightBC ? Number(rightBC) : null,
+                              nextCyl,
+                              rightAxis ? Number(rightAxis) : null,
+                              rightAdd ?? null,
+                            )
+                          : [];
+
+                        if (
+                          rightSph &&
+                          nextSphereOptions.length &&
+                          !nextSphereOptions.includes(Number(rightSph))
+                        ) {
+                          setRightSph("");
+                        }
+                      }}
                     >
                       <option value="">CYL</option>
-                      {CYL_OPTIONS.map((v) => (
+                      {rightCylOptions.map((v) => (
                         <option key={v} value={formatHundredths(v)}>
                           {formatHundredths(v)}
                         </option>
@@ -1080,16 +1182,55 @@ export default function RxForm({
                 )}
 
                 {/* ===== AXIS ===== */}
-                {rightLens?.toric && (
+                {rightLens?.type.toric && (
                   <div className="rx-field">
                     <EmptyLabel />
                     <select
                       className={cls("rx-select", fieldErrors.right?.axis)}
                       value={rightAxis}
-                      onChange={(e) => setRightAxis(e.target.value)}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setRightAxis(v);
+
+                        const nextAxis = v ? Number(v) : null;
+
+                        const nextCylOptions = rightLens
+                          ? resolveCylinderOptions(
+                              rightLens,
+                              nextAxis,
+                              rightSph ? Number(rightSph) : null,
+                            )
+                          : [];
+
+                        if (
+                          rightCyl &&
+                          nextCylOptions.length &&
+                          !nextCylOptions.includes(Number(rightCyl))
+                        ) {
+                          setRightCyl("");
+                        }
+
+                        const nextSphereOptions = rightLens
+                          ? resolveSphereOptions(
+                              rightLens,
+                              rightBC ? Number(rightBC) : null,
+                              rightCyl ? Number(rightCyl) : null,
+                              nextAxis,
+                              rightAdd ?? null,
+                            )
+                          : [];
+
+                        if (
+                          rightSph &&
+                          nextSphereOptions.length &&
+                          !nextSphereOptions.includes(Number(rightSph))
+                        ) {
+                          setRightSph("");
+                        }
+                      }}
                     >
                       <option value="">Axis</option>
-                      {AXIS_OPTIONS.map((v) => (
+                      {rightAxisOptions.map((v) => (
                         <option key={v} value={v}>
                           {v}
                         </option>
@@ -1100,7 +1241,7 @@ export default function RxForm({
                 )}
 
                 {/* ===== ADD ===== */}
-                {rightLens?.multifocal && (
+                {rightLens?.type.multifocal && (
                   <div className="rx-field">
                     <EmptyLabel />
                     <div
@@ -1109,7 +1250,11 @@ export default function RxForm({
                       <AddSelector
                         value={rightAdd ?? ""}
                         onChange={(v) => setRightAdd(v)}
-                        options={resolveAddOptions(rightLens)}
+                        options={resolveAddOptions(
+                          rightLens,
+                          rightBC ? Number(rightBC) : null,
+                          rightSph ? Number(rightSph) : null,
+                        )}
                       />
                     </div>
                     <EmptyHint />
@@ -1118,20 +1263,51 @@ export default function RxForm({
 
                 {/* ===== BC ===== */}
                 {rightLens &&
-                  (rightLens.multiBC ? (
+                  (rightLens.parameters.baseCurve &&
+                  rightLens.parameters.baseCurve.length > 1 ? (
                     <div className="rx-field">
                       <EmptyLabel />
                       <select
                         className={cls("rx-select", fieldErrors.right?.bc)}
                         value={rightBC}
-                        onChange={(e) => setRightBC(e.target.value)}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setRightBC(v);
+                          const nextBC = v ? Number(v) : null;
+                          if (rightLens?.type.multifocal) {
+                            const nextAddOptions = resolveAddOptions(
+                              rightLens,
+                              nextBC,
+                              rightSph ? Number(rightSph) : null,
+                            );
+
+                            if (
+                              rightAdd &&
+                              !nextAddOptions.includes(rightAdd)
+                            ) {
+                              setRightAdd("");
+                            }
+                          }
+                        }}
                       >
                         <option value="">BC</option>
-                        {rightLens.baseCurves.map((bc) => (
-                          <option key={bc} value={formatBC(bc)}>
-                            {formatBC(bc)}
-                          </option>
-                        ))}
+                        {rightLens.parameters.baseCurve
+                          .filter((bc) => {
+                            if (!rightLens.type.multifocal) return true;
+
+                            if (!rightAdd) return bc !== 8.7;
+
+                            const isXRAdd = rightAdd.endsWith("N");
+
+                            if (!isXRAdd && bc === 8.7) return false;
+
+                            return true;
+                          })
+                          .map((bc) => (
+                            <option key={bc} value={formatBC(bc)}>
+                              {formatBC(bc)}
+                            </option>
+                          ))}
                       </select>
                       <EmptyHint />
                     </div>
@@ -1141,8 +1317,8 @@ export default function RxForm({
                       <input
                         className={cls("rx-input", fieldErrors.right?.bc)}
                         value={
-                          rightLens.baseCurves?.[0]
-                            ? formatBC(rightLens.baseCurves[0])
+                          rightLens.parameters.baseCurve?.[0]
+                            ? formatBC(rightLens.parameters.baseCurve[0])
                             : ""
                         }
                         disabled
@@ -1182,7 +1358,7 @@ export default function RxForm({
                 <button
                   type="button"
                   className="copy-eye-btn"
-                  disabled={!leftlens_id}
+                  disabled={!leftcoreId}
                   onClick={copyLeftToRight}
                 >
                   Copy to right eye
@@ -1214,13 +1390,13 @@ export default function RxForm({
                   {mode !== "ocr" || showLensDropdown ? (
                     <select
                       className={cls("lens-select", fieldErrors.left?.lens)}
-                      value={leftlens_id}
-                      onChange={(e) => setLeftlens_id(e.target.value)}
+                      value={leftcoreId}
+                      onChange={(e) => setLeftcoreId(e.target.value)}
                     >
                       <option value="">Select lens</option>
                       {lenses.map((l) => (
-                        <option key={l.lens_id} value={l.lens_id}>
-                          {getLensDisplayName(l.lens_id, null)}
+                        <option key={l.coreId} value={l.coreId}>
+                          {getLensDisplayName(l.coreId, null)}
                         </option>
                       ))}
                     </select>
@@ -1229,9 +1405,7 @@ export default function RxForm({
                       <input
                         className="rx-input"
                         value={
-                          leftlens_id
-                            ? getLensDisplayName(leftlens_id, null)
-                            : ""
+                          leftcoreId ? getLensDisplayName(leftcoreId, null) : ""
                         }
                         disabled
                       />
@@ -1243,36 +1417,96 @@ export default function RxForm({
                 {/* ===== SPHERE ===== */}
                 <div className="rx-field">
                   <EmptyLabel />
-                  <input
-                    className={cls("rx-input", fieldErrors.left?.sph)}
-                    type="number"
-                    step="0.25"
-                    placeholder="Sphere*"
+                  <select
+                    className={cls("rx-select", fieldErrors.left?.sph)}
                     value={leftSph}
                     disabled={mode === "ocr" && !proposalAck}
-                    style={{ paddingRight: 2 }}
                     onChange={(e) => {
-                      setLeftSph(
-                        e.target.value === ""
-                          ? ""
-                          : formatHundredths(Number(e.target.value)),
-                      );
+                      const v = e.target.value;
+                      setLeftSph(v);
+
+                      const nextSph = v ? Number(v) : null;
+
+                      const nextAxisOptions = leftLens
+                        ? resolveAxisOptions(
+                            leftLens,
+                            leftCyl ? Number(leftCyl) : null,
+                            nextSph,
+                          )
+                        : [];
+
+                      if (
+                        leftAxis &&
+                        nextAxisOptions.length &&
+                        !nextAxisOptions.includes(Number(leftAxis))
+                      ) {
+                        setLeftAxis("");
+                      }
                     }}
-                  />
+                  >
+                    <option value="">SPH</option>
+                    {leftSphereOptions.map((v) => {
+                      const str = formatSphere(v);
+                      return (
+                        <option key={v} value={str}>
+                          {str}
+                        </option>
+                      );
+                    })}
+                  </select>
                   <div className="rx-hint">{PLANO_HINT}</div>
                 </div>
 
                 {/* ===== CYL ===== */}
-                {leftLens?.toric && (
+                {leftLens?.type.toric && (
                   <div className="rx-field">
                     <EmptyLabel />
                     <select
                       className={cls("rx-select", fieldErrors.left?.cyl)}
                       value={leftCyl}
-                      onChange={(e) => setLeftCyl(e.target.value)}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setLeftCyl(v);
+
+                        const nextCyl = v ? Number(v) : null;
+
+                        const nextAxisOptions = leftLens
+                          ? resolveAxisOptions(
+                              leftLens,
+                              nextCyl,
+                              leftSph ? Number(leftSph) : null,
+                            )
+                          : [];
+
+                        if (
+                          leftAxis &&
+                          nextAxisOptions.length &&
+                          !nextAxisOptions.includes(Number(leftAxis))
+                        ) {
+                          setLeftAxis("");
+                        }
+
+                        const nextSphereOptions = leftLens
+                          ? resolveSphereOptions(
+                              leftLens,
+                              leftBC ? Number(leftBC) : null,
+                              nextCyl,
+                              leftAxis ? Number(leftAxis) : null,
+                              leftAdd ?? null,
+                            )
+                          : [];
+
+                        if (
+                          leftSph &&
+                          nextSphereOptions.length &&
+                          !nextSphereOptions.includes(Number(leftSph))
+                        ) {
+                          setLeftSph("");
+                        }
+                      }}
                     >
                       <option value="">CYL</option>
-                      {CYL_OPTIONS.map((v) => (
+                      {leftCylOptions.map((v) => (
                         <option key={v} value={formatHundredths(v)}>
                           {formatHundredths(v)}
                         </option>
@@ -1283,16 +1517,55 @@ export default function RxForm({
                 )}
 
                 {/* ===== AXIS ===== */}
-                {leftLens?.toric && (
+                {leftLens?.type.toric && (
                   <div className="rx-field">
                     <EmptyLabel />
                     <select
                       className={cls("rx-select", fieldErrors.left?.axis)}
                       value={leftAxis}
-                      onChange={(e) => setLeftAxis(e.target.value)}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setLeftAxis(v);
+
+                        const nextAxis = v ? Number(v) : null;
+
+                        const nextCylOptions = leftLens
+                          ? resolveCylinderOptions(
+                              leftLens,
+                              nextAxis,
+                              leftSph ? Number(leftSph) : null,
+                            )
+                          : [];
+
+                        if (
+                          leftCyl &&
+                          nextCylOptions.length &&
+                          !nextCylOptions.includes(Number(leftCyl))
+                        ) {
+                          setLeftCyl("");
+                        }
+
+                        const nextSphereOptions = leftLens
+                          ? resolveSphereOptions(
+                              leftLens,
+                              leftBC ? Number(leftBC) : null,
+                              leftCyl ? Number(leftCyl) : null,
+                              nextAxis,
+                              leftAdd ?? null,
+                            )
+                          : [];
+
+                        if (
+                          leftSph &&
+                          nextSphereOptions.length &&
+                          !nextSphereOptions.includes(Number(leftSph))
+                        ) {
+                          setLeftSph("");
+                        }
+                      }}
                     >
                       <option value="">Axis</option>
-                      {AXIS_OPTIONS.map((v) => (
+                      {leftAxisOptions.map((v) => (
                         <option key={v} value={v}>
                           {v}
                         </option>
@@ -1303,7 +1576,7 @@ export default function RxForm({
                 )}
 
                 {/* ===== ADD ===== */}
-                {leftLens?.multifocal && (
+                {leftLens?.type.multifocal && (
                   <div className="rx-field">
                     <EmptyLabel />
                     <div
@@ -1312,7 +1585,11 @@ export default function RxForm({
                       <AddSelector
                         value={leftAdd ?? ""}
                         onChange={(v) => setLeftAdd(v)}
-                        options={resolveAddOptions(leftLens)}
+                        options={resolveAddOptions(
+                          leftLens,
+                          leftBC ? Number(leftBC) : null,
+                          leftSph ? Number(leftSph) : null,
+                        )}
                       />
                     </div>
                     <EmptyHint />
@@ -1321,20 +1598,50 @@ export default function RxForm({
 
                 {/* ===== BC ===== */}
                 {leftLens &&
-                  (leftLens.multiBC ? (
+                  (leftLens.parameters.baseCurve &&
+                  leftLens.parameters.baseCurve.length > 1 ? (
                     <div className="rx-field">
                       <EmptyLabel />
                       <select
                         className={cls("rx-select", fieldErrors.left?.bc)}
                         value={leftBC}
-                        onChange={(e) => setLeftBC(e.target.value)}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setLeftBC(v);
+
+                          const nextBC = v ? Number(v) : null;
+
+                          if (leftLens?.type.multifocal) {
+                            const nextAddOptions = resolveAddOptions(
+                              leftLens,
+                              nextBC,
+                              leftSph ? Number(leftSph) : null,
+                            );
+
+                            if (leftAdd && !nextAddOptions.includes(leftAdd)) {
+                              setLeftAdd("");
+                            }
+                          }
+                        }}
                       >
                         <option value="">BC</option>
-                        {leftLens.baseCurves.map((bc) => (
-                          <option key={bc} value={formatBC(bc)}>
-                            {formatBC(bc)}
-                          </option>
-                        ))}
+                        {leftLens.parameters.baseCurve
+                          .filter((bc) => {
+                            if (!leftLens.type.multifocal) return true;
+
+                            if (!leftAdd) return bc !== 8.7;
+
+                            const isXRAdd = leftAdd.endsWith("N");
+
+                            if (!isXRAdd && bc === 8.7) return false;
+
+                            return true;
+                          })
+                          .map((bc) => (
+                            <option key={bc} value={formatBC(bc)}>
+                              {formatBC(bc)}
+                            </option>
+                          ))}
                       </select>
                       <EmptyHint />
                     </div>
@@ -1344,8 +1651,8 @@ export default function RxForm({
                       <input
                         className={cls("rx-input", fieldErrors.left?.bc)}
                         value={
-                          leftLens.baseCurves?.[0]
-                            ? formatBC(leftLens.baseCurves[0])
+                          leftLens.parameters.baseCurve?.[0]
+                            ? formatBC(leftLens.parameters.baseCurve[0])
                             : ""
                         }
                         disabled

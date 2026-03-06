@@ -26,7 +26,7 @@ export async function POST(
   /* 1️⃣ Load order */
   const { data: order, error } = await supabase
     .from("orders")
-    .select("id, lens_id, rx, box_count")
+    .select("id, coreId, rx, box_count")
     .eq("id", orderId)
     .single();
 
@@ -34,9 +34,9 @@ export async function POST(
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  if (!order.lens_id) {
+  if (!order.coreId) {
     return NextResponse.json(
-      { error: "Order missing lens_id" },
+      { error: "Order missing coreId" },
       { status: 400 }
     );
   }
@@ -49,10 +49,10 @@ export async function POST(
   }
 
   /* 2️⃣ Resolve SKU */
-  const sku = resolveDefaultSku(order.lens_id);
+  const sku = resolveDefaultSku(order.coreId);
   if (!sku) {
     return NextResponse.json(
-      { error: `No SKU defined for lens ${order.lens_id}` },
+      { error: `No SKU defined for lens ${order.coreId}` },
       { status: 400 }
     );
   }

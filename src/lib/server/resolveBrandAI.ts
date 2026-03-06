@@ -6,7 +6,7 @@ const openai = new OpenAI({
 
 export async function resolveBrandAI(
   rawString: string,
-  candidates: { lens_id: string; label: string }[]
+  candidates: { coreId: string; label: string }[]
 ): Promise<string | null> {
   if (!candidates.length) return null;
 
@@ -36,5 +36,5 @@ Return only the label.
     (c) => c.label.toLowerCase() === output.toLowerCase()
   );
 
-  return match ? match.lens_id : null;
+  return match ? match.coreId : null;
 }

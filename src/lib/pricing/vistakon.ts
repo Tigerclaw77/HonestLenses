@@ -11,91 +11,38 @@
  * - No pricing explanations
  */
 
-export type VistakonSKU =
-  // =========================
-  // Acuvue Oasys MAX 1-Day
-  // =========================
-  | "OASYS_MAX_30"
-  | "OASYS_MAX_90"
-  | "OASYS_MAX_AST_30"
-  | "OASYS_MAX_MF_30"
-  | "OASYS_MAX_MF_90"
-  | "OASYS_MAX_AST_MF_30"
-
-  // =========================
-  // Acuvue Oasys 1-Day
-  // =========================
-  | "OASYS_1DAY_90"
-  | "OASYS_1DAY_AST_30"
-  | "OASYS_1DAY_AST_90"
-
-  // =========================
-  // Acuvue Oasys (Bi-weekly)
-  // =========================
-  | "OASYS_12"
-  | "OASYS_24"
-  | "OASYS_AST_6"
-  | "OASYS_MF_6"
-
-  // =========================
-  // Acuvue Moist 1-Day
-  // =========================
-  | "MOIST_30"
-  | "MOIST_90"
-  | "MOIST_AST_30"
-  | "MOIST_AST_90"
-  | "MOIST_MF_30"
-  | "MOIST_MF_90"
-
-  // =========================
-  // Acuvue Vita (Monthly)
-  // =========================
-  | "VITA_6"
-  | "VITA_12"
-  | "VITA_AST_6"
-
-  // =========================
-  // Define (1-Day, 30-pack)
-  // =========================
-  | "DEFINE_30"
-
-  // =========================
-  // Acuvue 2 (Bi-weekly)
-  // =========================
-  | "ACUVUE2_6";
-
 type PriceEntry = {
   price_per_box_cents: number;
 };
 
-export const VISTAKON_PRICING: Record<VistakonSKU, PriceEntry> = {
+export const VISTAKON_PRICING = {
   // =========================
-  // Oasys MAX 1-Day
+  // Acuvue Oasys MAX 1-Day
   // =========================
-  OASYS_MAX_30: { price_per_box_cents: 4699 },
-  OASYS_MAX_90: { price_per_box_cents: 10399 },
-  OASYS_MAX_AST_30: { price_per_box_cents: 5199 },
-  OASYS_MAX_MF_30: { price_per_box_cents: 5899 },
-  OASYS_MAX_MF_90: { price_per_box_cents: 12999 },
-  OASYS_MAX_AST_MF_30: { price_per_box_cents: 6499 },
+  OASYS_MAX_1D_30: { price_per_box_cents: 4699 },
+  OASYS_MAX_1D_90: { price_per_box_cents: 10399 },
+  OASYS_MAX_1D_AST_30: { price_per_box_cents: 5199 },
+  OASYS_MAX_1D_MF_30: { price_per_box_cents: 5899 },
+  OASYS_MAX_1D_MF_90: { price_per_box_cents: 12999 },
+  OASYS_MAX_1D_AST_MF_30: { price_per_box_cents: 6499 },
 
   // =========================
-  // Oasys 1-Day
+  // Acuvue Oasys 1-Day
   // =========================
-  OASYS_1DAY_90: { price_per_box_cents: 9299 },
-  OASYS_1DAY_AST_30: { price_per_box_cents: 5299 },
-  OASYS_1DAY_AST_90: { price_per_box_cents: 10899 },
+  OASYS_1D_90: { price_per_box_cents: 9299 },
+  OASYS_1D_AST_30: { price_per_box_cents: 5299 },
+  OASYS_1D_AST_90: { price_per_box_cents: 10899 },
 
   // =========================
-  // Oasys Bi-weekly
+  // Acuvue Oasys (Bi-weekly)
   // =========================
-  OASYS_12: { price_per_box_cents: 7299 },
-  OASYS_24: { price_per_box_cents: 13799 },
-  OASYS_AST_6: { price_per_box_cents: 5399 },
-  OASYS_MF_6: { price_per_box_cents: 5299 },
+  OASYS_2W_12: { price_per_box_cents: 7299 },
+  OASYS_2W_24: { price_per_box_cents: 13799 },
+  OASYS_2W_AST_6: { price_per_box_cents: 5399 },
+  OASYS_2W_MF_6: { price_per_box_cents: 5299 },
 
   // =========================
-  // Moist 1-Day
+  // Acuvue Moist 1-Day
   // =========================
   MOIST_30: { price_per_box_cents: 4499 },
   MOIST_90: { price_per_box_cents: 8499 },
@@ -105,7 +52,7 @@ export const VISTAKON_PRICING: Record<VistakonSKU, PriceEntry> = {
   MOIST_MF_90: { price_per_box_cents: 10999 },
 
   // =========================
-  // Vita (Monthly)
+  // Acuvue Vita (Monthly)
   // =========================
   VITA_6: { price_per_box_cents: 6599 },
   VITA_12: { price_per_box_cents: 10499 },
@@ -120,4 +67,14 @@ export const VISTAKON_PRICING: Record<VistakonSKU, PriceEntry> = {
   // Acuvue 2 (Bi-weekly)
   // =========================
   ACUVUE2_6: { price_per_box_cents: 4499 },
-};
+} as const satisfies Record<string, PriceEntry>;
+
+/**
+ * Automatically derived SKU type
+ */
+export type VistakonSKU = keyof typeof VISTAKON_PRICING;
+
+/**
+ * Alias for consistency with other pricing modules
+ */
+export type VistakonPricingKey = VistakonSKU;

@@ -1,21 +1,14 @@
-import { lenses } from "../../data/lenses";
+import { lenses } from "@/LensCore";
 import { getPackSizeFromSku } from "./skuPackSize";
 
 export function getLensDisplayName(
-  lens_id: string,
+  coreId: string,
   sku: string | null,
 ): string {
-  const lens = lenses.find((l) => l.lens_id === lens_id);
+  const lens = lenses.find((l) => l.coreId === coreId);
   if (!lens) return "Unknown Lens";
 
-  const brand = lens.brand?.trim() ?? "";
-  const name = lens.name.trim();
-
-  const baseName =
-    brand &&
-    !name.toLowerCase().startsWith(brand.toLowerCase())
-      ? `${brand} ${name}`
-      : name;
+  const baseName = lens.displayName.trim();
 
   if (!sku) return baseName;
 

@@ -11,12 +11,16 @@ export async function POST() {
     /* 1️⃣ Find orders eligible for passive verification */
     const { data: orders, error } = await supabaseServer
       .from("orders")
-      .select(`
+      .select(
+        `
         id,
         payment_intent_id,
         passive_deadline_at,
-        status
-      `)
+        status,
+        requires_od_review,
+        od_review_status
+      `,
+      )
       .eq("status", "pending")
       .lte("passive_deadline_at", new Date().toISOString());
 
@@ -35,7 +39,7 @@ export async function POST() {
 
       /* 2️⃣ Retrieve Stripe intent */
       const intent = await stripe.paymentIntents.retrieve(
-        order.payment_intent_id
+        order.payment_intent_id,
       );
 
       if (intent.status !== "requires_capture") {
@@ -43,6 +47,13 @@ export async function POST() {
       }
 
       /* 3️⃣ Capture payment */
+      if (order.requires_od_review && order.od_review_status !== "approved") {
+        console.log(
+          `⛔ Capture skipped for order ${order.id}: OD review required.`,
+        );
+        continue;
+      }
+
       await stripe.paymentIntents.capture(order.payment_intent_id);
 
       /* 4️⃣ Update order */
@@ -61,7 +72,7 @@ export async function POST() {
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unknown error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

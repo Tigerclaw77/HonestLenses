@@ -1,15 +1,15 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { supabaseServer } from "../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../lib/get-user-from-request";
+import { supabaseServer } from "@/lib/supabase-server";
 
 /* =========================
    Types
 ========================= */
 
 type EyeRx = {
-  lens_id: string;
+  coreId: string;
 };
 
 type RxData = {
@@ -30,13 +30,13 @@ function isRxData(value: unknown): value is RxData {
     !("right" in v) ||
     (typeof v.right === "object" &&
       v.right !== null &&
-      typeof (v.right as Record<string, unknown>).lens_id === "string");
+      typeof (v.right as Record<string, unknown>).coreId === "string");
 
   const leftOk =
     !("left" in v) ||
     (typeof v.left === "object" &&
       v.left !== null &&
-      typeof (v.left as Record<string, unknown>).lens_id === "string");
+      typeof (v.left as Record<string, unknown>).coreId === "string");
 
   return rightOk && leftOk;
 }
@@ -46,13 +46,16 @@ function isRxData(value: unknown): value is RxData {
 ========================= */
 
 export async function GET(req: Request) {
+  console.log("CART ROUTE HIT");
+
   const user = await getUserFromRequest(req);
+  console.log("USER FROM REQUEST", user);
+
   if (!user) return NextResponse.json({ hasCart: false });
 
   const { data: order, error } = await supabaseServer
     .from("orders")
-    .select(
-      `
+    .select(`
       id,
       status,
       rx,
@@ -63,14 +66,14 @@ export async function GET(req: Request) {
       total_amount_cents,
       price_reason,
       created_at
-    `,
-    )
+    `)
     .eq("user_id", user.id)
     .eq("status", "draft")
-    // .is("payment_intent_id", null)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  console.log("ORDER RESULT", order, error);
 
   if (error || !order) {
     return NextResponse.json({ hasCart: false });
@@ -83,7 +86,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const lens_id = order.rx.right?.lens_id ?? order.rx.left?.lens_id ?? null;
+  const coreId = order.rx.right?.coreId ?? order.rx.left?.coreId ?? null;
 
   return NextResponse.json({
     hasCart: true,
@@ -91,7 +94,7 @@ export async function GET(req: Request) {
       id: order.id,
       status: order.status,
       rx: order.rx,
-      lens_id,
+      coreId,
       sku: order.sku ?? null,
       box_count: order.box_count ?? null,
       right_box_count: order.right_box_count ?? null,

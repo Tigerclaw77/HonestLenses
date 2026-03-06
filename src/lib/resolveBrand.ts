@@ -1,12 +1,29 @@
-import type { Lens } from "@/data/lenses";
+import type { LensCore } from "@/LensCore";
+
+/* ======================================================
+   Public Types
+====================================================== */
 
 export type ResolveResult = {
   lensId: string | null;
   score: number;
   confidence: "high" | "medium" | "low";
+  reason?: {
+    stage:
+      | "no_candidates"
+      | "family_lock"
+      | "scored"
+      | "ambiguous"
+      | "low_score";
+    family?: string | null;
+    candidateCount: number;
+    bestScore?: number;
+    secondScore?: number;
+    gap?: number;
+  };
 };
 
-type ResolveInput = {
+export type ResolveInput = {
   rawString: string;
   hasCyl?: boolean;
   hasAdd?: boolean;
@@ -15,211 +32,344 @@ type ResolveInput = {
   debug?: boolean;
 };
 
-/* =========================
+/* ======================================================
    Normalization
-========================= */
+====================================================== */
 
-export function normalize(input: string): string {
+function normalize(input: string): string {
   return input
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/[^a-z0-9\s+.-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-export function tokenize(input: string): string[] {
+function tokenize(input: string): string[] {
   return normalize(input).split(" ").filter(Boolean);
 }
 
-/* =========================
-   Manufacturer Lock
-   (derived from lens_id prefix)
-========================= */
+function includesAny(hay: string, needles: string[]) {
+  for (const n of needles) {
+    if (hay.includes(n)) return true;
+  }
+  return false;
+}
 
-function manufacturerPrefix(lensId: string): string | null {
-  if (lensId.startsWith("V")) return "V";
-  if (lensId.startsWith("CV")) return "CV";
-  if (lensId.startsWith("BL")) return "BL";
-  if (lensId.startsWith("A")) return "A";
+/* ======================================================
+   Family Derivation (NO LensCore pollution)
+====================================================== */
+
+function deriveFamily(coreId: string): string {
+  return coreId
+    .replace(/_AST$/, "")
+    .replace(/_MF$/, "")
+    .replace(/_XR$/, "")
+    .replace(/_MAX$/, "")
+    .replace(/_VITALITY$/, "");
+}
+
+/* ======================================================
+   Daily Intent
+====================================================== */
+
+function detectDailyIntent(raw: string): boolean | null {
+  const r = normalize(raw);
+
+  const dailySignals = [
+    "1 day",
+    "1-day",
+    "oneday",
+    "one day",
+    "daily disposable",
+    "dailies",
+  ];
+
+  const monthlySignals = [
+    "monthly",
+    "30 day",
+    "2 week",
+    "two week",
+    "biweekly",
+  ];
+
+  if (includesAny(r, dailySignals)) return true;
+  if (includesAny(r, monthlySignals)) return false;
+
   return null;
 }
 
-function detectManufacturerIntent(raw: string): string | null {
-  const r = normalize(raw);
+function lensIsDaily(lens: LensCore): boolean {
+  const name = normalize(lens.displayName);
+  const repl = normalize(lens.replacement);
 
-  if (r.includes("acuvue")) return "V";
-  if (r.includes("coopervision") || r.includes("cvh")) return "CV";
-  if (r.includes("alcon")) return "A";
-  if (r.includes("bausch") || r.includes("b+l")) return "BL";
-
-  return null;
-}
-
-/* =========================
-   STRICT Daily Intent Detection
-   Only explicit cues.
-========================= */
-
-function detectDailyIntent(raw: string): boolean {
-  const r = normalize(raw);
-
-  return (
-    r.includes("1 day") ||
-    r.includes("1-day") ||
-    r.includes("daily disposable") ||
-    r.includes("dailies")
-  );
-}
-
-/* =========================
-   Lens Daily Check
-========================= */
-
-function lensIsDaily(lens: Lens): boolean {
-  const name = normalize(`${lens.brand} ${lens.name}`);
+  if (repl.includes("daily")) return true;
 
   return (
     name.includes("1 day") ||
     name.includes("1-day") ||
-    name.includes("daily disposable") ||
-    name.includes("dailies")
+    name.includes("oneday") ||
+    name.includes("one day") ||
+    name.includes("dailies") ||
+    name.includes("daily disposable")
   );
 }
 
-/* =========================
-   Scoring
-========================= */
+/* ======================================================
+   Family Scoring
+====================================================== */
 
-function scoreLens(
-  inputTokens: string[],
-  lens: Lens,
-  input: ResolveInput,
-): number {
+function scoreFamilyMatch(
+  rawNorm: string,
+  rawTokens: string[],
+  family: string,
+) {
+  const famNorm = normalize(family);
+  const famCompact = famNorm.replace(/\s+/g, "");
+  const rawCompact = rawNorm.replace(/\s+/g, "");
+
   let score = 0;
 
-  const brandTokens = tokenize(lens.brand);
-  const nameTokens = tokenize(lens.name);
+  if (rawCompact.includes(famCompact)) score += 120;
+  if (rawNorm.includes(famNorm)) score += 80;
 
-  for (const token of inputTokens) {
-    if (brandTokens.includes(token)) score += 60;
-    if (nameTokens.includes(token)) score += 30;
+  const famTokens = famNorm.split(" ").filter(Boolean);
+  for (const t of famTokens) {
+    if (rawTokens.includes(t)) score += 20;
   }
 
-  if (input.bc != null && lens.baseCurves?.includes(input.bc)) {
-    score += 5;
-  }
-
-  if (
-    input.dia != null &&
-    lens.diameter != null &&
-    Math.abs(lens.diameter - input.dia) < 0.2
-  ) {
-    score += 5;
+  const digitMatch = famCompact.match(/(\d+)$/);
+  if (digitMatch) {
+    const digit = digitMatch[1];
+    if (rawCompact.includes(digit)) score += 10;
   }
 
   return score;
 }
 
-/* =========================
+/* ======================================================
+   Variant Scoring
+====================================================== */
+
+function scoreVariant(
+  rawNorm: string,
+  rawTokens: string[],
+  lens: LensCore,
+) {
+  const name = normalize(lens.displayName);
+  const nameTokens = name.split(" ").filter(Boolean);
+
+  let score = 0;
+
+  for (const t of nameTokens) {
+    if (rawTokens.includes(t)) score += 10;
+    if (rawNorm.includes(t)) score += 6;
+  }
+
+  const cues: Array<[string[], number]> = [
+    [["astigmatism", "toric", "ast"], lens.type.toric ? 30 : -30],
+    [["multifocal", "mf", "presbyopia"], lens.type.multifocal ? 30 : -30],
+    [["xr"], lens.coreId.includes("XR") ? 25 : -10],
+    [["max"], lens.coreId.includes("MAX") ? 20 : -10],
+    [["vitality"], lens.displayName.toLowerCase().includes("vitality") ? 20 : -10],
+  ];
+
+  for (const [words, delta] of cues) {
+    if (includesAny(rawNorm, words)) score += delta;
+  }
+
+  return score;
+}
+
+/* ======================================================
+   Geometry Assist
+====================================================== */
+
+function scoreGeometry(input: ResolveInput, lens: LensCore) {
+  let score = 0;
+
+  if (input.bc != null) {
+    const bcList = lens.parameters.baseCurve ?? [];
+    if (bcList.includes(input.bc)) score += 8;
+    else if (bcList.length > 0) score -= 3;
+  }
+
+  if (input.dia != null) {
+    const diaList = lens.parameters.diameter ?? [];
+    if (diaList.includes(input.dia)) score += 6;
+    else if (diaList.length > 0) score -= 2;
+  }
+
+  return score;
+}
+
+/* ======================================================
+   Structure Penalty (OCR Safety)
+====================================================== */
+
+function scoreStructure(input: ResolveInput, lens: LensCore) {
+  let score = 0;
+
+  const { hasCyl = false, hasAdd = false } = input;
+
+  if (hasCyl && !lens.type.toric) score -= 40;
+  if (!hasCyl && lens.type.toric) score -= 25;
+
+  if (hasAdd && !lens.type.multifocal) score -= 40;
+  if (!hasAdd && lens.type.multifocal) score -= 25;
+
+  return score;
+}
+
+/* ======================================================
    MAIN RESOLVER
-========================= */
+====================================================== */
 
 export function resolveBrand(
   input: ResolveInput,
-  lenses: Lens[],
+  lenses: readonly LensCore[],
 ): ResolveResult {
-  const { rawString, hasCyl = false, hasAdd = false } = input;
 
-  const tokens = tokenize(rawString);
-  const inputIsDaily = detectDailyIntent(rawString);
+  const { rawString, debug = false } = input;
 
-  let candidateLenses = lenses;
+  const rawNorm = normalize(rawString);
+  const rawTokens = tokenize(rawString);
 
-  console.log("[Resolver] Raw:", rawString);
-  console.log("[Resolver] Initial lens count:", candidateLenses.length);
+  let candidates = [...lenses];
 
-  /* 1️⃣ Manufacturer Lock */
+  if (candidates.length === 0) {
+    return {
+      lensId: null,
+      score: 0,
+      confidence: "low",
+      reason: { stage: "no_candidates", candidateCount: 0 },
+    };
+  }
 
-  const manufacturerIntent = detectManufacturerIntent(rawString);
-  if (manufacturerIntent) {
-    candidateLenses = candidateLenses.filter(
-      (l) => manufacturerPrefix(l.lens_id) === manufacturerIntent,
+  /* Daily Intent Filter */
+
+  const dailyIntent = detectDailyIntent(rawString);
+
+  if (dailyIntent !== null) {
+    const filtered = candidates.filter(
+      (l) => lensIsDaily(l) === dailyIntent,
     );
-    console.log("[Resolver] Manufacturer lock:", manufacturerIntent);
+    if (filtered.length > 0) candidates = filtered;
   }
 
-  /* 2️⃣ Structural Filtering */
+  /* Family Lock */
 
-  candidateLenses = candidateLenses.filter((l) =>
-    hasCyl ? l.toric : !l.toric,
-  );
+  const families = new Map<string, LensCore[]>();
 
-  candidateLenses = candidateLenses.filter((l) =>
-    hasAdd ? l.multifocal : !l.multifocal,
-  );
+  for (const l of candidates) {
+    const fam = deriveFamily(l.coreId);
+    if (!families.has(fam)) families.set(fam, []);
+    families.get(fam)!.push(l);
+  }
 
-  console.log("[Resolver] After structural filter:", candidateLenses.length);
+  let bestFamily: string | null = null;
+  let bestFamilyScore = -Infinity;
 
-  /* 3️⃣ Daily Partition */
-
-  if (inputIsDaily) {
-    const dailyOnly = candidateLenses.filter((l) => lensIsDaily(l));
-    if (dailyOnly.length > 0) {
-      candidateLenses = dailyOnly;
-    }
-  } else {
-    const nonDaily = candidateLenses.filter((l) => !lensIsDaily(l));
-    if (nonDaily.length > 0) {
-      candidateLenses = nonDaily;
+  for (const fam of families.keys()) {
+    const s = scoreFamilyMatch(rawNorm, rawTokens, fam);
+    if (s > bestFamilyScore) {
+      bestFamilyScore = s;
+      bestFamily = fam;
     }
   }
 
-  console.log("[Resolver] After daily filter:", candidateLenses.length);
+  if (bestFamily && bestFamilyScore >= 80) {
+    candidates = families.get(bestFamily)!;
+  }
 
-  /* 4️⃣ Score */
+  /* Variant Scoring */
 
-  let bestScore = -Infinity;
-  let secondBest = -Infinity;
-  let bestLensId: string | null = null;
+  let best: { id: string; score: number } | null = null;
+  let second: { id: string; score: number } | null = null;
 
-  for (const lens of candidateLenses) {
-    const score = scoreLens(tokens, lens, input);
+  for (const lens of candidates) {
+    const fam = deriveFamily(lens.coreId);
 
-    if (score > bestScore) {
-      secondBest = bestScore;
-      bestScore = score;
-      bestLensId = lens.lens_id;
-    } else if (score > secondBest) {
-      secondBest = score;
+    const s =
+      scoreFamilyMatch(rawNorm, rawTokens, fam) +
+      scoreVariant(rawNorm, rawTokens, lens) +
+      scoreGeometry(input, lens) +
+      scoreStructure(input, lens);
+
+    if (!best || s > best.score) {
+      second = best;
+      best = { id: lens.coreId, score: s };
+    } else if (!second || s > second.score) {
+      second = { id: lens.coreId, score: s };
     }
   }
 
-  const gap = bestScore - secondBest;
+  const bestScore = best?.score ?? 0;
+  const secondScore = second?.score ?? -999;
+  const gap = bestScore - secondScore;
 
-  console.log("[Resolver] Best score:", bestScore);
-  console.log("[Resolver] Gap:", gap);
-
-  /* 5️⃣ Hard Fail Rules */
-
-  if (!bestLensId || gap <= 0) {
-    console.log("[Resolver] FAIL (tie or no clear winner)");
-    return { lensId: null, score: 0, confidence: "low" };
+  if (debug) {
+    console.log("[ResolverV2]", {
+      rawString,
+      bestFamily,
+      bestFamilyScore,
+      candidateCount: candidates.length,
+      best,
+      second,
+      gap,
+    });
   }
 
-  /* 6️⃣ Confidence */
+  /* Hard Rejects */
 
-  let confidence: "high" | "medium" | "low" = "low";
+  if (!best || bestScore < 60) {
+    return {
+      lensId: null,
+      score: bestScore,
+      confidence: "low",
+      reason: {
+        stage: "low_score",
+        family: bestFamily,
+        candidateCount: candidates.length,
+        bestScore,
+        secondScore,
+        gap,
+      },
+    };
+  }
 
-  if (bestScore >= 90 && gap >= 20) confidence = "high";
-  else if (bestScore >= 60 && gap >= 10) confidence = "medium";
+  if (gap < 12) {
+    return {
+      lensId: null,
+      score: bestScore,
+      confidence: "low",
+      reason: {
+        stage: "ambiguous",
+        family: bestFamily,
+        candidateCount: candidates.length,
+        bestScore,
+        secondScore,
+        gap,
+      },
+    };
+  }
 
-  console.log(
-    `[Resolver] Final: ${bestLensId} (${confidence})`
-  );
+  let confidence: "high" | "medium" | "low" = "medium";
+
+  if (bestScore >= 140 && gap >= 30) confidence = "high";
+  else if (bestScore >= 95 && gap >= 18) confidence = "medium";
+  else confidence = "low";
 
   return {
-    lensId: confidence === "low" ? null : bestLensId,
+    lensId: confidence === "low" ? null : best.id,
     score: bestScore,
     confidence,
+    reason: {
+      stage: "scored",
+      family: bestFamily,
+      candidateCount: candidates.length,
+      bestScore,
+      secondScore,
+      gap,
+    },
   };
 }

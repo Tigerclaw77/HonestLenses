@@ -1,111 +1,145 @@
-/**
- * lens_id → default (largest) SKU
- */
-const SKU_MAP: Record<string, string> = {
+import { getSkuBoxDurationMonths } from "./skuDefaults";
 
-// Vistakon
-V001: "OASYS_MAX_90",
-V002: "OASYS_MAX_MF_90",
-V003: "OASYS_1DAY_90",
-V004: "OASYS_1DAY_AST_90",
-V005: "MOIST_90",
-V006: "MOIST_AST_90",
-V007: "MOIST_MF_90",
-V008: "OASYS_24",
-V009: "OASYS_AST_6",
-V010: "OASYS_MF_6",
-V013: "VITA_12",
-V014: "VITA_AST_6",
-V015: "DEFINE_30",
-V017: "ACUVUE2_6",
-V018: "OASYS_MAX_AST_30",
-V019: "OASYS_MAX_AST_MF_30",
+export const CORE_TO_SKUS: Record<string, string[]> = {
+  // =========================
+  // VISTAKON
+  // =========================
 
-// Bausch + Lomb
-BL01: "INFUSE_90",
-BL02: "INFUSE_MF_90",
-BL03: "BIOTRUE_ONEDAY_90",
-BL04: "BIOTRUE_ONEDAY_AST_90",
-BL05: "BIOTRUE_ONEDAY_MF_90",
-BL06: "ULTRA_6",
-BL07: "ULTRA_AST_6",
-BL08: "ULTRA_MF_6",
-BL09: "ULTRA_MF_AST_6",
-BL10: "PUREVISION_6",
-BL11: "PUREVISION_MF_6",
-BL12: "PUREVISION2_6",
-BL13: "PUREVISION2_AST_6",
-BL14: "PUREVISION2_MF_6",
-BL15: "SOFLENS_6",
-BL16: "SOFLENS_AST_6",
-BL17: "SOFLENS_MF_6",
-BL18: "SOFLENS_DAILY_DISPOSABLE_90",
-BL19: "INFUSE_AST_90",
+  OASYS_MAX_1D: ["OASYS_MAX_30", "OASYS_MAX_90"],
+  OASYS_MAX_1D_AST: ["OASYS_MAX_AST_30"],
+  OASYS_MAX_1D_MF: ["OASYS_MAX_MF_30", "OASYS_MAX_MF_90"],
+  OASYS_MAX_1D_AST_MF: ["OASYS_MAX_AST_MF_30"],
 
-// CooperVision
-CV01: "AVAIRA_VITALITY_6",
-CV02: "AVAIRA_VITALITY_AST_6",
-CV03: "BIOFINITY_6",
-CV04: "BIOFINITY_XR_6",
-CV05: "BIOFINITY_ENERGYS_6",
-CV06: "BIOFINITY_MF_6",
-CV07: "BIOFINITY_AST_6",
-CV08: "BIOFINITY_XR_AST_6",
-CV09: "BIOFINITY_AST_MF_6",
-CV10: "BIOMEDICS_55_6",
-CV11: "BIOMEDICS_AST_6",
-CV12: "CLARITI_1DAY_90",
-CV13: "CLARITI_1DAY_AST_90",
-CV14: "CLARITI_1DAY_MF_90",
-CV16: "MYDAY_180",
-CV17: "MYDAY_ENERGYS_90",
-CV18: "MYDAY_MF_90",
-CV19: "MYDAY_AST_90",
-CV20: "PROCLEAR_1DAY_90",
-CV21: "PROCLEAR_1DAY_MF_90",
-CV22: "PROCLEAR_MF_6",
-CV23: "PROCLEAR_XR_MF_6",
-CV24: "PROCLEAR_AST_MF_6",
-CV25: "PROCLEAR_6",
-CV26: "PROCLEAR_AST_6",
-CV27: "PROCLEAR_XR_AST_6",
+  OASYS_1D: ["OASYS_1D_90"],
+  OASYS_1D_AST: ["OASYS_1D_AST_30", "OASYS_1D_AST_90"],
 
-// Alcon
-A001: "AIR_OPTIX_6",
-A002: "AIR_OPTIX_AST_6",
-A003: "AIR_OPTIX_MF_6",
-A004: "AIR_OPTIX_COLORS_6",
-A005: "AIR_OPTIX_NIGHT_AND_DAY_6",
-A006: "AQUACOMFORT_PLUS_90",
-A007: "AQUACOMFORT_PLUS_MF_90",
-A008: "AQUACOMFORT_PLUS_AST_90",
-A009: "DAILIES_COLORS_90",
-A010: "TOTAL1_90",
-A011: "TOTAL1_AST_90",
-A012: "TOTAL1_MF_90",
-A017: "PRECISION1_90",
-A018: "PRECISION1_AST_90",
-A019: "TOTAL30_6",
-A020: "TOTAL30_AST_6",
-A021: "TOTAL30_MF_6",
-A022: "TOTAL30_AST_MF_6",
-A023: "PRECISION7_27",
-A024: "PRECISION7_AST_27",
+  OASYS_2W: ["OASYS_12", "OASYS_24"],
+  OASYS_2W_AST: ["OASYS_AST_6"],
+  OASYS_2W_MF: ["OASYS_MF_6"],
+
+  MOIST: ["MOIST_30", "MOIST_90"],
+  MOIST_AST: ["MOIST_AST_30", "MOIST_AST_90"],
+  MOIST_MF: ["MOIST_MF_30", "MOIST_MF_90"],
+
+  VITA: ["VITA_6", "VITA_12"],
+  VITA_AST: ["VITA_AST_6"],
+
+  DEFINE: ["DEFINE_30"],
+  ACUVUE2: ["ACUVUE2_6"],
+
+  // =========================
+  // ALCON
+  // =========================
+
+  DT1: ["DT1_30", "DT1_90"],
+  DT1_AST: ["DT1_AST_30", "DT1_AST_90"],
+  DT1_MF: ["DT1_MF_30", "DT1_MF_90"],
+
+  TOTAL30: ["TOTAL30_6"],
+  TOTAL30_AST: ["TOTAL30_AST_6"],
+  TOTAL30_MF: ["TOTAL30_MF_6"],
+  TOTAL30_AST_MF: ["TOTAL30_AST_MF_6"],
+
+  PRECISION1: ["PRECISION1_30", "PRECISION1_90"],
+  PRECISION1_AST: ["PRECISION1_AST_30", "PRECISION1_AST_90"],
+
+  PRECISION7: ["PRECISION7_12", "PRECISION7_27"],
+  PRECISION7_AST: ["PRECISION7_AST_12", "PRECISION7_AST_27"],
+
+  AO_HG: ["AO_HG_6"],
+  AO_HG_AST: ["AO_HG_AST_6"],
+  AO_HG_MF: ["AO_HG_MF_6"],
+  AO_ND: ["AO_ND_6"],
+  AO_COL: ["AO_COL_2", "AO_COL_6"],
+
+  DACP: ["DACP_30", "DACP_90"],
+  DACP_AST: ["DACP_AST_30", "DACP_AST_90"],
+  DACP_MF: ["DACP_MF_30", "DACP_MF_90"],
+
+  DAILIES_COL: ["DAILIES_COL_30", "DAILIES_COL_90"],
+
+  // =========================
+  // BAUSCH + LOMB
+  // =========================
+
+  INFUSE_1D: ["INFUSE_1D_90"],
+  INFUSE_1D_AST: ["INFUSE_1D_AST_90"],
+  INFUSE_1D_MF: ["INFUSE_1D_MF_90"],
+
+  BIOTRUE_1D: ["BIOTRUE_1D_30", "BIOTRUE_1D_90"],
+  BIOTRUE_1D_AST: ["BIOTRUE_1D_AST_30", "BIOTRUE_1D_AST_90"],
+  BIOTRUE_1D_MF: ["BIOTRUE_1D_MF_30", "BIOTRUE_1D_MF_90"],
+
+  ULTRA: ["ULTRA_6"],
+  ULTRA_AST: ["ULTRA_AST_6"],
+  ULTRA_MF: ["ULTRA_MF_6"],
+  ULTRA_AST_MF: ["ULTRA_AST_MF_6"],
+
+  PUREVISION: ["PUREVISION_6"],
+  PUREVISION_MF: ["PUREVISION_MF_6"],
+  PUREVISION2: ["PUREVISION2_6"],
+  PUREVISION2_AST: ["PUREVISION2_AST_6"],
+  PUREVISION2_MF: ["PUREVISION2_MF_6"],
+
+  SOFLENS_DAILY: ["SOFLENS_DAILY_90"],
+  SOFLENS38: ["SOFLENS38_6"],
+  SOFLENS_AST: ["SOFLENS_AST_6"],
+  SOFLENS_MF: ["SOFLENS_MF_6"],
+
+  // =========================
+  // COOPERVISION
+  // =========================
+
+  CLARITI_1D: ["CLARITI_1D_30", "CLARITI_1D_90"],
+  CLARITI_1D_AST: ["CLARITI_1D_AST_30", "CLARITI_1D_AST_90"],  
+  CLARITI_1D_MF: ["CLARITI_1D_MF_30", "CLARITI_1D_MF_90"],
+
+  MYDAY: ["MYDAY_90", "MYDAY_180"],
+  MYDAY_ENG: ["MYDAY_ENG_90"],
+  MYDAY_AST: ["MYDAY_AST_90"],
+  MYDAY_MF: ["MYDAY_MF_90"],
+
+  PROCLEAR_1D: ["PROCLEAR_1D_90"],
+  PROCLEAR_1D_MF: ["PROCLEAR_1D_MF_90"],
+
+  PROCLEAR: ["PROCLEAR_6"],
+  PROCLEAR_AST: ["PROCLEAR_AST_6"],
+  PROCLEAR_XR_AST: ["PROCLEAR_XR_AST_6"],
+  PROCLEAR_AST_MF: ["PROCLEAR_AST_MF_6"],
+  PROCLEAR_MF: ["PROCLEAR_MF_6"],
+  PROCLEAR_XR_MF: ["PROCLEAR_XR_MF_6"],
+
+  AVAIRA_VIT: ["AVAIRA_VIT_6"],
+  AVAIRA_VIT_AST: ["AVAIRA_VIT_AST_6"],
+
+  BIOFINITY: ["BIOFINITY_6"],
+  BIOFINITY_XR: ["BIOFINITY_XR_6"],
+  BIOFINITY_ENG: ["BIOFINITY_ENG_6"],
+  BIOFINITY_MF: ["BIOFINITY_MF_6"],
+  BIOFINITY_AST: ["BIOFINITY_AST_6"],
+  BIOFINITY_XR_AST: ["BIOFINITY_XR_AST_6"],
+  BIOFINITY_AST_MF: ["BIOFINITY_AST_MF_6"],
+
+  BIOMEDICS: ["BIOMEDICS_6"],
+  BIOMEDICS_AST: ["BIOMEDICS_AST_6"],
 };
 
 export function resolveDefaultSku(
-  lens_id: string,
-  targetMonths: 6 | 12 = 12
+  coreId: string,
+  targetMonths: 6 | 12 = 12,
 ): string | null {
-  const largestSku = SKU_MAP[lens_id];
-  if (!largestSku) return null;
+  const skus = CORE_TO_SKUS[coreId];
+  if (!skus || skus.length === 0) return null;
 
-  if (targetMonths === 12) return largestSku;
+  // sort by duration descending (largest first)
+  const sorted = [...skus].sort(
+    (a, b) => getSkuBoxDurationMonths(b) - getSkuBoxDurationMonths(a),
+  );
 
-  if (largestSku.endsWith("_24")) return largestSku.replace("_24", "_12");
-  if (largestSku.endsWith("_12")) return largestSku.replace("_12", "_6");
-  if (largestSku.endsWith("_180")) return largestSku.replace("_180", "_90");
-  if (largestSku.endsWith("_27")) return largestSku.replace("_27", "_12");
+  if (targetMonths === 12) {
+    return sorted[0];
+  }
 
-  return largestSku;
+  // for 6 months, choose the largest box that does not exceed 6 months
+  return sorted.find((sku) => getSkuBoxDurationMonths(sku) <= 6) ?? sorted[0];
 }

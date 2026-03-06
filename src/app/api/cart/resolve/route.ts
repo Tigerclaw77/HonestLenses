@@ -4,8 +4,11 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 import { getPrice } from "../../../../lib/pricing/getPrice";
-import { SKU_BOX_DURATION_MONTHS } from "../../../../lib/pricing/skuDefaults";
+import { getSkuBoxDurationMonths } from "../../../../lib/pricing/skuDefaults";
 import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
+
+import { lenses } from "@/LensCore";
+import { resolveXRVariant } from "@/LensCore/helpers/resolveXRVariant";
 
 /* =========================
    Constants
@@ -19,7 +22,10 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24;
 ========================= */
 
 type EyeRx = {
-  lens_id: string;
+  coreId: string;
+  sphere?: number;
+  cylinder?: number | null;
+  axis?: number | null;
 };
 
 type RxData = {
@@ -45,8 +51,8 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function isEyeRx(value: unknown): value is EyeRx {
   return (
     isObject(value) &&
-    typeof value.lens_id === "string" &&
-    value.lens_id.length > 0
+    typeof value.coreId === "string" &&
+    value.coreId.length > 0
   );
 }
 
@@ -152,7 +158,8 @@ export async function POST(req: Request) {
       rx,
       sku,
       right_box_count,
-      left_box_count
+      left_box_count,
+      brand_confidence
     `,
     )
     .eq("user_id", user.id)
@@ -185,6 +192,29 @@ export async function POST(req: Request) {
     );
   }
 
+  // 🔒 Brand confidence gate
+  if (order.brand_confidence && order.brand_confidence !== "high") {
+    const { error: reviewError } = await supabaseServer
+      .from("orders")
+      .update({
+        requires_od_review: true,
+        status: "requires_review",
+      })
+      .eq("id", order.id)
+      .eq("user_id", user.id)
+      .eq("status", "draft");
+
+    if (reviewError) {
+      return NextResponse.json({ error: reviewError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      requires_review: true,
+      message: "Order flagged for optometrist review before shipping.",
+    });
+  }
+
   const rx = order.rx;
   const hasRight = Boolean(rx.right);
   const hasLeft = Boolean(rx.left);
@@ -196,12 +226,30 @@ export async function POST(req: Request) {
     );
   }
 
-  const lens_id = rx.right?.lens_id ?? rx.left?.lens_id ?? null;
-  if (!lens_id) {
-    return NextResponse.json({ error: "Missing lens_id." }, { status: 400 });
+  let coreId = rx.right?.coreId ?? rx.left?.coreId ?? null;
+
+  if (!coreId) {
+    return NextResponse.json({ error: "Missing coreId." }, { status: 400 });
+  }
+
+  /* ---------- XR Variant Resolution ---------- */
+
+  const baseLens = lenses.find((l) => l.coreId === coreId);
+
+  if (baseLens) {
+    const xr = resolveXRVariant(baseLens, {
+      sph: rx.right?.sphere ?? rx.left?.sphere ?? 0,
+      cyl: rx.right?.cylinder ?? rx.left?.cylinder ?? null,
+      axis: rx.right?.axis ?? rx.left?.axis ?? null,
+    });
+
+    if (xr) {
+      coreId = xr.coreId;
+    }
   }
 
   /* ---------- Expiration + SKU Resolution ---------- */
+
   let remainingDays: number;
   let targetMonths: 6 | 12;
   let resolvedSku: string | null = null;
@@ -224,11 +272,11 @@ export async function POST(req: Request) {
 
     targetMonths = remainingDays >= MIN_DAYS_FOR_ANNUAL ? 12 : 6;
 
-    resolvedSku = resolveDefaultSku(lens_id, targetMonths);
+    resolvedSku = resolveDefaultSku(coreId, targetMonths);
 
     if (!resolvedSku) {
       return NextResponse.json(
-        { error: `No default SKU for lens_id ${lens_id}` },
+        { error: `No default SKU for coreId ${coreId}` },
         { status: 400 },
       );
     }
@@ -240,10 +288,14 @@ export async function POST(req: Request) {
   }
 
   /* ---------- Duration Lookup ---------- */
-  const durationMonths = SKU_BOX_DURATION_MONTHS[resolvedSku];
-  if (!durationMonths) {
+
+  let durationMonths: number;
+
+  try {
+    durationMonths = getSkuBoxDurationMonths(resolvedSku);
+  } catch (e) {
     return NextResponse.json(
-      { error: `Missing duration for SKU ${resolvedSku}` },
+      { error: e instanceof Error ? e.message : "Invalid SKU duration" },
       { status: 500 },
     );
   }
@@ -272,16 +324,19 @@ export async function POST(req: Request) {
   }
 
   /* ---------- Pricing ---------- */
+
   const pricing = getPrice({ sku: resolvedSku, box_count: totalBoxes });
   const subtotalCents = pricing.total_amount_cents;
 
   const totalMonthsAcrossOrder = totalBoxes * durationMonths;
 
   /* ---------- Shipping ---------- */
+
   const shippingCents = totalMonthsAcrossOrder >= 12 ? 0 : 1000;
   const totalAmountCents = subtotalCents + shippingCents;
 
   /* ---------- Persist ---------- */
+
   const { error: updateError } = await supabaseServer
     .from("orders")
     .update({

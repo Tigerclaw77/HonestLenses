@@ -9,7 +9,7 @@ import type { OcrExtract } from "@/types/ocr";
 import ComingSoonOverlay from "../../../components/overlays/ComingSoonOverlay";
 
 type EyeRx = {
-  lens_id?: string | null;
+  coreId?: string | null;
   sphere?: number;
   cylinder?: number;
   axis?: number;
@@ -39,7 +39,7 @@ type OcrApiResponse = {
 };
 
 type EyeRxDraft = {
-  lens_id: string;
+  coreId: string;
   sph: string;
   cyl: string;
   axis: string;
@@ -180,7 +180,7 @@ export default function ConfirmClient() {
 
         // 4) Map eye -> draft
         const mapEye = (eye?: EyeRx): EyeRxDraft => ({
-          lens_id: proposedLensId ?? "",
+          coreId: proposedLensId ?? "",
           sph: eye?.sphere != null ? Number(eye.sphere).toFixed(2) : "",
           cyl: eye?.cylinder != null ? Number(eye.cylinder).toFixed(2) : "",
           axis: eye?.axis != null ? `${eye.axis}` : "",
