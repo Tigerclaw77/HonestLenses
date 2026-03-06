@@ -20,11 +20,14 @@ function uniqSorted(nums: number[]): number[] {
 
 function getCylOptions(lens: LensCore): number[] {
   if (!lens.type.toric) return [];
+
   const groups = lens.parameters.toric?.groups ?? [];
   const out: number[] = [];
+
   for (const g of groups) {
     for (const c of g.cylinders) out.push(c);
   }
+
   return uniqSorted(out);
 }
 
@@ -42,6 +45,7 @@ function comboAvailable(lens: LensCore, p: Params): boolean {
     p.bc ?? null,
     p.cyl ?? null,
     p.axis ?? null,
+    null
   );
 
   if (sphereOptions.length > 0 && !sphereOptions.includes(p.sph)) {
@@ -51,6 +55,7 @@ function comboAvailable(lens: LensCore, p: Params): boolean {
   // Axis (only if toric and axis provided)
   if (lens.type.toric && p.axis != null) {
     const axisOptions = resolveAxisOptions(lens, p.cyl ?? null, p.sph);
+
     if (axisOptions.length > 0 && !axisOptions.includes(p.axis)) {
       return false;
     }
@@ -70,6 +75,7 @@ function triggersXR(base: LensCore, p: Params): boolean {
   // If toric, check cylinder first
   if (base.type.toric) {
     const baseCyls = getCylOptions(base);
+
     if (p.cyl != null && baseCyls.length > 0 && !baseCyls.includes(p.cyl)) {
       return true; // cyl beyond base => XR trigger
     }
@@ -80,7 +86,8 @@ function triggersXR(base: LensCore, p: Params): boolean {
     base,
     p.bc ?? null,
     p.cyl ?? null,
-    null, // <— ignore axis on purpose
+    null, // ignore axis on purpose
+    null
   );
 
   if (
@@ -97,7 +104,9 @@ function getXRVariant(base: LensCore): LensCore | null {
   // Current convention: *_AST => *_XR_AST
   // (If later you add sphere XR, you can extend this mapping.)
   const xrId = base.coreId.replace(/_AST$/, "_XR_AST");
+
   const found = lenses.find((l) => l.coreId === xrId);
+
   return found ?? null;
 }
 
@@ -113,7 +122,10 @@ function getXRVariant(base: LensCore): LensCore | null {
  *
  * Otherwise returns null.
  */
-export function resolveXRVariant(base: LensCore, params: Params): LensCore | null {
+export function resolveXRVariant(
+  base: LensCore,
+  params: Params,
+): LensCore | null {
   // If base supports the exact combo, no XR.
   if (comboAvailable(base, params)) return null;
 
