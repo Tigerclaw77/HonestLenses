@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 import { resolveDefaultSku } from "@/lib/pricing/resolveDefaultSku";
 import { getPrice } from "@/lib/pricing/getPrice";
-import { SKU_BOX_DURATION_MONTHS } from "@/lib/pricing/skuDefaults";
+import { getSkuBoxDurationMonths } from "@/lib/pricing/skuDefaults";
 
 const MIN_DAYS_FOR_ANNUAL = 150;
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
@@ -63,7 +63,7 @@ export async function POST(
     daysRemaining >= MIN_DAYS_FOR_ANNUAL ? 12 : 6;
 
   /* 4️⃣ Box count */
-  const boxDurationMonths = SKU_BOX_DURATION_MONTHS[sku];
+  const boxDurationMonths = getSkuBoxDurationMonths(sku);
   if (!boxDurationMonths) {
     return NextResponse.json(
       { error: `No duration defined for SKU ${sku}` },
