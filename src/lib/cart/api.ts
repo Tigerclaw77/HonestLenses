@@ -72,7 +72,9 @@ export function isResolveOkFlat(value: unknown): value is ResolveOkFlat {
    API calls
 ========================= */
 
-export async function fetchCart(accessToken: string): Promise<CartOrder | null> {
+export async function fetchCart(
+  accessToken: string,
+): Promise<CartOrder | null> {
   const res = await fetch("/api/cart", {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: "no-store",
@@ -93,9 +95,8 @@ export async function fetchCart(accessToken: string): Promise<CartOrder | null> 
 export async function resolveCart(
   accessToken: string,
   body?: {
-    right_box_count: number; // allow 0
-    left_box_count: number; // allow 0
-    box_count: number; // allow 0
+    right_box_count?: number;
+    left_box_count?: number;
   },
 ): Promise<CartOrder> {
   const res = await fetch("/api/cart/resolve", {
