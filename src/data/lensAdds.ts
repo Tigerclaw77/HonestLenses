@@ -1,7 +1,7 @@
 // data/lensAdds.ts
 
 /**
- * Key = lens.lens_id
+ * Key = lens.coreId
  * Value = exact ADD labels as shown to the user
  *
  * Rule:
@@ -19,23 +19,23 @@ export const lensAddOptions: Record<string, string[]> = {
      (from your Vistakon add component: Low/Medium/High)
   ========================= */
 
-  V002: ["Low", "Medium", "High"], // Oasys Max 1-Day Multifocal
-  V007: ["Low", "Medium", "High"], // Moist Multifocal
-  V010: ["Low", "Medium", "High"], // Oasys Multifocal
-  V019: ["Low", "Medium", "High"], // Max 1-Day Multifocal for Astigmatism
+  OASYS_MAX_1D_MF: ["Low", "Medium", "High"], // Oasys Max 1-Day Multifocal
+  MOIST_MF: ["Low", "Medium", "High"], // Moist Multifocal
+  OASYS_2W_MF: ["Low", "Medium", "High"], // Oasys Multifocal
+  OASYS_MAX_1D_AST_MF: ["Low", "Medium", "High"], // Max 1-Day Multifocal for Astigmatism
 
   /* =========================
      BAUSCH + LOMB
      (from your Bausch add component: Low/High)
   ========================= */
 
-  BL02: ["Low", "High"], // Infuse One-Day Multifocal
-  BL05: ["Low", "High"], // Biotrue ONEday for Presbyopia
-  BL08: ["Low", "High"], // Ultra for Presbyopia
-  BL09: ["Low", "High"], // Ultra Multifocal for Astigmatism
-  BL11: ["Low", "High"], // PureVision Multi-Focal
-  BL14: ["Low", "High"], // PureVision2 For Presbyopia
-  BL17: ["Low", "High"], // Soflens Multi-Focal
+  INFUSE_1D_MF: ["Low", "High"], // Infuse One-Day Multifocal
+  BIOTRUE_1D_MF: ["Low", "High"], // Biotrue ONEday for Presbyopia
+  ULTRA_MF: ["Low", "High"], // Ultra for Presbyopia
+  ULTRA_AST_MF: ["Low", "High"], // Ultra Multifocal for Astigmatism
+  PUREVISION_MF: ["Low", "High"], // PureVision Multi-Focal
+  PUREVISION2_MF: ["Low", "High"], // PureVision2 For Presbyopia
+  SOFLENS_MF: ["Low", "High"], // Soflens Multi-Focal
 
   /* =========================
      COOPER VISION
@@ -43,16 +43,16 @@ export const lensAddOptions: Record<string, string[]> = {
   ========================= */
 
   // clariti 1 day multifocal
-  CV14: ["Low", "High"],
+  CLARITI_1D_MF: ["Low", "High"],
 
   // MyDay multifocal (your Cooper file uses Low/Mid/High)
-  CV18: ["Low", "Mid", "High"],
+  MYDAY_MF: ["Low", "Mid", "High"],
 
   // Proclear 1 day multifocal (your Cooper file returns "MF")
-  CV21: ["MF"],
+  PROCLEAR_1D_MF: ["MF"],
 
   // The core N/D numeric add set used for Biofinity MF + Proclear MF family:
-  CV06: [
+  BIOFINITY_MF: [
     "+1.00 D",
     "+1.00 N",
     "+1.50 D",
@@ -62,7 +62,7 @@ export const lensAddOptions: Record<string, string[]> = {
     "+2.50 D",
     "+2.50 N",
   ], // Biofinity multifocal
-  CV09: [
+  BIOFINITY_AST_MF: [
     "+1.00 D",
     "+1.00 N",
     "+1.50 D",
@@ -72,7 +72,7 @@ export const lensAddOptions: Record<string, string[]> = {
     "+2.50 D",
     "+2.50 N",
   ], // Biofinity toric multifocal
-  CV22: [
+  PROCLEAR_MF: [
     "+1.00 D",
     "+1.00 N",
     "+1.50 D",
@@ -86,7 +86,7 @@ export const lensAddOptions: Record<string, string[]> = {
   // Proclear multifocal XR:
   // Your Cooper file makes this conditional on power range.
   // Keeping it "not complex": include the superset; you can fine-tune later if you want.
-  CV23: [
+  PROCLEAR_MF_XR: [
     "+1.00 D",
     "+1.00 N",
     "+1.50 D",
@@ -104,7 +104,7 @@ export const lensAddOptions: Record<string, string[]> = {
   ],
 
   // Proclear multifocal toric:
-  CV24: [
+  PROCLEAR_AST_MF: [
     "+1.00 D",
     "+1.00 N",
     "+1.50 D",
@@ -130,9 +130,9 @@ export const lensAddOptions: Record<string, string[]> = {
      Add here only if/when you want them selectable.
   ========================= */
 
-  A007: ["Low", "Medium", "High"], // Dailies AquaComfort Plus Multifocal
-  A012: ["Low", "Medium", "High"], // Dailies Total 1 Multifocal
-  A003: ["Low", "Medium", "High"], // Air Optix MF
-  A021: ["LOW", "MED", "HIGH"], // Total30 Multifocal
-  A022: ["LOW", "MED", "HIGH"], // Total30 Multifocal for Astigmatism
+  DACP_MF: ["Low", "Medium", "High"], // Dailies AquaComfort Plus Multifocal
+  DT1_MF: ["Low", "Medium", "High"], // Dailies Total 1 Multifocal
+  AO_HG_MF: ["Low", "Medium", "High"], // Air Optix MF
+  TOTAL30_MF: ["LOW", "MED", "HIGH"], // Total30 Multifocal
+  TOTAL30_AST_MF: ["LOW", "MED", "HIGH"], // Total30 Multifocal for Astigmatism
 };

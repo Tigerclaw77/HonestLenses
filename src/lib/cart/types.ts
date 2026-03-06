@@ -19,3 +19,15 @@ export type CartOrder = {
 
   shipping_cents?: number | null;
 };
+
+export type PowerSegment = {
+  min: number; // inclusive
+  max: number; // inclusive
+  step: 0.25 | 0.5 | 1;
+};
+
+export type PowerSpec = {
+  segments: PowerSegment[];
+  allowPlano?: boolean; // default true
+  planoLabel?: "PL" | "Plano" | "+0.00";
+};

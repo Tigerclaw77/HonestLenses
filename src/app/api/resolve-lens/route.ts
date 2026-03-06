@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveBrand } from "@/lib/resolveBrand";
 import { supabaseServer } from "@/lib/supabase-server";
-import { rawLenses } from "@/data/lenses";
-import type { Lens } from "@/data/lenses";
+import { lenses } from "@/LensCore";
 import { resolveBrandAI } from "../../../lib/server/resolveBrandAI";
 
 export const runtime = "nodejs";
@@ -36,21 +35,10 @@ type AddParseResult = {
   isAmbiguous: boolean;
 };
 
-/**
- * Rules:
- * - Numeric: +1.25, 1.50, +2.00 N, +2.00D
- * - Categorical: LOW, MED, HIGH
- * - Multiple valid ADD tokens → ambiguous (placeholder pad)
- * - MED N is invalid
- * - Garbage OCR does not count as ADD
- */
 function deriveAddState(raw: string): AddParseResult {
   const normalized = raw.toUpperCase();
 
-  // Numeric ADD with optional D/N modifier
   const numericRegex = /\+?\d\.\d{2}(?:\s?[DN])?/g;
-
-  // Categorical ADD
   const categoricalRegex = /\b(LOW|MED|HIGH)\b/g;
 
   const numericMatches = normalized.match(numericRegex) ?? [];
@@ -58,25 +46,15 @@ function deriveAddState(raw: string): AddParseResult {
 
   const totalValidAdds = numericMatches.length + categoricalMatches.length;
 
-  // More than one ADD token → placeholder pad → ambiguous
   if (totalValidAdds > 1) {
-    return {
-      hasAdd: false,
-      isAmbiguous: true,
-    };
+    return { hasAdd: false, isAmbiguous: true };
   }
 
   if (totalValidAdds === 1) {
-    return {
-      hasAdd: true,
-      isAmbiguous: false,
-    };
+    return { hasAdd: true, isAmbiguous: false };
   }
 
-  return {
-    hasAdd: false,
-    isAmbiguous: false,
-  };
+  return { hasAdd: false, isAmbiguous: false };
 }
 
 /* =========================
@@ -91,10 +69,13 @@ export async function POST(req: Request) {
     const { rawString, hasCyl = false, bc, dia } = body;
 
     if (!rawString || typeof rawString !== "string") {
-      return NextResponse.json({ error: "Missing rawString" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing rawString" },
+        { status: 400 },
+      );
     }
 
-    const lensList = rawLenses as Lens[];
+    const lensList = lenses;
     const addState = deriveAddState(rawString);
     const derivedHasAdd = addState.hasAdd;
 
@@ -141,10 +122,8 @@ export async function POST(req: Request) {
       return NextResponse.json({
         finalLensId: hybrid.lensId,
         confidence: "high",
-
         proposedLensId: hybrid.lensId,
         proposalConfidence: "high",
-
         hybridLensId: hybrid.lensId,
         aiLensId: null,
         agreement: true,
@@ -160,8 +139,8 @@ export async function POST(req: Request) {
 
     if (hybrid.confidence === "low") {
       const candidates = lensList.map((l) => ({
-        lens_id: l.lens_id,
-        label: `${l.brand} ${l.name}`.replace(/\s+/g, " ").trim(),
+        coreId: l.coreId,
+        label: l.displayName.trim(),
       }));
 
       aiLensId =
@@ -171,7 +150,9 @@ export async function POST(req: Request) {
     }
 
     const agreement =
-      hybrid.lensId !== null && aiLensId !== null && hybrid.lensId === aiLensId;
+      hybrid.lensId !== null &&
+      aiLensId !== null &&
+      hybrid.lensId === aiLensId;
 
     /* =========================
        3️⃣ Final Decision
@@ -181,7 +162,8 @@ export async function POST(req: Request) {
     let confidence: "high" | "medium" | "low" = hybrid.confidence;
 
     if (
-      (hybrid.confidence === "high" || hybrid.confidence === "medium") &&
+      (hybrid.confidence === "high" ||
+        hybrid.confidence === "medium") &&
       hybrid.lensId
     ) {
       finalLensId = hybrid.lensId;
@@ -210,10 +192,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       finalLensId,
       confidence,
-
       proposedLensId: finalLensId,
       proposalConfidence: confidence,
-
       hybridLensId: hybrid.lensId,
       aiLensId,
       agreement,
@@ -221,7 +201,10 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     console.error("Resolve Lens Error:", err);
-    return NextResponse.json({ error: "Resolver failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Resolver failed" },
+      { status: 500 },
+    );
   }
 }
 
@@ -245,9 +228,9 @@ async function logAudit({
   try {
     await supabaseServer.from("resolver_audits").insert({
       raw_string: rawString,
-      hybrid_lens_id: hybridLensId,
-      ai_lens_id: aiLensId,
-      final_lens_id: finalLensId,
+      hybrid_coreId: hybridLensId,
+      ai_coreId: aiLensId,
+      final_coreId: finalLensId,
       agreement,
     });
   } catch (e) {

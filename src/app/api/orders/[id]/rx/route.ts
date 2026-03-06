@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 import { resolveDefaultSku } from "../../../../../lib/pricing/resolveDefaultSku";
-import { lenses } from "../../../../../data/lenses";
+import { lenses } from "@/LensCore";
 import { getColorOptions } from "../../../../../data/lensColors";
 
 /* =========================
@@ -12,7 +12,7 @@ import { getColorOptions } from "../../../../../data/lensColors";
 ========================= */
 
 type EyeRx = {
-  lens_id: string;
+  coreId: string;
   sphere: number;
   cylinder?: number;
   axis?: number;
@@ -40,10 +40,10 @@ type RxData = {
 function sanitizeEyeRx(eye: EyeRx | undefined): EyeRx | undefined {
   if (!eye) return undefined;
 
-  const lens = lenses.find((l) => l.lens_id === eye.lens_id);
+  const lens = lenses.find((l) => l.coreId === eye.coreId);
   if (!lens) return eye;
 
-  const allowedColors = getColorOptions(lens.name);
+  const allowedColors = getColorOptions(lens.displayName);
 
   const clean: EyeRx = { ...eye };
 
@@ -121,22 +121,22 @@ export async function POST(
     typeof rx.prescriber_phone === "string" ? rx.prescriber_phone.trim() : null;
 
   /* =========================
-     4️⃣ Extract lens_id (AUTHORITATIVE)
+     4️⃣ Extract coreId (AUTHORITATIVE)
   ========================= */
-  const lens_id = rx?.right?.lens_id ?? rx?.left?.lens_id ?? null;
+  const coreId = rx?.right?.coreId ?? rx?.left?.coreId ?? null;
 
-  if (!lens_id) {
-    return NextResponse.json({ error: "RX missing lens_id" }, { status: 400 });
+  if (!coreId) {
+    return NextResponse.json({ error: "RX missing coreId" }, { status: 400 });
   }
 
   /* =========================
      5️⃣ Resolve SKU (RX → SKU)
   ========================= */
-  const sku = resolveDefaultSku(lens_id);
+  const sku = resolveDefaultSku(coreId);
 
   if (!sku) {
     return NextResponse.json(
-      { error: `No default SKU configured for lens_id ${lens_id}` },
+      { error: `No default SKU configured for coreId ${coreId}` },
       { status: 400 },
     );
   }

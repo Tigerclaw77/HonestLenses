@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { Resend } from "resend";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 
@@ -35,7 +36,8 @@ function looksLikeUploadMode(order: unknown): boolean {
     const v = getString(order, k);
     if (!v) continue;
     const s = v.toLowerCase();
-    if (s.includes("upload") || s.includes("uploaded") || s.includes("ocr")) return true;
+    if (s.includes("upload") || s.includes("uploaded") || s.includes("ocr"))
+      return true;
   }
 
   return false;
@@ -112,15 +114,47 @@ export async function POST(req: Request) {
     verification_status: isUploaded ? "verified" : "pending",
   };
 
-  const { error: updateError } = await supabaseServer
+  const { data: updatedRows, error: updateError } = await supabaseServer
     .from("orders")
     .update(updatePayload)
     .eq("id", orderId)
     .eq("user_id", user.id)
-    .eq("status", "draft"); // prevent double-flips/races
+    .eq("status", "draft")
+    .select("id"); // 👈 forces row return
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+
+  if (!updatedRows || updatedRows.length === 0) {
+    return NextResponse.json({
+      ok: true,
+      orderId,
+      next: isUploaded ? "success" : "verification-details",
+      mode: isUploaded ? "uploaded" : "passive",
+    });
+  }
+
+  try {
+    const resend = new Resend(process.env.RESEND_API_KEY!);
+
+    await resend.emails.send({
+      from: "orders@honestlenses.com",
+      to: "pauldriggers@aol.com",
+      subject: `New Honest Lenses Order ${orderId}`,
+      html: `
+      <h2>New Order Authorized</h2>
+      <p><strong>Order ID:</strong> ${orderId}</p>
+      <p><strong>User ID:</strong> ${user.id}</p>
+      <p><strong>Mode:</strong> ${
+        isUploaded ? "Upload (Verified)" : "Passive (Verification Pending)"
+      }</p>
+      <p><strong>Stripe Intent:</strong> ${paymentIntentId}</p>
+    `,
+    });
+  } catch (err) {
+    console.error("Order alert email failed:", err);
+    // do NOT block flow
   }
 
   // 5️⃣ Tell the client where to go next

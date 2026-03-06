@@ -1,4 +1,4 @@
-import { SKU_BOX_DURATION_MONTHS } from "../pricing/skuDefaults";
+import { getSkuBoxDurationMonths } from "../pricing/skuDefaults";
 
 /* =========================
    Quantity Configuration
@@ -48,7 +48,7 @@ export function buildQuantityConfig(
   expires: string,
   sku: string,
 ): QuantityConfig | null {
-  const durationMonths = SKU_BOX_DURATION_MONTHS[sku];
+  const durationMonths = getSkuBoxDurationMonths(sku);
   if (!durationMonths) return null;
 
   const supplyMonths = getAllowedSupplyMonths(expires);

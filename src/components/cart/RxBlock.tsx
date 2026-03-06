@@ -5,7 +5,7 @@
 ========================= */
 
 export type EyeRx = {
-  lens_id: string;
+  coreId: string;
   sphere: number;
   cylinder?: number;
   axis?: number;

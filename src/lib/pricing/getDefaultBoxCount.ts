@@ -1,15 +1,20 @@
 // src/lib/pricing/getDefaultBoxCount.ts
-import { SKU_BOX_DURATION_MONTHS } from "./skuDefaults";
+
+import { getSkuBoxDurationMonths } from "./skuDefaults";
+
+type TargetMonths = 6 | 12;
 
 export function getDefaultBoxCount(
   sku: string,
-  targetMonths: 6 | 12
+  targetMonths: TargetMonths
 ): number {
-  const boxMonths = SKU_BOX_DURATION_MONTHS[sku];
+  const boxMonths = getSkuBoxDurationMonths(sku);
 
-  if (!boxMonths) {
-    throw new Error(`No duration defined for SKU: ${sku}`);
+  if (boxMonths === undefined) {
+    throw new Error(`PRICING_V1_UNKNOWN_SKU_DURATION: ${sku}`);
   }
 
+  // Example:
+  // 12 month target / 3 month box = 4 boxes
   return Math.ceil(targetMonths / boxMonths);
 }

@@ -19,7 +19,7 @@
     "public/globe.svg": true,
     "public/window.svg": true,
 
-    "package.json": true,
+    // "package.json": true,
     "package-lock.json": true,
     "next.config.ts": true,
     "tsconfig.json": true
