@@ -3,8 +3,9 @@
 import Header from "../../components/Header";
 import RxForm from "../../components/RxForm";
 import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
-export default function EnterPrescriptionPage() {
+function EnterPrescriptionContent() {
   const searchParams = useSearchParams();
 
   const rightLens = searchParams.get("right") ?? undefined;
@@ -20,5 +21,13 @@ export default function EnterPrescriptionPage() {
         initialLeftLens={leftLens}
       />
     </>
+  );
+}
+
+export default function EnterPrescriptionPage() {
+  return (
+    <Suspense fallback={null}>
+      <EnterPrescriptionContent />
+    </Suspense>
   );
 }
