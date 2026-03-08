@@ -84,6 +84,8 @@ type Props = {
   mode?: RxFormMode;
   initialDraft?: RxDraft;
   ocrExtract?: OcrExtract;
+  initialRightLens?: string;
+  initialLeftLens?: string;
 };
 
 /* =========================
@@ -139,6 +141,8 @@ export default function RxForm({
   mode = "manual",
   initialDraft,
   ocrExtract,
+  initialRightLens,
+  initialLeftLens,
 }: Props) {
   const router = useRouter();
 
@@ -398,13 +402,23 @@ export default function RxForm({
 
     try {
       const parsed: RxDraft = JSON.parse(raw);
+
+      /* Showroom selections override draft */
+      if (initialRightLens) {
+        parsed.right.coreId = initialRightLens;
+      }
+
+      if (initialLeftLens) {
+        parsed.left.coreId = initialLeftLens;
+      }
+
       applyDraft(parsed);
     } catch {
       // ignore malformed drafts
     } finally {
       setHydrated(true);
     }
-  }, [applyDraft]);
+  }, [applyDraft, initialRightLens, initialLeftLens]);
 
   useEffect(() => {
     if (mode === "ocr") {
@@ -848,6 +862,9 @@ export default function RxForm({
   /* =========================
      Render
   ========================= */
+  if (!hydrated) {
+    return null;
+  }
 
   return (
     <>
@@ -1684,18 +1701,20 @@ export default function RxForm({
 
             <div className="rx-footer-row">
               <div className="rx-expiration">
-                <label htmlFor="expires">Expiration date</label>
-                <ExpirationDatePicker
-                  value={expires}
-                  onChange={setExpires}
-                  hasError={fieldErrors.expires}
-                />
-                {fieldErrors.expires && (
-                  <div className="rx-hint" style={{ marginTop: 4 }}>
-                    A valid, unexpired prescription date is required to proceed.
-                  </div>
-                )}
-              </div>
+  <label htmlFor="expires">Expiration date</label>
+
+  <ExpirationDatePicker
+    value={expires}
+    onChange={setExpires}
+    hasError={fieldErrors.expires}
+  />
+
+  {fieldErrors.expires && (
+    <div className="rx-hint" style={{ marginTop: 4 }}>
+      A valid, unexpired prescription date is required to proceed.
+    </div>
+  )}
+</div>
 
               <button
                 className={

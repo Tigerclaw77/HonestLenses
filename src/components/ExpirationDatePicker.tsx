@@ -4,8 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addDays,
   addMonths,
-  endOfMonth,
-  endOfWeek,
   format,
   isBefore,
   isSameDay,
@@ -38,9 +36,12 @@ export default function ExpirationDatePicker({
   const [pos, setPos] = useState<CalendarPos | null>(null);
   const [month, setMonth] = useState<Date>(() => {
     if (value) {
-      const d = new Date(value + "T00:00:00");
-      return new Date(d.getFullYear(), d.getMonth(), 1);
+      const d = new Date(`${value}T00:00:00`);
+      if (!isNaN(d.getTime())) {
+        return new Date(d.getFullYear(), d.getMonth(), 1);
+      }
     }
+
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
@@ -59,19 +60,20 @@ export default function ExpirationDatePicker({
 
   // Build a 6-week grid (42 cells) starting Sunday (US style)
   const days = useMemo(() => {
-    const start = startOfWeek(startOfMonth(month), { weekStartsOn: 0 });
-    const end = endOfWeek(endOfMonth(month), { weekStartsOn: 0 });
+    const base =
+      !month || isNaN(month.getTime())
+        ? new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+        : month;
 
-    // Force 6 rows for stable layout
+    const start = startOfWeek(startOfMonth(base), { weekStartsOn: 0 });
+
     const total = 42;
-    const first = start;
     const list: Date[] = [];
+
     for (let i = 0; i < total; i++) {
-      list.push(addDays(first, i));
+      list.push(addDays(start, i));
     }
-    // If the natural end is beyond our 42, it's fine. If not, 42 still covers.
-    // (Keeps the box consistent month-to-month)
-    void end;
+
     return list;
   }, [month]);
 
@@ -137,10 +139,11 @@ export default function ExpirationDatePicker({
   }
 
   function selectDay(d: Date) {
-    // disable strictly before today
     if (isBefore(d, today)) return;
 
     const formatted = format(d, "yyyy-MM-dd");
+
+    setTypedValue(""); // ADD THIS
     onChange(formatted);
     setOpen(false);
   }
@@ -151,16 +154,30 @@ export default function ExpirationDatePicker({
   //   setMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
   // }, [selectedDate]);
 
-  const displayValue = useMemo(() => {
+  const weekdayLabels = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+  const [typedValue, setTypedValue] = useState(() => {
     if (!value) return "";
-    try {
-      return format(new Date(value + "T00:00:00"), "MM/dd/yyyy");
-    } catch {
-      return "";
+
+    const parsed = new Date(`${value}T00:00:00`);
+    if (isNaN(parsed.getTime())) return "";
+
+    return format(parsed, "MM/dd/yyyy");
+  });
+
+  useEffect(() => {
+    if (!value) {
+      setTypedValue("");
+      return;
     }
+
+    const parsed = new Date(`${value}T00:00:00`);
+    if (isNaN(parsed.getTime())) return;
+
+    setTypedValue(format(parsed, "MM/dd/yyyy"));
   }, [value]);
 
-  const weekdayLabels = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+  const displayValue = typedValue;
 
   return (
     <div ref={wrapperRef} style={{ position: "relative", width: "100%" }}>
@@ -169,18 +186,79 @@ export default function ExpirationDatePicker({
         style={{ position: "relative", display: "flex", alignItems: "center" }}
       >
         <input
-          readOnly
           value={displayValue}
           placeholder="MM/DD/YYYY"
           onClick={toggle}
+          onChange={(e) => {
+            const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
+
+            let m = "";
+            let d = "";
+            let y = "";
+
+            if (digits.length === 5) {
+              // M DD YY
+              m = digits[0].padStart(2, "0");
+              d = digits.slice(1, 3);
+              y = `20${digits.slice(3, 5)}`;
+            } else if (digits.length === 6) {
+              // MM DD YY
+              m = digits.slice(0, 2);
+              d = digits.slice(2, 4);
+              y = `20${digits.slice(4, 6)}`;
+            } else if (digits.length === 8) {
+              // MM DD YYYY
+              m = digits.slice(0, 2);
+              d = digits.slice(2, 4);
+              y = digits.slice(4, 8);
+            } else {
+              // progressive formatting
+              if (digits.length >= 1) m = digits.slice(0, 2);
+              if (digits.length >= 3) d = digits.slice(2, 4);
+              if (digits.length >= 5) y = digits.slice(4);
+            }
+
+            let formatted = m;
+
+            if (d) formatted += `/${d}`;
+            if (y) formatted += `/${y}`;
+
+            setTypedValue(formatted);
+
+            if (m.length === 2 && d.length === 2 && y.length === 4) {
+              const iso = `${y}-${m}-${d}`;
+              const parsed = new Date(`${iso}T00:00:00`);
+
+              if (!isNaN(parsed.getTime())) {
+                onChange(iso);
+                setMonth(new Date(parsed.getFullYear(), parsed.getMonth(), 1));
+              }
+            }
+          }}
+          onBlur={() => {
+            if (!typedValue) return;
+
+            const parts = typedValue.split("/");
+
+            if (parts.length !== 3) return;
+
+            const [m, d, y] = parts;
+
+            if (y.length !== 4) return;
+
+            const iso = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+            const parsed = new Date(`${iso}T00:00:00`);
+
+            if (isNaN(parsed.getTime())) return;
+
+            onChange(iso);
+          }}
           className={`rx-input ${hasError ? "rx-error" : ""}`}
           style={{
             paddingRight: 42,
-            cursor: "pointer",
             width: "100%",
           }}
         />
-
         {/* Calendar icon (no emoji) */}
         <button
           type="button"
@@ -321,7 +399,7 @@ export default function ExpirationDatePicker({
                   color: "rgba(255,255,255,0.96)",
                 }}
               >
-                {format(month, "MMMM yyyy")}
+                {!isNaN(month.getTime()) ? format(month, "MMMM yyyy") : ""}
               </div>
 
               <button
@@ -393,7 +471,7 @@ export default function ExpirationDatePicker({
                 paddingBottom: pos.mode === "sheet" ? 8 : 0,
               }}
             >
-              {days.map((d) => {
+              {days.map((d, i) => {
                 const inMonth = isSameMonth(d, month);
                 const disabled = isBefore(d, today);
                 const selected = selectedDate
@@ -421,7 +499,7 @@ export default function ExpirationDatePicker({
 
                 return (
                   <button
-                    key={d.toISOString()}
+                    key={`${d.getTime()}-${i}`}
                     type="button"
                     disabled={disabled}
                     onClick={() => selectDay(d)}

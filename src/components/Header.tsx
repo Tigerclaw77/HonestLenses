@@ -119,8 +119,8 @@ export default function Header({
 
             <nav className="header-nav">
               {showShop && (
-                <a href="/shop" onClick={handleShopClick}>
-                  Shop
+                <a href="/browse" onClick={handleShopClick}>
+                  Browse
                 </a>
               )}
               {showAbout && <Link href="/about">About</Link>}
@@ -191,7 +191,7 @@ export default function Header({
             </button>
 
             <nav className="drawer-nav">
-              <a href="/shop" onClick={handleShopClick}>
+              <a href="/browse" onClick={handleShopClick}>
                 Shop
               </a>
               <Link href="/about">About</Link>
