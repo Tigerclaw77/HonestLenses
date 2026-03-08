@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase-client";
 import Link from "next/link";
 import Header from "../../components/Header";
+import { Suspense } from "react";
 
 const LS_ORDER_ID = "rx_upload_order_id";
 
@@ -18,7 +19,7 @@ type CreateOrderResponse = {
   error?: string;
 };
 
-export default function UploadPrescriptionPage() {
+function UploadPrescriptionContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -84,8 +85,7 @@ export default function UploadPrescriptionPage() {
 
       // preserve path + params
       if (!session) {
-        const next =
-          window.location.pathname + window.location.search;
+        const next = window.location.pathname + window.location.search;
 
         router.replace(`/login?next=${encodeURIComponent(next)}`);
         return;
@@ -185,7 +185,9 @@ export default function UploadPrescriptionPage() {
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 10 }}
+                  >
                     <span style={{ fontSize: 18 }}>✔</span>
                     <span
                       style={{
@@ -276,5 +278,13 @@ export default function UploadPrescriptionPage() {
         </section>
       </main>
     </>
+  );
+}
+
+export default function UploadPrescriptionPage() {
+  return (
+    <Suspense fallback={null}>
+      <UploadPrescriptionContent />
+    </Suspense>
   );
 }
