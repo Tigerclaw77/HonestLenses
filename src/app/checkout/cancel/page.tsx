@@ -10,7 +10,7 @@ export default function CheckoutCancelPage() {
       <p style={{ marginTop: "1.25rem" }}>
         <strong>Need to add more lenses?</strong>
         <br />
-        <Link href="/shop">Continue shopping</Link>
+        <Link href="/browse">Continue shopping</Link>
       </p>
     </main>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase-client";
 import Link from "next/link";
 import Header from "../../components/Header";
@@ -20,6 +20,11 @@ type CreateOrderResponse = {
 
 export default function UploadPrescriptionPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const rightLens = searchParams.get("right");
+  const leftLens = searchParams.get("left");
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [file, setFile] = useState<File | null>(null);
@@ -77,56 +82,50 @@ export default function UploadPrescriptionPage() {
         data: { session },
       } = await supabase.auth.getSession();
 
-      // ✅ UPDATED LOGIN REDIRECT (preserves exact current path)
+      // preserve path + params
       if (!session) {
         const next =
           window.location.pathname + window.location.search;
 
-        router.replace(
-          `/login?next=${encodeURIComponent(next)}`
-        );
+        router.replace(`/login?next=${encodeURIComponent(next)}`);
         return;
       }
 
-      const orderId = await getOrCreateDraftOrder(
-        session.access_token
-      );
+      const orderId = await getOrCreateDraftOrder(session.access_token);
 
       localStorage.setItem(LS_ORDER_ID, orderId);
 
       const formData = new FormData();
       formData.append("file", file);
 
-      const uploadRes = await fetch(
-        `/api/orders/${orderId}/rx-upload`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: formData,
-        }
-      );
+      const uploadRes = await fetch(`/api/orders/${orderId}/rx-upload`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: formData,
+      });
 
       if (!uploadRes.ok) {
-        const body: { error?: string } =
-          await uploadRes.json();
+        const body: { error?: string } = await uploadRes.json();
         throw new Error(body.error ?? "Upload failed");
       }
 
-      await fetch(
-        `/api/orders/${orderId}/rx-ocr`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        }
-      );
+      await fetch(`/api/orders/${orderId}/rx-ocr`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
 
-      router.push(
-        `/upload-prescription/confirm?orderId=${orderId}`
-      );
+      const params = new URLSearchParams({
+        orderId,
+      });
+
+      if (rightLens) params.set("right", rightLens);
+      if (leftLens) params.set("left", leftLens);
+
+      router.push(`/upload-prescription/confirm?${params.toString()}`);
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);
@@ -151,17 +150,12 @@ export default function UploadPrescriptionPage() {
           <div className="rx-choice-grid">
             {/* Upload Card */}
             <div
-              className={`rx-choice-card rx-dropzone ${
-                file ? "has-file" : ""
-              }`}
-              onClick={() =>
-                fileInputRef.current?.click()
-              }
+              className={`rx-choice-card rx-dropzone ${file ? "has-file" : ""}`}
+              onClick={() => fileInputRef.current?.click()}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
-                const dropped =
-                  e.dataTransfer.files?.[0] ?? null;
+                const dropped = e.dataTransfer.files?.[0] ?? null;
                 handleFileSelected(dropped);
               }}
             >
@@ -172,8 +166,7 @@ export default function UploadPrescriptionPage() {
               </p>
 
               <p className="rx-upload-hint">
-                Drag & drop here, or tap to upload / take a
-                photo
+                Drag & drop here, or tap to upload / take a photo
               </p>
 
               {file && (
@@ -183,32 +176,17 @@ export default function UploadPrescriptionPage() {
                     marginBottom: 24,
                     padding: 14,
                     borderRadius: 14,
-                    background:
-                      "rgba(34,197,94,0.08)",
-                    border:
-                      "1px solid rgba(34,197,94,0.25)",
+                    background: "rgba(34,197,94,0.08)",
+                    border: "1px solid rgba(34,197,94,0.25)",
                     display: "flex",
                     alignItems: "center",
-                    justifyContent:
-                      "space-between",
+                    justifyContent: "space-between",
                     gap: 16,
                   }}
-                  onClick={(e) =>
-                    e.stopPropagation()
-                  }
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <span
-                      style={{ fontSize: 18 }}
-                    >
-                      ✔
-                    </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 18 }}>✔</span>
                     <span
                       style={{
                         fontWeight: 600,
@@ -227,8 +205,7 @@ export default function UploadPrescriptionPage() {
                       clearFile();
                     }}
                     style={{
-                      background:
-                        "transparent",
+                      background: "transparent",
                       border: "none",
                       color: "#f87171",
                       fontSize: 16,
@@ -246,9 +223,7 @@ export default function UploadPrescriptionPage() {
                 accept="image/*,application/pdf"
                 capture="environment"
                 onChange={(e) =>
-                  handleFileSelected(
-                    e.target.files?.[0] ?? null
-                  )
+                  handleFileSelected(e.target.files?.[0] ?? null)
                 }
                 hidden
               />
@@ -261,16 +236,10 @@ export default function UploadPrescriptionPage() {
                 }}
                 disabled={!file || loading}
               >
-                {loading
-                  ? "Uploading…"
-                  : "Continue to cart"}
+                {loading ? "Uploading…" : "Continue to cart"}
               </button>
 
-              {error && (
-                <p className="order-error">
-                  {error}
-                </p>
-              )}
+              {error && <p className="order-error">{error}</p>}
             </div>
 
             {/* Manual Entry Card */}
@@ -282,12 +251,12 @@ export default function UploadPrescriptionPage() {
               </p>
 
               <p className="rx-manual-hint">
-                You can enter your prescription
-                details manually in a short form.
+                You can enter your prescription details manually in a short
+                form.
               </p>
 
               <Link
-                href="/enter-prescription"
+                href={`/enter-prescription?right=${rightLens ?? ""}&left=${leftLens ?? ""}`}
                 className="primary-btn"
                 style={{
                   display: "flex",
@@ -302,8 +271,7 @@ export default function UploadPrescriptionPage() {
           </div>
 
           <p className="order-fineprint">
-            Prescriptions are reviewed for
-            accuracy before lenses ship.
+            Prescriptions are reviewed for accuracy before lenses ship.
           </p>
         </section>
       </main>

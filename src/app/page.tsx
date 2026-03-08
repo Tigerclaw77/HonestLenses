@@ -175,7 +175,7 @@ export default function HomePage() {
         onClose={() => setIsShopIntentOpen(false)}
         onJustLooking={() => {
           setIsShopIntentOpen(false);
-          router.push("/shop");
+          router.push("/browse");
         }}
         onHasPrescription={() => {
           setIsShopIntentOpen(false);

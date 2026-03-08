@@ -412,7 +412,7 @@ main {
     0 1px 0 rgba(255, 255, 255, 0.6) inset,
     0 6px 18px rgba(0, 0, 0, 0.18);
   cursor: pointer;
-  transition: all 0.25s ease;
+  transition: transform 220ms ease, box-shadow 120ms ease;
   text-decoration: none;
 }
 
@@ -425,11 +425,11 @@ main {
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.75) inset,
     0 10px 26px rgba(0, 0, 0, 0.22);
-  transform: translateY(-1px);
+  transform: scale(1.02);
 }
 
 .primary-btn:active {
-  transform: translateY(0);
+  transform: scale(0.98);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.6) inset,
     0 4px 12px rgba(0, 0, 0, 0.18);
@@ -1612,15 +1612,6 @@ h1.content-title {
   min-height: 40px;
 }
 
-/* .rx-grid select:not(.lens-select),
-.rx-grid input:not([type="date"]) {
-  max-width: 120px;
-} */
-
-/* .rx-grid .lens-select {
-  min-width: 180px;
-} */
-
 .rx-grid input:disabled {
   opacity: 0.65;
   cursor: not-allowed;
@@ -2529,4 +2520,111 @@ body:has(.hl-overlay) {
   opacity: 0.7;
   z-index: -1;
   filter: blur(6px);
+}
+
+.coming-soon-ribbon {
+  position: absolute;
+  right: 10px;
+
+  background: rgba(180,160,255,0.35);
+  backdrop-filter: blur(6px);
+
+  border: 1px solid rgba(200,180,255,0.35);
+  color: #fff;
+
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 9px;
+
+  border-radius: 8px;
+  letter-spacing: .02em;
+}
+
+.coming-soon-top {
+  top: 10px;
+}
+
+.coming-soon-bottom {
+  top: 34px;
+  background: rgba(200,180,255,0.55);
+}
+
+.cv-ribbon {
+  position: absolute;
+  top: 12px;
+  right: 0;
+  max-width: 140px;
+
+  padding: 5px 14px 5px 16px;
+
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+
+  color: white;
+
+  background: linear-gradient(
+    120deg,
+    rgba(190,170,255,.55),
+    rgba(150,130,255,.45)
+  );
+
+  backdrop-filter: blur(6px);
+
+  border: 1px solid rgba(220,210,255,.35);
+  border-right: none;
+
+  clip-path: polygon(
+    0% 0,
+    100% 0,
+    100% 100%,
+    8% 100%
+  );
+
+  box-shadow: 0 4px 12px rgba(0,0,0,.35);
+}
+
+.cv-ribbon-2 {
+  top: 34px;
+  right: -4px;
+
+  background: linear-gradient(
+    120deg,
+    rgba(210,190,255,.75),
+    rgba(170,150,255,.6)
+  );
+}
+
+@media (max-width: 768px) {
+  .browse-helper {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  aside {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .cv-ribbon {
+    transform: scale(.9);
+  }
+}
+
+@media (max-width: 768px) {
+  .lens-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  select {
+    font-size: 12px;
+    padding: 14px 16px;
+    min-height: 44px;
+    line-height: 1.5;
+  }
 }

@@ -3,25 +3,31 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase-client";
+import type { FormEvent } from "react";
+
+type Props = {
+  brand?: string;
+  onClose?: () => void;
+  inline?: boolean;
+};
 
 export default function ComingSoonOverlay({
   brand = "CooperVision",
   onClose,
-}: {
-  brand?: string;
-  onClose?: () => void;
-}) {
+  inline = false,
+}: Props) {
   const router = useRouter();
+
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
     const cleaned = email.trim().toLowerCase();
 
-    // Allow skip if user doesn't want email
+    // Allow skipping email entirely
     if (!cleaned) {
       setSubmitted(true);
       return;
@@ -52,12 +58,16 @@ export default function ComingSoonOverlay({
   }
 
   function handleClose() {
-    if (onClose) onClose();
-    else router.back();
+    if (onClose) {
+      onClose();
+      return;
+    }
+
+    router.back();
   }
 
   return (
-    <div className="hl-overlay">
+    <div className={inline ? "hl-overlay-inline" : "hl-overlay"}>
       <div className="hl-overlay-card">
         <h2>
           {brand} lenses
@@ -68,9 +78,10 @@ export default function ComingSoonOverlay({
         {!submitted ? (
           <>
             <p>
-              We’re finalizing our direct supply account.
+              We’re working to add direct supply access for these lenses.
               <br />
-              These lenses will be available shortly.
+              You can leave your email if you’d like to be notified if they
+              become available.
             </p>
 
             <form onSubmit={handleSubmit}>
@@ -110,6 +121,17 @@ export default function ComingSoonOverlay({
           align-items: center;
           justify-content: center;
           z-index: 9999;
+        }
+
+        .hl-overlay-inline {
+          position: absolute;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.75);
+          backdrop-filter: blur(6px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 5;
         }
 
         .hl-overlay-card {

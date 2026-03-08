@@ -218,7 +218,7 @@ export const lenses: LensCore[] = [
 
   {
     coreId: "OASYS_2W",
-    displayName: "ACUVUE OASYS (2-Week)",
+    displayName: "ACUVUE OASYS",
     manufacturer: "VISTAKON",
     replacement: "2W",
     type: {
