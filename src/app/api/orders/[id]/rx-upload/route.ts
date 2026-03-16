@@ -26,6 +26,7 @@ export async function POST(
   /* ======================================================
      2️⃣ Ensure order exists and belongs to user
   ====================================================== */
+
   const { data: order, error: orderError } = await supabaseServer
     .from("orders")
     .select("id")
@@ -43,6 +44,7 @@ export async function POST(
   /* ======================================================
      3️⃣ Parse multipart form data
   ====================================================== */
+
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
 
@@ -51,41 +53,61 @@ export async function POST(
   }
 
   /* ======================================================
-     4️⃣ Upload prescription to Supabase Storage
+     4️⃣ Convert File → Buffer
+     (more reliable for Supabase Storage in Node runtime)
   ====================================================== */
+
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
   const ext = file.name.split(".").pop() || "pdf";
+
   const storagePath = `rx/${orderId}/${crypto.randomUUID()}.${ext}`;
+
+  /* ======================================================
+     5️⃣ Upload prescription to Supabase Storage
+  ====================================================== */
 
   const { error: uploadError } = await supabaseServer.storage
     .from("prescriptions")
-    .upload(storagePath, file, {
+    .upload(storagePath, buffer, {
       contentType: file.type,
       upsert: false,
     });
 
   if (uploadError) {
-    return NextResponse.json({ error: uploadError.message }, { status: 500 });
+    return NextResponse.json(
+      { error: uploadError.message },
+      { status: 500 },
+    );
   }
 
   /* ======================================================
-     5️⃣ Persist RX metadata on order
-     (NO pricing, NO SKU, NO cart logic here)
+     6️⃣ Persist RX metadata on order
+     (uploads count as verified in your workflow)
   ====================================================== */
+
   const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
       rx_upload_path: storagePath,
+      rx_upload_filename: file.name,
+      rx_upload_size: file.size,
       rx_source: "upload",
       verification_status: "verified",
     })
     .eq("id", orderId);
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    return NextResponse.json(
+      { error: updateError.message },
+      { status: 500 },
+    );
   }
 
   /* ======================================================
-     6️⃣ Success
+     7️⃣ Success
   ====================================================== */
+
   return NextResponse.json({ ok: true });
 }

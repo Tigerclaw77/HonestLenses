@@ -7,6 +7,7 @@ import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+const resend = new Resend(process.env.RESEND_API_KEY!);
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -27,31 +28,37 @@ function getBoolean(o: UnknownRecord, key: string): boolean | null {
 function looksLikeUploadMode(order: unknown): boolean {
   if (!isRecord(order)) return false;
 
-  // Primary (you referenced this earlier)
   if (getBoolean(order, "rx_upload_order_d") === true) return true;
 
-  // Optional signals (only if present in your schema)
   const keys = ["rx_mode", "verification_mode", "rx_source", "mode"];
   for (const k of keys) {
     const v = getString(order, k);
     if (!v) continue;
+
     const s = v.toLowerCase();
-    if (s.includes("upload") || s.includes("uploaded") || s.includes("ocr"))
+    if (s.includes("upload") || s.includes("uploaded") || s.includes("ocr")) {
       return true;
+    }
   }
 
   return false;
 }
 
 export async function POST(req: Request) {
-  // 1️⃣ Auth
+  /* =========================
+     1️⃣ Auth
+  ========================= */
+
   const user = await getUserFromRequest(req);
+
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // 2️⃣ Load latest draft order for this user
-  // Use select("*") so we can detect mode without risking “column does not exist” errors.
+  /* =========================
+     2️⃣ Load Draft Order
+  ========================= */
+
   const { data: orderRaw, error } = await supabaseServer
     .from("orders")
     .select("*")
@@ -73,7 +80,7 @@ export async function POST(req: Request) {
   const paymentIntentId = getString(orderRaw, "payment_intent_id");
 
   if (!orderId) {
-    return NextResponse.json({ error: "Order is missing id" }, { status: 500 });
+    return NextResponse.json({ error: "Order missing id" }, { status: 500 });
   }
 
   if (!paymentIntentId) {
@@ -83,10 +90,12 @@ export async function POST(req: Request) {
     );
   }
 
-  // 3️⃣ Retrieve PaymentIntent and verify it is authorized (manual capture)
+  /* =========================
+     3️⃣ Verify Stripe Authorization
+  ========================= */
+
   const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
 
-  // Extra safety: ensure PI metadata matches this order
   const metaOrderId =
     typeof intent.metadata?.order_id === "string"
       ? intent.metadata.order_id
@@ -106,11 +115,34 @@ export async function POST(req: Request) {
     );
   }
 
-  // 4️⃣ Decide flow based on mode
+  /* =========================
+     4️⃣ Determine Mode
+  ========================= */
+
   const isUploaded = looksLikeUploadMode(orderRaw);
 
+  // Auto-capture if verification not required
+  if (isUploaded && intent.status === "requires_capture") {
+    try {
+      const capturedIntent = await stripe.paymentIntents.capture(intent.id);
+
+      console.log("Stripe capture success", {
+        orderId,
+        paymentIntentId: capturedIntent.id,
+        status: capturedIntent.status,
+        amount: capturedIntent.amount_received,
+      });
+    } catch (err) {
+      console.error("Stripe capture failed", {
+        orderId,
+        paymentIntentId,
+        error: err,
+      });
+    }
+  }
+
   const updatePayload: Record<string, unknown> = {
-    status: "authorized",
+    status: isUploaded ? "captured" : "authorized",
     verification_status: isUploaded ? "verified" : "pending",
   };
 
@@ -120,7 +152,7 @@ export async function POST(req: Request) {
     .eq("id", orderId)
     .eq("user_id", user.id)
     .eq("status", "draft")
-    .select("id"); // 👈 forces row return
+    .select("id");
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
@@ -135,29 +167,123 @@ export async function POST(req: Request) {
     });
   }
 
+  /* =========================
+     5️⃣ Send Admin Email
+  ========================= */
+
   try {
-    const resend = new Resend(process.env.RESEND_API_KEY!);
+    const total =
+      typeof orderRaw.total_amount_cents === "number"
+        ? `$${(orderRaw.total_amount_cents / 100).toFixed(2)}`
+        : "Unknown";
+
+    const prescriber =
+      typeof orderRaw.prescriber_name === "string"
+        ? orderRaw.prescriber_name
+        : "Not provided";
+
+    const prescriberPhone =
+      typeof orderRaw.prescriber_phone === "string"
+        ? orderRaw.prescriber_phone
+        : "Not provided";
+
+    const rx = isRecord(orderRaw.rx) ? orderRaw.rx : null;
+
+    const left = isRecord(rx?.left) ? rx.left : null;
+    const right = isRecord(rx?.right) ? rx.right : null;
 
     await resend.emails.send({
-      from: "orders@honestlenses.com",
+      from: "Honest Lenses <orders@honestlenses.com>",
       to: "pauldriggers@aol.com",
       subject: `New Honest Lenses Order ${orderId}`,
       html: `
-      <h2>New Order Authorized</h2>
-      <p><strong>Order ID:</strong> ${orderId}</p>
-      <p><strong>User ID:</strong> ${user.id}</p>
-      <p><strong>Mode:</strong> ${
-        isUploaded ? "Upload (Verified)" : "Passive (Verification Pending)"
-      }</p>
-      <p><strong>Stripe Intent:</strong> ${paymentIntentId}</p>
-    `,
+        <h2>New Order Authorized</h2>
+
+        <p><strong>Order ID:</strong> ${orderId}</p>
+        <p><strong>User ID:</strong> ${user.id}</p>
+        <p><strong>Total:</strong> ${total}</p>
+
+        <hr/>
+
+        <h3>Prescription</h3>
+
+        <p><strong>Left:</strong>
+        ${left?.sphere ?? "?"} /
+        BC ${left?.base_curve ?? "?"}
+        (${left?.coreId ?? ""})
+        </p>
+
+        <p><strong>Right:</strong>
+        ${right?.sphere ?? "?"} /
+        BC ${right?.base_curve ?? "?"}
+        (${right?.coreId ?? ""})
+        </p>
+
+        <p><strong>Expires:</strong> ${rx?.expires ?? "Unknown"}</p>
+
+        <hr/>
+
+        <h3>Doctor</h3>
+
+        <p><strong>Name:</strong> ${prescriber}</p>
+        <p><strong>Phone:</strong> ${prescriberPhone}</p>
+
+        <hr/>
+
+        <p><strong>Mode:</strong>
+        ${isUploaded ? "Upload (Verified)" : "Passive (Verification Pending)"}
+        </p>
+
+        <p><strong>Stripe Intent:</strong> ${paymentIntentId}</p>
+      `,
     });
   } catch (err) {
     console.error("Order alert email failed:", err);
-    // do NOT block flow
   }
 
-  // 5️⃣ Tell the client where to go next
+  /* =========================
+     6️⃣ Send Customer Confirmation
+  ========================= */
+
+  if (user.email) {
+    try {
+      await resend.emails.send({
+        from: "Honest Lenses <support@honestlenses.com>",
+        to: user.email,
+        subject: "Your Honest Lenses order was received",
+        replyTo: "support@honestlenses.com",
+        html: `
+          <h2>Thank you for your order</h2>
+
+          <p>Your order has been received and is now being processed.</p>
+
+          <p><strong>Order ID:</strong> ${orderId}</p>
+
+          <p>
+          ${
+            isUploaded
+              ? "Your prescription upload has been received and will be reviewed."
+              : "We will contact your doctor to verify your prescription."
+          }
+          </p>
+
+          <p>
+          If you have questions, simply reply to this email or contact
+          support@honestlenses.com.
+          </p>
+
+          <p>— Honest Lenses</p>
+        `,
+      });
+    } catch (err) {
+      console.error("Customer confirmation email failed:", err);
+    }
+  }
+
+  /* =========================
+     7️⃣ Return Next Step
+  ========================= */
+
   if (isUploaded) {
     return NextResponse.json({
       ok: true,

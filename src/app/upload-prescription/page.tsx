@@ -9,6 +9,8 @@ import { Suspense } from "react";
 
 const LS_ORDER_ID = "rx_upload_order_id";
 
+const MAX_FILE_MB = 10;
+
 type CartResponse = {
   hasCart?: boolean;
   order?: { id: string };
@@ -32,8 +34,36 @@ function UploadPrescriptionContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function validateFile(selected: File): string | null {
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/heic",
+      "application/pdf",
+    ];
+
+    if (!allowedTypes.includes(selected.type)) {
+      return "Please upload a JPG, PNG, HEIC, or PDF file.";
+    }
+
+    if (selected.size > MAX_FILE_MB * 1024 * 1024) {
+      return `File must be under ${MAX_FILE_MB}MB.`;
+    }
+
+    return null;
+  }
+
   function handleFileSelected(selected: File | null) {
     if (!selected) return;
+
+    const validation = validateFile(selected);
+
+    if (validation) {
+      setError(validation);
+      return;
+    }
+
+    setError(null);
     setFile(selected);
   }
 
@@ -83,10 +113,8 @@ function UploadPrescriptionContent() {
         data: { session },
       } = await supabase.auth.getSession();
 
-      // preserve path + params
       if (!session) {
         const next = window.location.pathname + window.location.search;
-
         router.replace(`/login?next=${encodeURIComponent(next)}`);
         return;
       }
@@ -111,6 +139,7 @@ function UploadPrescriptionContent() {
         throw new Error(body.error ?? "Upload failed");
       }
 
+      // trigger OCR / verification pipeline
       await fetch(`/api/orders/${orderId}/rx-ocr`, {
         method: "POST",
         headers: {
@@ -148,7 +177,9 @@ function UploadPrescriptionContent() {
           </h2>
 
           <div className="rx-choice-grid">
+
             {/* Upload Card */}
+
             <div
               className={`rx-choice-card rx-dropzone ${file ? "has-file" : ""}`}
               onClick={() => fileInputRef.current?.click()}
@@ -185,17 +216,9 @@ function UploadPrescriptionContent() {
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: 10 }}
-                  >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span style={{ fontSize: 18 }}>✔</span>
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        fontSize: 15,
-                        letterSpacing: 0.2,
-                      }}
-                    >
+                    <span style={{ fontWeight: 600, fontSize: 15 }}>
                       Prescription uploaded
                     </span>
                   </div>
@@ -244,7 +267,8 @@ function UploadPrescriptionContent() {
               {error && <p className="order-error">{error}</p>}
             </div>
 
-            {/* Manual Entry Card */}
+            {/* Manual Entry */}
+
             <div className="rx-choice-card rx-choice-manual">
               <h3>Enter it manually</h3>
 
@@ -253,8 +277,7 @@ function UploadPrescriptionContent() {
               </p>
 
               <p className="rx-manual-hint">
-                You can enter your prescription details manually in a short
-                form.
+                You can enter your prescription details manually in a short form.
               </p>
 
               <Link
@@ -270,6 +293,7 @@ function UploadPrescriptionContent() {
                 Enter prescription manually
               </Link>
             </div>
+
           </div>
 
           <p className="order-fineprint">

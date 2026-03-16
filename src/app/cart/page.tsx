@@ -22,7 +22,7 @@ const DEV_MODE =
 const DEV_ACCESS_TOKEN = "dev-local-token";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
-const FLAT_SHIPPING_CENTS_UNDER_ANNUAL = 1000;
+// const FLAT_SHIPPING_CENTS_UNDER_ANNUAL = 1400;
 
 function safeRemainingDays(expires: string) {
   if (!expires) return 0;
@@ -191,8 +191,7 @@ export default function CartPage() {
   const leftEye = rx?.left ?? null;
 
   const hasCVLens =
-    rightEye?.coreId?.startsWith("CV") ||
-    leftEye?.coreId?.startsWith("CV");
+    rightEye?.coreId?.startsWith("CV") || leftEye?.coreId?.startsWith("CV");
 
   /* ---------- Guards ---------- */
 
@@ -249,15 +248,17 @@ export default function CartPage() {
   const leftMonths = leftEye ? effectiveLeft * durationMonths : 0;
 
   const isAnnualPerEye =
-    (!rightEye || rightMonths >= 12) &&
-    (!leftEye || leftMonths >= 12);
+    (!rightEye || rightMonths >= 12) && (!leftEye || leftMonths >= 12);
 
-  const previewShipping =
-    totalBoxes > 0
-      ? isAnnualPerEye
-        ? 0
-        : FLAT_SHIPPING_CENTS_UNDER_ANNUAL
-      : 0;
+  let previewShipping = 0;
+
+  if (totalBoxes > 0 && !isAnnualPerEye) {
+    if (totalBoxes === 1 && durationMonths <= 6) {
+      previewShipping = 1400; // worst margin orders
+    } else {
+      previewShipping = 1000; // normal small orders
+    }
+  }
 
   const showAnnualFreeShippingHint =
     !isAnnualPerEye && totalBoxes > 0 && remainingDays >= 150;
@@ -265,14 +266,10 @@ export default function CartPage() {
   /* ---------- Price math ---------- */
 
   const serverShipping =
-    typeof cart.shipping_cents === "number"
-      ? cart.shipping_cents
-      : 0;
+    typeof cart.shipping_cents === "number" ? cart.shipping_cents : 0;
 
   const serverTotal =
-    typeof cart.total_amount_cents === "number"
-      ? cart.total_amount_cents
-      : 0;
+    typeof cart.total_amount_cents === "number" ? cart.total_amount_cents : 0;
 
   const serverSubtotal = Math.max(0, serverTotal - serverShipping);
 
@@ -282,9 +279,7 @@ export default function CartPage() {
       : totalBoxes;
 
   const unitPricePerBoxCents =
-    serverBoxCount > 0
-      ? Math.round(serverSubtotal / serverBoxCount)
-      : null;
+    serverBoxCount > 0 ? Math.round(serverSubtotal / serverBoxCount) : null;
 
   const previewSubtotal =
     totalBoxes > 0 && unitPricePerBoxCents !== null
@@ -304,7 +299,6 @@ export default function CartPage() {
         <h1 className="upper content-title">Your Cart</h1>
 
         <div className="order-card hl-cart">
-
           {error && <p className="order-error">{error}</p>}
 
           {rightEye && (
@@ -356,14 +350,19 @@ export default function CartPage() {
             <div className="hl-summary-row">
               <span>Shipping</span>
               <span>
-                {previewShipping === 0
-                  ? "Free"
-                  : fmtPrice(previewShipping)}
+                {previewShipping === 0 ? "Free" : fmtPrice(previewShipping)}
               </span>
             </div>
 
             {showAnnualFreeShippingHint && (
-              <div style={{ fontSize: 12, color: "#c4b5fd", marginTop: 6, textAlign: "right" }}>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#c4b5fd",
+                  marginTop: 6,
+                  textAlign: "right",
+                }}
+              >
                 Free shipping when you update to an annual supply
               </div>
             )}
@@ -384,7 +383,6 @@ export default function CartPage() {
           >
             Continue to checkout
           </button>
-
         </div>
       </section>
     </main>
