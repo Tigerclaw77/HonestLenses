@@ -3,6 +3,20 @@
 import { useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
+type SuccessMode = "uploaded" | "passive" | "unknown";
+
+function parseMode(raw: string | null): SuccessMode {
+  if (raw === "uploaded") return "uploaded";
+  if (raw === "passive") return "passive";
+  return "unknown";
+}
+
+function parseDeadline(raw: string | null): Date | null {
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 export default function CheckoutSuccessPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -11,11 +25,64 @@ export default function CheckoutSuccessPage() {
     localStorage.removeItem("rx_upload_order_id");
   }, []);
 
-  const mode = searchParams.get("mode") ?? "passive"; // default safe
-  const deadline = searchParams.get("deadline");
+  const mode = parseMode(searchParams.get("mode"));
+  const deadlineDate = parseDeadline(searchParams.get("deadline"));
+  const orderId = searchParams.get("orderId");
 
-  const isPassive = mode === "passive";
   const isUploaded = mode === "uploaded";
+  const isPassive = mode === "passive";
+  const isUnknown = mode === "unknown";
+
+  let title = "Order Received";
+  let subText =
+    "Your order has been received and is now being processed.";
+  let noteText =
+    "You can check your account for the latest order status.";
+  let bullets: string[] = [
+    "We’ve received your order",
+    "We’ll email you if any follow-up is needed",
+    "You can review your order status in your account",
+  ];
+
+  if (isUploaded) {
+    title = "Order Received";
+    subText =
+      "Your prescription has been received and verified. Your order is now being processed.";
+    noteText =
+      "Your payment has been processed and your order is moving into fulfillment.";
+    bullets = [
+      "Your prescription has been confirmed",
+      "Your order is being prepared for shipment",
+      "You’ll receive tracking once it ships",
+    ];
+  }
+
+  if (isPassive) {
+    title = "Order Received - Verification In Progress";
+    subText =
+      "Your payment has been authorized. Prescription confirmation is required before shipment.";
+    noteText =
+      "Your payment has been authorized and will be captured once prescription verification is complete.";
+    bullets = [
+      "Your order is pending prescription verification",
+      "Most verifications are completed within 8 business hours",
+      "We’ll email you once verification is complete",
+      "If clarification is needed, we’ll contact you",
+    ];
+  }
+
+  if (isUnknown) {
+    title = "Order Received";
+    subText =
+      "We received your order, but the confirmation details were incomplete.";
+    noteText =
+      "Please check your email or account for the latest order status.";
+    bullets = [
+      "Your order was received",
+      "We’ll contact you if anything further is needed",
+      "You can review your order status in your account",
+    ];
+  }
 
   return (
     <main>
@@ -74,81 +141,100 @@ export default function CheckoutSuccessPage() {
             line-height: 1.5;
           }
 
-          .hl-secondary-btn {
+          .hl-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
             margin-top: 28px;
+          }
+
+          .hl-secondary-btn,
+          .hl-primary-btn {
             padding: 16px 24px;
-            background: rgba(148, 163, 184, 0.12);
-            color: #e2e8f0;
             border-radius: 12px;
-            border: 1px solid rgba(148, 163, 184, 0.25);
             font-weight: 700;
             letter-spacing: 0.4px;
             cursor: pointer;
             transition: background 140ms ease, border-color 140ms ease;
           }
 
+          .hl-secondary-btn {
+            background: rgba(148, 163, 184, 0.12);
+            color: #e2e8f0;
+            border: 1px solid rgba(148, 163, 184, 0.25);
+          }
+
           .hl-secondary-btn:hover {
             background: rgba(148, 163, 184, 0.2);
             border-color: rgba(148, 163, 184, 0.4);
           }
+
+          .hl-primary-btn {
+            background: linear-gradient(90deg, #2563eb 0%, #1d4ed8 100%);
+            color: #ffffff;
+            border: 1px solid rgba(37, 99, 235, 0.4);
+          }
+
+          .hl-primary-btn:hover {
+            filter: brightness(1.05);
+          }
+
+          .hl-order-id {
+            margin-top: 8px;
+            font-size: 14px;
+            color: #94a3b8;
+          }
         `}</style>
 
         <div className="hl-success-card">
-          <h1 className="hl-success-title">
-            {isUploaded
-              ? "Order Received"
-              : "Order Received - Verification In Progress"}
-          </h1>
+          <h1 className="hl-success-title">{title}</h1>
 
-          <p className="hl-success-sub">
-            {isUploaded
-              ? "Your prescription has been received and verified. Your order is now being processed."
-              : "Your payment has been authorized. Prescription confirmation is required before shipment."}
-          </p>
+          <p className="hl-success-sub">{subText}</p>
+
+          {orderId && <p className="hl-order-id">Order ID: {orderId}</p>}
 
           <div className="hl-blue-panel">
             <ul>
-              {isPassive && (
-                <>
-                  <li>Your order is pending prescription verification</li>
-                  <li>
-                    Most verifications are completed within 8 business hours
-                  </li>
-                  <li>We’ll email you once verification is complete</li>
-                  <li>If clarification is needed, we’ll contact you</li>
-                </>
-              )}
-
-              {isUploaded && (
-                <>
-                  <li>Your prescription has been confirmed</li>
-                  <li>Your order is being prepared for shipment</li>
-                  {/* <li>We’ll notify you if anything is needed</li> */}
-                  <li>You’ll receive tracking once it ships</li>
-                </>
-              )}
+              {bullets.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
             </ul>
           </div>
 
-          <p className="hl-note">
-            Your payment has been authorized and will be captured shortly.
-          </p>
+          <p className="hl-note">{noteText}</p>
 
-          {deadline && isPassive && (
+          {deadlineDate && isPassive && (
             <p className="hl-note" style={{ marginTop: 6 }}>
               Estimated verification window ends:{" "}
               <strong style={{ color: "#e2e8f0" }}>
-                {new Date(deadline).toLocaleString()}
+                {deadlineDate.toLocaleString()}
               </strong>
             </p>
           )}
 
-          <button
-            className="hl-secondary-btn"
-            onClick={() => router.push("/upload-prescription")}
-          >
-            Place Another Order
-          </button>
+          {isUnknown && (
+            <p className="hl-note" style={{ marginTop: 6 }}>
+              Confirmation mode was missing or invalid in the URL. This does not
+              necessarily mean your order failed, but the page could not
+              determine the exact checkout state.
+            </p>
+          )}
+
+          <div className="hl-actions">
+            <button
+              className="hl-primary-btn"
+              onClick={() => router.push("/dashboard")}
+            >
+              Go to My Account
+            </button>
+
+            <button
+              className="hl-secondary-btn"
+              onClick={() => router.push("/upload-prescription")}
+            >
+              Place Another Order
+            </button>
+          </div>
         </div>
       </section>
     </main>

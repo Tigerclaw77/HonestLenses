@@ -328,7 +328,8 @@ export async function POST(req: Request) {
   const pricing = getPrice({ sku: resolvedSku, box_count: totalBoxes });
   const subtotalCents = pricing.total_amount_cents;
 
-  const totalMonthsAcrossOrder = totalBoxes * durationMonths;
+  const maxBoxesPerEye = Math.max(finalRight ?? 0, finalLeft ?? 0);
+  const totalMonthsAcrossOrder = maxBoxesPerEye * durationMonths;
 
   /* ---------- Shipping ---------- */
 

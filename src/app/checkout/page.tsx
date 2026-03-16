@@ -13,7 +13,7 @@ import { supabase } from "@/lib/supabase-client";
 import AuthGate from "@/components/AuthGate";
 
 const stripePromise = loadStripe(
-  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!,
 );
 
 /* =========================
@@ -34,89 +34,137 @@ type CheckoutPayResponse = {
 type AuthorizedResponse = {
   ok?: boolean;
   error?: string;
+  orderId?: string;
+  next?: "success" | "verification-details";
+  mode?: "uploaded" | "passive";
+  deadline?: string;
 };
+
+/* =========================
+   Helpers
+========================= */
+
+function buildRouteFromAuthorizedResponse(
+  body: AuthorizedResponse,
+): string | null {
+  if (!body.next) return null;
+
+  const params = new URLSearchParams();
+
+  if (body.orderId) params.set("orderId", body.orderId);
+  if (body.mode) params.set("mode", body.mode);
+  if (body.deadline) params.set("deadline", body.deadline);
+
+  const query = params.toString();
+  const suffix = query ? `?${query}` : "";
+
+  if (body.next === "success") {
+    return `/checkout/success${suffix}`;
+  }
+
+  if (body.next === "verification-details") {
+    return `/checkout/verification-details${suffix}`;
+  }
+
+  return null;
+}
 
 /* =========================
    Inner Checkout Form
 ========================= */
 
-function CheckoutForm({
-  onAuthorized,
-}: {
-  onAuthorized: () => void;
-}) {
+function CheckoutForm() {
   const stripe = useStripe();
   const elements = useElements();
+  const router = useRouter();
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!stripe || !elements) return;
-    if (submitting) return;
+
+    if (!stripe || !elements || submitting) return;
 
     setSubmitting(true);
     setError(null);
 
-    const result = await stripe.confirmPayment({
-      elements,
-      confirmParams: {
-        return_url: `${window.location.origin}/checkout/success`,
-      },
-      redirect: "if_required",
-    });
+    try {
+      const result = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          return_url: `${window.location.origin}/checkout/success`,
+        },
+        redirect: "if_required",
+      });
 
-    if (result.error) {
-      setError(result.error.message || "Payment failed");
-      setSubmitting(false);
-      return;
-    }
+      if (result.error) {
+        setError(result.error.message || "Payment could not be completed.");
+        setSubmitting(false);
+        return;
+      }
 
-    if (!result.paymentIntent) {
-      setError("Missing payment intent");
-      setSubmitting(false);
-      return;
-    }
+      if (!result.paymentIntent) {
+        setError("Missing payment intent.");
+        setSubmitting(false);
+        return;
+      }
 
-    if (result.paymentIntent.status !== "requires_capture") {
+      const status = result.paymentIntent.status;
+
+      // Accept both:
+      // - requires_capture (manual auth complete)
+      // - succeeded (capture may have already completed in some flows)
+      if (status !== "requires_capture" && status !== "succeeded") {
+        setError(`Checkout did not complete correctly (status: ${status}).`);
+        setSubmitting(false);
+        return;
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        setError("Session expired. Please log in again.");
+        setSubmitting(false);
+        return;
+      }
+
+      const markRes = await fetch("/api/checkout/authorized", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        cache: "no-store",
+      });
+
+      const markBody: AuthorizedResponse = await markRes
+        .json()
+        .catch(() => ({}));
+
+      if (!markRes.ok) {
+        router.replace("/checkout/success");
+        return;
+      }
+
+      const nextRoute = buildRouteFromAuthorizedResponse(markBody);
+
+      if (!nextRoute) {
+        setError("Checkout completed, but the next step was unclear.");
+        setSubmitting(false);
+        return;
+      }
+
+      router.replace(nextRoute);
+    } catch (err: unknown) {
       setError(
-        `Authorization not complete (status: ${result.paymentIntent.status})`
+        err instanceof Error
+          ? err.message
+          : "An unexpected checkout error occurred.",
       );
       setSubmitting(false);
-      return;
     }
-
-    // Get fresh session for API call
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session) {
-      setError("Session expired. Please log in again.");
-      setSubmitting(false);
-      return;
-    }
-
-    const markRes = await fetch("/api/checkout/authorized", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      cache: "no-store",
-    });
-
-    const markBody: AuthorizedResponse = await markRes
-      .json()
-      .catch(() => ({}));
-
-    if (!markRes.ok) {
-      setError(markBody?.error || "Failed to finalize authorization");
-      setSubmitting(false);
-      return;
-    }
-
-    onAuthorized();
   }
 
   return (
@@ -154,7 +202,7 @@ function CheckoutForm({
           cursor: !stripe || submitting ? "not-allowed" : "pointer",
         }}
       >
-        {submitting ? "Processing…" : "Authorize Secure Payment"}
+        {submitting ? "Processing…" : "Complete Secure Checkout"}
       </button>
     </form>
   );
@@ -165,10 +213,11 @@ function CheckoutForm({
 ========================= */
 
 export default function CheckoutPage() {
-  const router = useRouter();
-
   const [order, setOrder] = useState<Order | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [mode, setMode] = useState<"uploaded" | "passive" | "unknown">(
+    "unknown",
+  );
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -185,12 +234,28 @@ export default function CheckoutPage() {
           data: { session },
         } = await supabase.auth.getSession();
 
-        // AuthGate protects this page — no redirect needed
-        if (!session) return;
+        if (!session) {
+          if (!cancelled) {
+            setError("Please log in to continue checkout.");
+            setLoading(false);
+          }
+          return;
+        }
 
         const { data: orderData, error: orderError } = await supabase
           .from("orders")
-          .select("id, status, total_amount_cents")
+          .select(
+            `
+              id,
+              status,
+              total_amount_cents,
+              rx_upload_order_d,
+              rx_mode,
+              verification_mode,
+              rx_source,
+              mode
+            `,
+          )
           .eq("user_id", session.user.id)
           .eq("status", "draft")
           .order("created_at", { ascending: false })
@@ -198,18 +263,42 @@ export default function CheckoutPage() {
           .maybeSingle();
 
         if (orderError || !orderData) {
-          throw new Error("No draft order");
+          throw new Error("No draft order.");
         }
 
         if (
           typeof orderData.total_amount_cents !== "number" ||
           orderData.total_amount_cents <= 0
         ) {
-          throw new Error("Order missing valid total");
+          throw new Error("Order missing valid total.");
         }
 
-        if (cancelled) return;
-        setOrder(orderData as Order);
+        const rawModeCandidates = [
+          orderData.rx_mode,
+          orderData.verification_mode,
+          orderData.rx_source,
+          orderData.mode,
+        ]
+          .filter((v): v is string => typeof v === "string")
+          .map((v) => v.toLowerCase());
+
+        const looksUploaded =
+          orderData.rx_upload_order_d === true ||
+          rawModeCandidates.some(
+            (v) =>
+              v.includes("upload") ||
+              v.includes("uploaded") ||
+              v.includes("ocr"),
+          );
+
+        if (!cancelled) {
+          setMode(looksUploaded ? "uploaded" : "passive");
+          setOrder({
+            id: orderData.id,
+            status: orderData.status as Order["status"],
+            total_amount_cents: orderData.total_amount_cents,
+          });
+        }
 
         const res = await fetch("/api/checkout/pay", {
           method: "POST",
@@ -219,20 +308,19 @@ export default function CheckoutPage() {
           cache: "no-store",
         });
 
-        const body: CheckoutPayResponse = await res
-          .json()
-          .catch(() => ({}));
+        const body: CheckoutPayResponse = await res.json().catch(() => ({}));
 
-        if (!res.ok || !body?.clientSecret) {
-          throw new Error(body?.error || "Payment initialization failed");
+        if (!res.ok || !body.clientSecret) {
+          throw new Error(body.error || "Payment initialization failed.");
         }
 
-        if (cancelled) return;
-        setClientSecret(body.clientSecret);
-        setLoading(false);
+        if (!cancelled) {
+          setClientSecret(body.clientSecret);
+          setLoading(false);
+        }
       } catch (err: unknown) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Checkout failed");
+        setError(err instanceof Error ? err.message : "Checkout failed.");
         setLoading(false);
       }
     }
@@ -288,29 +376,24 @@ export default function CheckoutPage() {
                 marginBottom: 18,
               }}
             >
-              <h2 style={{ marginBottom: 10, fontSize: 22 }}>
-                Order Summary
-              </h2>
+              <h2 style={{ marginBottom: 10, fontSize: 22 }}>Order Summary</h2>
+
               <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
                 <div style={{ fontWeight: 800, fontSize: 16 }}>Total:</div>
                 <div style={{ fontWeight: 900, fontSize: 20 }}>
                   ${(order.total_amount_cents / 100).toFixed(2)}
                 </div>
               </div>
+
               <p style={{ marginTop: 8, fontSize: 13, color: "#475569" }}>
-                Authorization only. Your card will not be charged until
-                prescription verification is complete.
+                {mode === "uploaded"
+                  ? "Your prescription has already been received. If payment is approved, your order may be charged immediately and your order will move into processing."
+                  : "You will only be charged after your prescription is verified."}
               </p>
             </div>
 
             <Elements stripe={stripePromise} options={{ clientSecret }}>
-              <CheckoutForm
-                onAuthorized={() =>
-                  router.replace(
-                    `/checkout/verification-details?orderId=${order.id}`
-                  )
-                }
-              />
+              <CheckoutForm />
             </Elements>
           </div>
         </section>
