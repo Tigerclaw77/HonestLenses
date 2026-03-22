@@ -27,24 +27,24 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.8,
   }));
 
-  const parameterPages: MetadataRoute.Sitemap = lenses.map((lens) => ({
-    url: `${base}/contacts/${slugifyLens(lens.displayName)}/parameters`,
-    lastModified: new Date(),
-    changeFrequency: "monthly",
-    priority: 0.6,
-  }));
+  // const parameterPages: MetadataRoute.Sitemap = lenses.map((lens) => ({
+  //   url: `${base}/contacts/${slugifyLens(lens.displayName)}/parameters`,
+  //   lastModified: new Date(),
+  //   changeFrequency: "monthly",
+  //   priority: 0.6,
+  // }));
 
-  const alternativePages: MetadataRoute.Sitemap = lenses.map((lens) => ({
-    url: `${base}/contacts/${slugifyLens(lens.displayName)}/alternatives`,
-    lastModified: new Date(),
-    changeFrequency: "monthly",
-    priority: 0.6,
-  }));
+  // const alternativePages: MetadataRoute.Sitemap = lenses.map((lens) => ({
+  //   url: `${base}/contacts/${slugifyLens(lens.displayName)}/alternatives`,
+  //   lastModified: new Date(),
+  //   changeFrequency: "monthly",
+  //   priority: 0.6,
+  // }));
 
   return [
     ...staticPages,
     ...lensPages,
-    ...parameterPages,
-    ...alternativePages,
+    // ...parameterPages,
+    // ...alternativePages,
   ];
 }
