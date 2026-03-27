@@ -14,10 +14,10 @@ const REUSABLE_STATUSES = [
 ];
 
 /* =========================
-   Resolve Cart (AUTH SAFE)
+   Resolve Cart (PASS ORDER ID)
 ========================= */
 
-async function resolveCartForUser(req: Request) {
+async function resolveCartForUser(req: Request, orderId: string) {
   const origin =
     process.env.NEXT_PUBLIC_SITE_URL ||
     new URL(req.url).origin;
@@ -25,9 +25,11 @@ async function resolveCartForUser(req: Request) {
   const res = await fetch(`${origin}/api/cart/resolve`, {
     method: "POST",
     headers: {
+      "Content-Type": "application/json",
       Authorization: req.headers.get("Authorization") ?? "",
       Cookie: req.headers.get("cookie") ?? "",
     },
+    body: JSON.stringify({ order_id: orderId }),
     cache: "no-store",
   });
 
@@ -57,37 +59,50 @@ export async function POST(req: Request) {
     console.log("CHECKOUT USER ID:", user.id);
 
     /* =========================
-       2️⃣ Resolve Cart
+       2️⃣ Parse body (GET order_id)
     ========================= */
 
-    await resolveCartForUser(req);
+    const body = await req.json().catch(() => null);
+    const orderId = body?.orderId ?? body?.order_id ?? null;
+
+    if (!orderId || typeof orderId !== "string") {
+      return NextResponse.json(
+        { error: "Missing orderId" },
+        { status: 400 }
+      );
+    }
+
+    console.log("CHECKOUT ORDER ID:", orderId);
 
     /* =========================
-       3️⃣ Load Draft Order (FIXED)
+       3️⃣ Resolve THIS order
     ========================= */
 
-    const { data: orders, error } = await supabaseServer
+    await resolveCartForUser(req, orderId);
+
+    /* =========================
+       4️⃣ Load EXACT order (NO GUESSING)
+    ========================= */
+
+    const { data: order, error } = await supabaseServer
       .from("orders")
       .select(`
         id,
         user_id,
         status,
         total_amount_cents,
-        payment_intent_id,
-        created_at
+        payment_intent_id
       `)
+      .eq("id", orderId)
       .eq("user_id", user.id)
       .eq("status", "draft")
-      .order("created_at", { ascending: false })
-      .limit(1);
+      .maybeSingle();
+
+    console.log("ORDER FOUND:", order, error);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-
-    const order = orders?.[0] ?? null;
-
-    console.log("ORDER FOUND:", order);
 
     if (!order) {
       return NextResponse.json(
@@ -107,7 +122,7 @@ export async function POST(req: Request) {
     }
 
     /* =========================
-       4️⃣ Handle Existing PaymentIntent
+       5️⃣ Existing PaymentIntent
     ========================= */
 
     if (order.payment_intent_id) {
@@ -142,23 +157,9 @@ export async function POST(req: Request) {
               }
             );
 
-            if (!updated.client_secret) {
-              return NextResponse.json(
-                { error: "Stripe intent missing client secret." },
-                { status: 400 }
-              );
-            }
-
             return NextResponse.json({
               clientSecret: updated.client_secret,
             });
-          }
-
-          if (!existing.client_secret) {
-            return NextResponse.json(
-              { error: "Stripe intent missing client secret." },
-              { status: 400 }
-            );
           }
 
           return NextResponse.json({
@@ -177,7 +178,7 @@ export async function POST(req: Request) {
     }
 
     /* =========================
-       5️⃣ Create PaymentIntent
+       6️⃣ Create PaymentIntent
     ========================= */
 
     const intent = await stripe.paymentIntents.create({
@@ -199,7 +200,7 @@ export async function POST(req: Request) {
     }
 
     /* =========================
-       6️⃣ Save PaymentIntent
+       7️⃣ Save PaymentIntent
     ========================= */
 
     const { error: updateError } = await supabaseServer
