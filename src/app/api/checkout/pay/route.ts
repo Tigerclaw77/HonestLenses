@@ -13,23 +13,34 @@ const REUSABLE_STATUSES = [
   "requires_capture",
 ];
 
-async function resolveCartForUser(req: Request) {
-  try {
-    const origin =
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      new URL(req.url).origin;
+/* =========================
+   Resolve Cart (AUTH SAFE)
+========================= */
 
-    await fetch(`${origin}/api/cart/resolve`, {
-      method: "POST",
-      headers: {
-        Authorization: req.headers.get("Authorization") ?? "",
-      },
-      cache: "no-store",
-    });
-  } catch {
-    // Do not fail checkout if resolve attempt errors
+async function resolveCartForUser(req: Request) {
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    new URL(req.url).origin;
+
+  const res = await fetch(`${origin}/api/cart/resolve`, {
+    method: "POST",
+    headers: {
+      Authorization: req.headers.get("Authorization") ?? "",
+      Cookie: req.headers.get("cookie") ?? "", // 🔥 critical fix
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error("RESOLVE FAILED:", text);
+    throw new Error("Cart resolve failed");
   }
 }
+
+/* =========================
+   POST /api/checkout/pay
+========================= */
 
 export async function POST(req: Request) {
   try {
@@ -103,12 +114,12 @@ export async function POST(req: Request) {
           throw new Error("Stripe intent not found");
         }
 
-        // If intent not reusable → cancel
+        // ❌ Not reusable → cancel + reset
         if (!REUSABLE_STATUSES.includes(existing.status)) {
           try {
             await stripe.paymentIntents.cancel(order.payment_intent_id);
-          } catch {
-            // ignore cancel failure
+          } catch (err) {
+            console.warn("Cancel failed:", err);
           }
 
           await supabaseServer
@@ -151,8 +162,9 @@ export async function POST(req: Request) {
             clientSecret: existing.client_secret,
           });
         }
-      } catch {
-        // Stripe intent invalid → reset
+      } catch (err) {
+        console.warn("Existing intent invalid → resetting:", err);
+
         await supabaseServer
           .from("orders")
           .update({ payment_intent_id: null })
@@ -191,6 +203,7 @@ export async function POST(req: Request) {
       .from("orders")
       .update({
         payment_intent_id: intent.id,
+        status: "authorized", // 🔥 important for lifecycle
       })
       .eq("id", order.id)
       .eq("user_id", user.id)
@@ -207,7 +220,9 @@ export async function POST(req: Request) {
       clientSecret: intent.client_secret,
     });
 
-  } catch {
+  } catch (err) {
+    console.error("CHECKOUT ERROR:", err);
+
     return NextResponse.json(
       { error: "Checkout initialization failed." },
       { status: 500 }
