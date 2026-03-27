@@ -55,9 +55,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ hasCart: false, order: null });
   }
 
-  /* =========================
-     Load ALL draft orders (not maybeSingle)
-  ========================= */
+  const TWO_HOURS_MS = 1000 * 60 * 60 * 2;
 
   const { data: orders, error } = await supabaseServer
     .from("orders")
@@ -71,31 +69,60 @@ export async function GET(req: Request) {
       left_box_count,
       total_amount_cents,
       price_reason,
-      created_at
+      created_at,
+      payment_intent_id
     `)
     .eq("user_id", user.id)
     .eq("status", "draft")
+    .is("payment_intent_id", null)
     .order("created_at", { ascending: false });
 
   console.log("RAW ORDERS:", orders, error);
 
-  if (error || !orders || orders.length === 0) {
+  if (error) {
+    console.error("CART QUERY ERROR:", error);
     return NextResponse.json({ hasCart: false, order: null });
+  }
+
+  if (!orders || orders.length === 0) {
+    console.log("NO DRAFT ORDERS FOUND FOR USER:", user.id);
+    return NextResponse.json({ hasCart: false, order: null });
+  }
+
+  /* =========================
+     Filter to RECENT drafts
+  ========================= */
+
+  const now = Date.now();
+
+  const recentOrders = orders.filter((o) => {
+    if (!o?.created_at) return false;
+
+    const age = now - new Date(o.created_at).getTime();
+    return age <= TWO_HOURS_MS;
+  });
+
+  console.log("RECENT ORDERS:", recentOrders.map((o) => o.id));
+
+  if (recentOrders.length === 0) {
+    console.log("ONLY STALE DRAFTS FOUND — forcing new order");
+
+    return NextResponse.json({
+      hasCart: false,
+      order: null,
+    });
   }
 
   /* =========================
      Pick FIRST VALID order
   ========================= */
 
-  let validOrder = null;
+  let validOrder: (typeof recentOrders)[number] | null = null;
 
-  for (const o of orders) {
+  for (const o of recentOrders) {
     if (!o) continue;
 
-    // must have RX
     if (!o.rx || !isRxData(o.rx)) continue;
-
-    // must have at least one eye
     if (!o.rx.right && !o.rx.left) continue;
 
     validOrder = o;
