@@ -303,8 +303,12 @@ export default function CheckoutPage() {
         const res = await fetch("/api/checkout/pay", {
           method: "POST",
           headers: {
+            "Content-Type": "application/json",
             Authorization: `Bearer ${session.access_token}`,
           },
+          body: JSON.stringify({
+            orderId: orderData.id, // 🔥 THIS IS THE KEY FIX
+          }),
           cache: "no-store",
         });
 
