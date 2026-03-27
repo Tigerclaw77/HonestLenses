@@ -59,19 +59,22 @@ export async function GET(req: Request) {
 
   const { data: orders, error } = await supabaseServer
     .from("orders")
-    .select(`
-      id,
-      status,
-      rx,
-      sku,
-      box_count,
-      right_box_count,
-      left_box_count,
-      total_amount_cents,
-      price_reason,
-      created_at,
-      payment_intent_id
-    `)
+    .select(
+      `
+  id,
+  status,
+  rx,
+  sku,
+  box_count,
+  right_box_count,
+  left_box_count,
+  total_amount_cents,
+  price_reason,
+  created_at,
+  updated_at,
+  payment_intent_id
+`,
+    )
     .eq("user_id", user.id)
     .eq("status", "draft")
     .is("payment_intent_id", null)
@@ -98,11 +101,15 @@ export async function GET(req: Request) {
   const recentOrders = orders.filter((o) => {
     if (!o?.created_at) return false;
 
-    const age = now - new Date(o.created_at).getTime();
+    const timestamp = o.updated_at ?? o.created_at;
+    const age = now - new Date(timestamp).getTime();
     return age <= TWO_HOURS_MS;
   });
 
-  console.log("RECENT ORDERS:", recentOrders.map((o) => o.id));
+  console.log(
+    "RECENT ORDERS:",
+    recentOrders.map((o) => o.id),
+  );
 
   if (recentOrders.length === 0) {
     console.log("ONLY STALE DRAFTS FOUND — forcing new order");
@@ -139,9 +146,7 @@ export async function GET(req: Request) {
   }
 
   const coreId =
-    validOrder.rx.right?.coreId ??
-    validOrder.rx.left?.coreId ??
-    null;
+    validOrder.rx.right?.coreId ?? validOrder.rx.left?.coreId ?? null;
 
   console.log("USING ORDER:", validOrder.id);
 
