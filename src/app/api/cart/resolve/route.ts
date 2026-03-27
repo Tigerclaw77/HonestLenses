@@ -171,17 +171,65 @@ export async function POST(req: Request) {
     query = query.order("created_at", { ascending: false }).limit(1);
   }
 
-  const { data: order, error } = await query.maybeSingle();
+  const { data: fetchedOrder, error } = await query.maybeSingle();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // IMPORTANT: make this mutable
+  let order = fetchedOrder;
+
   if (!order?.id) {
-    return NextResponse.json(
-      { error: "Draft order not found." },
-      { status: 400 },
-    );
+    console.log("No draft found — attempting to recover RX + create draft");
+
+    // 🔹 try to recover latest RX from ANY order
+    const { data: lastRxOrder } = await supabaseServer
+      .from("orders")
+      .select("rx")
+      .eq("user_id", user.id)
+      .not("rx", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!lastRxOrder?.rx) {
+      return NextResponse.json(
+        { error: "No prescription found. Please re-enter your RX." },
+        { status: 400 },
+      );
+    }
+
+    // 🔹 create draft WITH RX
+    const { data: newOrder, error: createError } = await supabaseServer
+      .from("orders")
+      .insert({
+        user_id: user.id,
+        status: "draft",
+        rx: lastRxOrder.rx,
+      })
+      .select(
+        `
+      id,
+      user_id,
+      status,
+      rx,
+      sku,
+      right_box_count,
+      left_box_count,
+      brand_confidence
+    `,
+      )
+      .single();
+
+    if (createError || !newOrder) {
+      return NextResponse.json(
+        { error: "Failed to create draft order." },
+        { status: 500 },
+      );
+    }
+
+    order = newOrder;
   }
 
   /* ---------- RX validation ---------- */
