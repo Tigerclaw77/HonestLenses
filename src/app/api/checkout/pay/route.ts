@@ -26,7 +26,7 @@ async function resolveCartForUser(req: Request) {
     method: "POST",
     headers: {
       Authorization: req.headers.get("Authorization") ?? "",
-      Cookie: req.headers.get("cookie") ?? "", // 🔥 critical fix
+      Cookie: req.headers.get("cookie") ?? "",
     },
     cache: "no-store",
   });
@@ -54,34 +54,40 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    console.log("CHECKOUT USER ID:", user.id);
+
     /* =========================
-       2️⃣ Force Cart Resolution
+       2️⃣ Resolve Cart
     ========================= */
 
     await resolveCartForUser(req);
 
     /* =========================
-       3️⃣ Load Draft Order
+       3️⃣ Load Draft Order (FIXED)
     ========================= */
 
-    const { data: order, error } = await supabaseServer
+    const { data: orders, error } = await supabaseServer
       .from("orders")
       .select(`
         id,
         user_id,
         status,
         total_amount_cents,
-        payment_intent_id
+        payment_intent_id,
+        created_at
       `)
       .eq("user_id", user.id)
       .eq("status", "draft")
       .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    const order = orders?.[0] ?? null;
+
+    console.log("ORDER FOUND:", order);
 
     if (!order) {
       return NextResponse.json(
@@ -114,7 +120,6 @@ export async function POST(req: Request) {
           throw new Error("Stripe intent not found");
         }
 
-        // ❌ Not reusable → cancel + reset
         if (!REUSABLE_STATUSES.includes(existing.status)) {
           try {
             await stripe.paymentIntents.cancel(order.payment_intent_id);
@@ -129,8 +134,6 @@ export async function POST(req: Request) {
             .eq("user_id", user.id);
 
         } else {
-          /* ---------- Sync Amount ---------- */
-
           if (existing.amount !== order.total_amount_cents) {
             const updated = await stripe.paymentIntents.update(
               order.payment_intent_id,
@@ -174,7 +177,7 @@ export async function POST(req: Request) {
     }
 
     /* =========================
-       5️⃣ Create Fresh PaymentIntent
+       5️⃣ Create PaymentIntent
     ========================= */
 
     const intent = await stripe.paymentIntents.create({
@@ -196,14 +199,14 @@ export async function POST(req: Request) {
     }
 
     /* =========================
-       6️⃣ Persist PaymentIntent
+       6️⃣ Save PaymentIntent
     ========================= */
 
     const { error: updateError } = await supabaseServer
       .from("orders")
       .update({
         payment_intent_id: intent.id,
-        status: "authorized", // 🔥 important for lifecycle
+        status: "authorized",
       })
       .eq("id", order.id)
       .eq("user_id", user.id)
