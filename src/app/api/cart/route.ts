@@ -53,29 +53,38 @@ export async function GET(req: Request) {
 
   if (!user) return NextResponse.json({ hasCart: false });
 
-  const { data: order, error } = await supabaseServer
+  const { data: orders, error } = await supabaseServer
     .from("orders")
-    .select(`
-      id,
-      status,
-      rx,
-      sku,
-      box_count,
-      right_box_count,
-      left_box_count,
-      total_amount_cents,
-      price_reason,
-      created_at
-    `)
+    .select(
+      `
+    id,
+    status,
+    rx,
+    sku,
+    box_count,
+    right_box_count,
+    left_box_count,
+    total_amount_cents,
+    price_reason,
+    created_at
+  `,
+    )
     .eq("user_id", user.id)
     .eq("status", "draft")
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
 
-  console.log("ORDER RESULT", order, error);
+  const order = orders?.[0] ?? null;
 
-  if (error || !order) {
+  console.log("ORDER RESULT", orders, error);
+
+  if (error) {
+    console.error("CART ERROR:", error);
+    return NextResponse.json({ hasCart: false });
+  }
+
+  if (!order) {
+    console.log("NO DRAFT FOUND FOR USER:", user.id);
     return NextResponse.json({ hasCart: false });
   }
 
