@@ -14,20 +14,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const TWO_HOURS_MS = 1000 * 60 * 60 * 2;
+
     /* =========================
-       2️⃣ Reuse ONLY a clean draft
+       2️⃣ Find RECENT reusable draft
        (no Stripe intent attached)
     ========================= */
-    const { data: existingDraft, error: existingError } =
+
+    const { data: drafts, error: existingError } =
       await supabaseServer
         .from("orders")
-        .select("id")
+        .select("id, created_at")
         .eq("user_id", user.id)
         .eq("status", "draft")
         .is("payment_intent_id", null)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .order("created_at", { ascending: false });
 
     if (existingError) {
       return NextResponse.json(
@@ -36,13 +37,26 @@ export async function POST(req: Request) {
       );
     }
 
-    if (existingDraft?.id) {
-      return NextResponse.json({ orderId: existingDraft.id });
+    const now = Date.now();
+
+    const recentDraft = drafts?.find((d) => {
+      if (!d?.created_at) return false;
+      const age = now - new Date(d.created_at).getTime();
+      return age <= TWO_HOURS_MS;
+    });
+
+    if (recentDraft?.id) {
+      console.log("REUSING RECENT DRAFT:", recentDraft.id);
+
+      return NextResponse.json({ orderId: recentDraft.id });
     }
 
+    console.log("NO RECENT DRAFT — creating new order");
+
     /* =========================
-       3️⃣ Otherwise create NEW draft
+       3️⃣ Create NEW draft
     ========================= */
+
     const { data: newOrder, error: insertError } =
       await supabaseServer
         .from("orders")
@@ -69,8 +83,13 @@ export async function POST(req: Request) {
       );
     }
 
+    console.log("CREATED NEW DRAFT:", newOrder.id);
+
     return NextResponse.json({ orderId: newOrder.id });
-  } catch {
+
+  } catch (err) {
+    console.error("ORDERS ROUTE ERROR:", err);
+
     return NextResponse.json(
       { error: "Unexpected server error" },
       { status: 500 }
