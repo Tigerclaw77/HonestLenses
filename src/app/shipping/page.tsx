@@ -32,34 +32,33 @@ const US_STATES = [
 function inputBaseStyle(): React.CSSProperties {
   return {
     width: "100%",
-    padding: "16px",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "rgba(148,163,184,0.35)",
-    fontSize: 16,
-    background: "#f8fafc",
+    padding: "14px 16px",
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.12)",
+    fontSize: 15,
+    background: "rgba(15, 23, 42, 0.6)",
+    color: "#e5e7eb",
     outline: "none",
-    transition:
-      "box-shadow 140ms ease, border-color 140ms ease, background 140ms ease",
+    transition: "all 140ms ease",
   };
 }
 
 function labelStyle(): React.CSSProperties {
   return {
     display: "block",
-    fontSize: 13,
-    color: "#cbd5e1",
+    fontSize: 12,
+    color: "#94a3b8",
     marginBottom: 6,
-    fontWeight: 650,
+    fontWeight: 600,
+    letterSpacing: 0.4,
   };
 }
 
 function focusRingStyle(): React.CSSProperties {
   return {
-    borderColor: "#2563eb",
-    boxShadow: "0 0 0 4px rgba(37, 99, 235, 0.38)",
-    background: "#ffffff",
+    borderColor: "#3b82f6",
+    boxShadow: "0 0 0 2px rgba(59,130,246,0.35)",
+    background: "rgba(15, 23, 42, 0.9)",
   };
 }
 
@@ -90,20 +89,26 @@ export default function ShippingPage() {
         data: { session },
       } = await supabase.auth.getSession();
 
-      if (!session) return;
+      if (!session) {
+        setError("Not logged in.");
+        setLoading(false);
+        return;
+      }
 
       console.log("SHIPPING USER:", session.user.id);
 
-      const { data } = await supabase
+      // ✅ FIX: get MOST RECENT draft (handles multiple rows correctly)
+      const { data, error } = await supabase
         .from("orders")
         .select("id, status")
         .eq("user_id", session.user.id)
         .eq("status", "draft")
         .order("created_at", { ascending: false })
         .limit(1)
-        .maybeSingle();
+        .single();
 
-      if (!data) {
+      if (error || !data) {
+        console.log("NO DRAFT FOUND", error);
         setError("No active cart found.");
         setLoading(false);
         return;
@@ -181,6 +186,7 @@ export default function ShippingPage() {
 
     console.log("SHIPPING SAVED — NAVIGATING");
 
+    // ✅ passes correct orderId forward
     router.push(`/checkout?orderId=${order.id}`);
   }
 
@@ -323,7 +329,22 @@ export default function ShippingPage() {
                 </p>
               )}
 
-              <button type="submit" disabled={submitting}>
+              <button
+                type="submit"
+                disabled={submitting}
+                style={{
+                  marginTop: 18,
+                  width: "100%",
+                  padding: "14px",
+                  borderRadius: 10,
+                  background: submitting ? "#334155" : "#2563eb",
+                  color: "white",
+                  fontWeight: 700,
+                  fontSize: 15,
+                  border: "none",
+                  cursor: "pointer",
+                }}
+              >
                 {submitting ? "Saving…" : "Continue to Payment"}
               </button>
             </form>
