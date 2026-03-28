@@ -59,7 +59,7 @@ export default function RxEntryForm() {
         throw new Error(body.error);
       }
 
-      router.push("/checkout");
+      router.push(`/checkout?orderId=${orderId}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed");
     } finally {
