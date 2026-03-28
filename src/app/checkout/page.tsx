@@ -58,13 +58,9 @@ function buildRouteFromAuthorizedResponse(
   const query = params.toString();
   const suffix = query ? `?${query}` : "";
 
-  if (body.next === "success") {
-    return `/checkout/success${suffix}`;
-  }
-
-  if (body.next === "verification-details") {
+  if (body.next === "success") return `/checkout/success${suffix}`;
+  if (body.next === "verification-details")
     return `/checkout/verification-details${suffix}`;
-  }
 
   return null;
 }
@@ -112,9 +108,6 @@ function CheckoutForm() {
 
       const status = result.paymentIntent.status;
 
-      // Accept both:
-      // - requires_capture (manual auth complete)
-      // - succeeded (capture may have already completed in some flows)
       if (status !== "requires_capture" && status !== "succeeded") {
         setError(`Checkout did not complete correctly (status: ${status}).`);
         setSubmitting(false);
@@ -143,16 +136,10 @@ function CheckoutForm() {
         .json()
         .catch(() => ({}));
 
-      if (!markRes.ok) {
-        router.replace("/checkout/success");
-        return;
-      }
-
       const nextRoute = buildRouteFromAuthorizedResponse(markBody);
 
       if (!nextRoute) {
-        setError("Checkout completed, but the next step was unclear.");
-        setSubmitting(false);
+        router.replace("/checkout/success");
         return;
       }
 
@@ -169,13 +156,7 @@ function CheckoutForm() {
 
   return (
     <form onSubmit={handleSubmit}>
-      <div
-        style={{
-          background: "#ffffff",
-          padding: 24,
-          borderRadius: 10,
-        }}
-      >
+      <div style={{ background: "#fff", padding: 24, borderRadius: 10 }}>
         <PaymentElement options={{ layout: "tabs" }} />
       </div>
 
@@ -194,7 +175,7 @@ function CheckoutForm() {
           background: submitting
             ? "#94a3b8"
             : "linear-gradient(90deg, #2563eb 0%, #1d4ed8 100%)",
-          color: "#ffffff",
+          color: "#fff",
           borderRadius: 12,
           fontWeight: 800,
           fontSize: 16,
@@ -230,17 +211,21 @@ export default function CheckoutPage() {
         setLoading(true);
         setError(null);
 
+        // 🔥 HARD FIX: wait for session properly
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
-        if (!session) {
+        if (!session || !session.user?.id) {
           if (!cancelled) {
             setError("Please log in to continue checkout.");
             setLoading(false);
           }
           return;
         }
+
+        // 🔥 DEBUG LOG (remove later)
+        console.log("CHECKOUT USER:", session.user.id);
 
         const { data: orderData, error: orderError } = await supabase
           .from("orders")
@@ -307,7 +292,7 @@ export default function CheckoutPage() {
             Authorization: `Bearer ${session.access_token}`,
           },
           body: JSON.stringify({
-            orderId: orderData.id, // 🔥 THIS IS THE KEY FIX
+            orderId: orderData.id,
           }),
           cache: "no-store",
         });
@@ -373,25 +358,27 @@ export default function CheckoutPage() {
           >
             <div
               style={{
-                background: "#ffffff",
+                background: "#fff",
                 color: "#0f172a",
                 padding: 20,
                 borderRadius: 10,
                 marginBottom: 18,
               }}
             >
-              <h2 style={{ marginBottom: 10, fontSize: 22 }}>Order Summary</h2>
+              <h2 style={{ marginBottom: 10, fontSize: 22 }}>
+                Order Summary
+              </h2>
 
-              <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
-                <div style={{ fontWeight: 800, fontSize: 16 }}>Total:</div>
-                <div style={{ fontWeight: 900, fontSize: 20 }}>
+              <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ fontWeight: 800 }}>Total:</div>
+                <div style={{ fontWeight: 900 }}>
                   ${(order.total_amount_cents / 100).toFixed(2)}
                 </div>
               </div>
 
               <p style={{ marginTop: 8, fontSize: 13, color: "#475569" }}>
                 {mode === "uploaded"
-                  ? "Your prescription has already been received. If payment is approved, your order may be charged immediately and your order will move into processing."
+                  ? "Your prescription has already been received."
                   : "You will only be charged after your prescription is verified."}
               </p>
             </div>
