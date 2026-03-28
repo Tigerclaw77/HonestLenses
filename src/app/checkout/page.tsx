@@ -161,6 +161,8 @@ function CheckoutInner() {
 
   const orderId = searchParams.get("orderId");
 
+  console.log("TRACE orderId (checkout URL):", orderId);
+
   const [order, setOrder] = useState<Order | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [mode, setMode] = useState<"uploaded" | "passive">("passive");
@@ -193,27 +195,47 @@ function CheckoutInner() {
           refresh_token: session.refresh_token,
         });
 
+        console.log("CHECKOUT param orderId:", orderId);
+
+        // const { data: orderData, error: orderError } = await supabase
+        //   .from("orders")
+        //   .select(
+        //     `
+        //     id,
+        //     status,
+        //     total_amount_cents,
+        //     rx_upload_order_d,
+        //     rx_mode,
+        //     verification_mode,
+        //     rx_source,
+        //     mode
+        //   `,
+        //   )
+        //   .eq("id", orderId)
+        //   .single();
+
+        // ===== VALIDATION =====
+        if (!orderId) {
+          console.log("CHECKOUT ERROR: missing orderId");
+          throw new Error("Missing orderId.");
+        }
+
+        // ===== QUERY =====
         const { data: orderData, error: orderError } = await supabase
           .from("orders")
-          .select(
-            `
-            id,
-            status,
-            total_amount_cents,
-            rx_upload_order_d,
-            rx_mode,
-            verification_mode,
-            rx_source,
-            mode
-          `,
-          )
+          .select("*")
           .eq("id", orderId)
           .single();
 
+        console.log("CHECKOUT fetched:", orderData);
+        console.log("CHECKOUT error:", orderError);
+
+        // ===== FIXED CHECK =====
         if (orderError || !orderData) {
           throw new Error("Order not found.");
         }
 
+        // ===== VALIDATE TOTAL =====
         if (
           typeof orderData.total_amount_cents !== "number" ||
           orderData.total_amount_cents <= 0
@@ -221,6 +243,7 @@ function CheckoutInner() {
           throw new Error("Invalid order total.");
         }
 
+        // ===== SET STATE =====
         setOrder({
           id: orderData.id,
           status: orderData.status,

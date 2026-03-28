@@ -38,8 +38,6 @@ function inputBaseStyle(): React.CSSProperties {
     fontSize: 15,
     background: "rgba(15, 23, 42, 0.6)",
     color: "#e5e7eb",
-    outline: "none",
-    transition: "all 140ms ease",
   };
 }
 
@@ -50,15 +48,6 @@ function labelStyle(): React.CSSProperties {
     color: "#94a3b8",
     marginBottom: 6,
     fontWeight: 600,
-    letterSpacing: 0.4,
-  };
-}
-
-function focusRingStyle(): React.CSSProperties {
-  return {
-    borderColor: "#3b82f6",
-    boxShadow: "0 0 0 2px rgba(59,130,246,0.35)",
-    background: "rgba(15, 23, 42, 0.9)",
   };
 }
 
@@ -69,7 +58,6 @@ export default function ShippingPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [focusKey, setFocusKey] = useState<string | null>(null);
 
   const [form, setForm] = useState<ShippingForm>({
     shipping_first_name: "",
@@ -95,9 +83,8 @@ export default function ShippingPage() {
         return;
       }
 
-      console.log("SHIPPING USER:", session.user.id);
+      console.log("TRACE user:", session.user.id);
 
-      // ✅ FIX: get MOST RECENT draft (handles multiple rows correctly)
       const { data, error } = await supabase
         .from("orders")
         .select("id, status")
@@ -108,13 +95,13 @@ export default function ShippingPage() {
         .single();
 
       if (error || !data) {
-        console.log("NO DRAFT FOUND", error);
+        console.log("TRACE no draft:", error);
         setError("No active cart found.");
         setLoading(false);
         return;
       }
 
-      console.log("FOUND ORDER:", data.id);
+      console.log("TRACE orderId (fetched):", data.id);
 
       setOrder(data);
       setLoading(false);
@@ -130,8 +117,6 @@ export default function ShippingPage() {
   function validate(): string | null {
     if (!form.shipping_first_name.trim()) return "Enter first name.";
     if (!form.shipping_last_name.trim()) return "Enter last name.";
-    if (!/^\S+@\S+\.\S+$/.test(form.shipping_email.trim()))
-      return "Enter a valid email address.";
     if (!form.shipping_address1.trim()) return "Enter street address.";
     if (!form.shipping_city.trim()) return "Enter city.";
     if (!form.shipping_state.trim()) return "Select state.";
@@ -143,7 +128,7 @@ export default function ShippingPage() {
     e.preventDefault();
 
     if (!order) {
-      console.log("BLOCKED: no order");
+      console.log("TRACE blocked: no order");
       return;
     }
 
@@ -152,21 +137,18 @@ export default function ShippingPage() {
     } = await supabase.auth.getSession();
 
     if (!session) {
-      console.log("BLOCKED: no session");
+      console.log("TRACE blocked: no session");
       return;
     }
 
     const v = validate();
     if (v) {
-      console.log("BLOCKED: validation", v);
+      console.log("TRACE validation:", v);
       setError(v);
       return;
     }
 
-    setSubmitting(true);
-    setError(null);
-
-    console.log("SUBMIT SHIPPING → ORDER:", order.id);
+    console.log("TRACE orderId (submit):", order.id);
 
     const res = await fetch(`/api/orders/${order.id}/shipping`, {
       method: "POST",
@@ -178,15 +160,13 @@ export default function ShippingPage() {
     });
 
     if (!res.ok) {
-      console.log("BLOCKED: API failed");
+      console.log("TRACE API failed");
       setError("Failed to save shipping.");
-      setSubmitting(false);
       return;
     }
 
-    console.log("SHIPPING SAVED — NAVIGATING");
+    console.log("TRACE orderId (navigate):", order.id);
 
-    // ✅ passes correct orderId forward
     router.push(`/checkout?orderId=${order.id}`);
   }
 
@@ -200,152 +180,52 @@ export default function ShippingPage() {
 
           <div className="hl-card">
             <form onSubmit={handleSubmit}>
-              <div className="shipping-grid">
-
-                <div className="col-6">
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(12, 1fr)",
+                  gap: 16,
+                }}
+              >
+                <div style={{ gridColumn: "span 6" }}>
                   <span style={labelStyle()}>First name</span>
-                  <input
-                    value={form.shipping_first_name}
-                    onChange={(e) =>
-                      setField("shipping_first_name", e.target.value)
-                    }
-                    style={{
-                      ...inputBaseStyle(),
-                      ...(focusKey === "shipping_first_name"
-                        ? focusRingStyle()
-                        : {}),
-                    }}
-                    onFocus={() => setFocusKey("shipping_first_name")}
-                    onBlur={() => setFocusKey(null)}
-                  />
+                  <input value={form.shipping_first_name} onChange={(e) => setField("shipping_first_name", e.target.value)} style={inputBaseStyle()} />
                 </div>
 
-                <div className="col-6">
+                <div style={{ gridColumn: "span 6" }}>
                   <span style={labelStyle()}>Last name</span>
-                  <input
-                    value={form.shipping_last_name}
-                    onChange={(e) =>
-                      setField("shipping_last_name", e.target.value)
-                    }
-                    style={{
-                      ...inputBaseStyle(),
-                      ...(focusKey === "shipping_last_name"
-                        ? focusRingStyle()
-                        : {}),
-                    }}
-                    onFocus={() => setFocusKey("shipping_last_name")}
-                    onBlur={() => setFocusKey(null)}
-                  />
+                  <input value={form.shipping_last_name} onChange={(e) => setField("shipping_last_name", e.target.value)} style={inputBaseStyle()} />
                 </div>
 
-                <div className="col-12">
-                  <span style={labelStyle()}>Address line 1</span>
-                  <input
-                    value={form.shipping_address1}
-                    onChange={(e) =>
-                      setField("shipping_address1", e.target.value)
-                    }
-                    style={inputBaseStyle()}
-                  />
+                <div style={{ gridColumn: "span 12" }}>
+                  <span style={labelStyle()}>Address</span>
+                  <input value={form.shipping_address1} onChange={(e) => setField("shipping_address1", e.target.value)} style={inputBaseStyle()} />
                 </div>
 
-                <div className="col-12">
-                  <span style={labelStyle()}>Address line 2</span>
-                  <input
-                    value={form.shipping_address2}
-                    onChange={(e) =>
-                      setField("shipping_address2", e.target.value)
-                    }
-                    style={inputBaseStyle()}
-                  />
-                </div>
-
-                <div className="col-12">
-                  <span style={labelStyle()}>Email</span>
-                  <input
-                    type="email"
-                    value={form.shipping_email}
-                    onChange={(e) =>
-                      setField("shipping_email", e.target.value)
-                    }
-                    style={inputBaseStyle()}
-                  />
-                </div>
-
-                <div className="col-12">
-                  <span style={labelStyle()}>Phone</span>
-                  <input
-                    value={form.shipping_phone}
-                    onChange={(e) =>
-                      setField("shipping_phone", e.target.value)
-                    }
-                    style={inputBaseStyle()}
-                  />
-                </div>
-
-                <div className="col-6">
+                <div style={{ gridColumn: "span 6" }}>
                   <span style={labelStyle()}>City</span>
-                  <input
-                    value={form.shipping_city}
-                    onChange={(e) =>
-                      setField("shipping_city", e.target.value)
-                    }
-                    style={inputBaseStyle()}
-                  />
+                  <input value={form.shipping_city} onChange={(e) => setField("shipping_city", e.target.value)} style={inputBaseStyle()} />
                 </div>
 
-                <div className="col-3">
+                <div style={{ gridColumn: "span 3" }}>
                   <span style={labelStyle()}>State</span>
-                  <select
-                    value={form.shipping_state}
-                    onChange={(e) =>
-                      setField("shipping_state", e.target.value)
-                    }
-                    style={inputBaseStyle()}
-                  >
+                  <select value={form.shipping_state} onChange={(e) => setField("shipping_state", e.target.value)} style={inputBaseStyle()}>
                     <option value="">Select</option>
                     {US_STATES.map((s) => (
-                      <option key={s} value={s}>{s}</option>
+                      <option key={s}>{s}</option>
                     ))}
                   </select>
                 </div>
 
-                <div className="col-3">
+                <div style={{ gridColumn: "span 3" }}>
                   <span style={labelStyle()}>ZIP</span>
-                  <input
-                    value={form.shipping_zip}
-                    onChange={(e) =>
-                      setField("shipping_zip", e.target.value)
-                    }
-                    style={inputBaseStyle()}
-                  />
+                  <input value={form.shipping_zip} onChange={(e) => setField("shipping_zip", e.target.value)} style={inputBaseStyle()} />
                 </div>
-
               </div>
+              {error && <p style={{ color: "red" }}>{error}</p>}
 
-              {error && (
-                <p style={{ marginTop: 12, color: "#f87171", fontWeight: 700 }}>
-                  {error}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                disabled={submitting}
-                style={{
-                  marginTop: 18,
-                  width: "100%",
-                  padding: "14px",
-                  borderRadius: 10,
-                  background: submitting ? "#334155" : "#2563eb",
-                  color: "white",
-                  fontWeight: 700,
-                  fontSize: 15,
-                  border: "none",
-                  cursor: "pointer",
-                }}
-              >
-                {submitting ? "Saving…" : "Continue to Payment"}
+              <button type="submit" style={{ marginTop: 20 }}>
+                Continue to Payment
               </button>
             </form>
           </div>

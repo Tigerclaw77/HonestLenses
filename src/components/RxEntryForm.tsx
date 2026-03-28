@@ -40,6 +40,8 @@ export default function RxEntryForm() {
       if (!orderRes.ok) throw new Error(orderBody.error);
       const orderId = orderBody.orderId;
 
+      console.log("TRACE orderId (created):", orderId);
+
       // Attach Rx
       const rxRes = await fetch(`/api/orders/${orderId}/rx`, {
         method: "POST",
