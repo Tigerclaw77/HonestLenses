@@ -247,7 +247,10 @@ export default function CheckoutPage() {
           .eq("status", "draft")
           .order("created_at", { ascending: false })
           .limit(1)
-          .maybeSingle();
+          .then(({ data, error }) => ({
+            data: data?.[0] ?? null,
+            error,
+          }));
 
         if (orderError || !orderData) {
           throw new Error("No draft order.");
@@ -345,48 +348,48 @@ export default function CheckoutPage() {
 
   return (
     <main>
-        <section className="content-shell">
-          <h1 className="upper content-title">Secure Checkout</h1>
+      <section className="content-shell">
+        <h1 className="upper content-title">Secure Checkout</h1>
 
+        <div
+          className="order-card"
+          style={{
+            background: "#0f172a",
+            padding: 32,
+            borderRadius: 12,
+            boxShadow: "0 8px 40px rgba(0,0,0,0.4)",
+          }}
+        >
           <div
-            className="order-card"
             style={{
-              background: "#0f172a",
-              padding: 32,
-              borderRadius: 12,
-              boxShadow: "0 8px 40px rgba(0,0,0,0.4)",
+              background: "#fff",
+              color: "#0f172a",
+              padding: 20,
+              borderRadius: 10,
+              marginBottom: 18,
             }}
           >
-            <div
-              style={{
-                background: "#fff",
-                color: "#0f172a",
-                padding: 20,
-                borderRadius: 10,
-                marginBottom: 18,
-              }}
-            >
-              <h2 style={{ marginBottom: 10, fontSize: 22 }}>Order Summary</h2>
+            <h2 style={{ marginBottom: 10, fontSize: 22 }}>Order Summary</h2>
 
-              <div style={{ display: "flex", gap: 10 }}>
-                <div style={{ fontWeight: 800 }}>Total:</div>
-                <div style={{ fontWeight: 900 }}>
-                  ${(order.total_amount_cents / 100).toFixed(2)}
-                </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ fontWeight: 800 }}>Total:</div>
+              <div style={{ fontWeight: 900 }}>
+                ${(order.total_amount_cents / 100).toFixed(2)}
               </div>
-
-              <p style={{ marginTop: 8, fontSize: 13, color: "#475569" }}>
-                {mode === "uploaded"
-                  ? "Your prescription has already been received."
-                  : "You will only be charged after your prescription is verified."}
-              </p>
             </div>
 
-            <Elements stripe={stripePromise} options={{ clientSecret }}>
-              <CheckoutForm />
-            </Elements>
+            <p style={{ marginTop: 8, fontSize: 13, color: "#475569" }}>
+              {mode === "uploaded"
+                ? "Your prescription has already been received."
+                : "You will only be charged after your prescription is verified."}
+            </p>
           </div>
-        </section>
+
+          <Elements stripe={stripePromise} options={{ clientSecret }}>
+            <CheckoutForm />
+          </Elements>
+        </div>
+      </section>
     </main>
   );
 }
