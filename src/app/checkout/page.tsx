@@ -3,7 +3,7 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { loadStripe } from "@stripe/stripe-js";
 import {
   Elements,
@@ -12,7 +12,6 @@ import {
   useElements,
 } from "@stripe/react-stripe-js";
 import { supabase } from "@/lib/supabase-client";
-// import AuthGate from "@/components/AuthGate";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!,
@@ -57,8 +56,7 @@ function buildRouteFromAuthorizedResponse(
   if (body.mode) params.set("mode", body.mode);
   if (body.deadline) params.set("deadline", body.deadline);
 
-  const query = params.toString();
-  const suffix = query ? `?${query}` : "";
+  const suffix = params.toString() ? `?${params}` : "";
 
   if (body.next === "success") return `/checkout/success${suffix}`;
   if (body.next === "verification-details")
@@ -97,21 +95,7 @@ function CheckoutForm() {
       });
 
       if (result.error) {
-        setError(result.error.message || "Payment could not be completed.");
-        setSubmitting(false);
-        return;
-      }
-
-      if (!result.paymentIntent) {
-        setError("Missing payment intent.");
-        setSubmitting(false);
-        return;
-      }
-
-      const status = result.paymentIntent.status;
-
-      if (status !== "requires_capture" && status !== "succeeded") {
-        setError(`Checkout did not complete correctly (status: ${status}).`);
+        setError(result.error.message || "Payment failed.");
         setSubmitting(false);
         return;
       }
@@ -121,7 +105,7 @@ function CheckoutForm() {
       } = await supabase.auth.getSession();
 
       if (!session) {
-        setError("Session expired. Please log in again.");
+        setError("Session expired.");
         setSubmitting(false);
         return;
       }
@@ -131,26 +115,16 @@ function CheckoutForm() {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
-        cache: "no-store",
       });
 
-      const markBody: AuthorizedResponse = await markRes
-        .json()
-        .catch(() => ({}));
+      const markBody: AuthorizedResponse = await markRes.json().catch(() => ({}));
 
       const nextRoute = buildRouteFromAuthorizedResponse(markBody);
 
-      if (!nextRoute) {
-        router.replace("/checkout/success");
-        return;
-      }
-
-      router.replace(nextRoute);
+      router.replace(nextRoute || "/checkout/success");
     } catch (err: unknown) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "An unexpected checkout error occurred.",
+        err instanceof Error ? err.message : "Unexpected checkout error.",
       );
       setSubmitting(false);
     }
@@ -159,7 +133,7 @@ function CheckoutForm() {
   return (
     <form onSubmit={handleSubmit}>
       <div style={{ background: "#fff", padding: 24, borderRadius: 10 }}>
-        <PaymentElement options={{ layout: "tabs" }} />
+        <PaymentElement />
       </div>
 
       {error && (
@@ -168,24 +142,8 @@ function CheckoutForm() {
         </p>
       )}
 
-      <button
-        disabled={!stripe || submitting}
-        style={{
-          marginTop: 24,
-          width: "100%",
-          padding: "18px",
-          background: submitting
-            ? "#94a3b8"
-            : "linear-gradient(90deg, #2563eb 0%, #1d4ed8 100%)",
-          color: "#fff",
-          borderRadius: 12,
-          fontWeight: 800,
-          fontSize: 16,
-          border: "none",
-          cursor: !stripe || submitting ? "not-allowed" : "pointer",
-        }}
-      >
-        {submitting ? "Processing…" : "Complete Secure Checkout"}
+      <button disabled={!stripe || submitting} style={{ marginTop: 24 }}>
+        {submitting ? "Processing…" : "Complete Checkout"}
       </button>
     </form>
   );
@@ -196,11 +154,14 @@ function CheckoutForm() {
 ========================= */
 
 export default function CheckoutPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const orderId = searchParams.get("orderId");
+
   const [order, setOrder] = useState<Order | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [mode, setMode] = useState<"uploaded" | "passive" | "unknown">(
-    "unknown",
-  );
+  const [mode, setMode] = useState<"uploaded" | "passive">("passive");
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -210,85 +171,56 @@ export default function CheckoutPage() {
 
     async function init() {
       try {
-        setLoading(true);
-        setError(null);
+        if (!orderId) {
+          throw new Error("Missing orderId.");
+        }
 
-        // 🔥 HARD FIX: wait for session properly
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
-        if (!session || !session.user?.id) {
-          if (!cancelled) {
-            setError("Please log in to continue checkout.");
-            setLoading(false);
-          }
-          return;
+        if (!session) {
+          throw new Error("Not logged in.");
         }
 
-        // 🔥 DEBUG LOG (remove later)
         console.log("CHECKOUT USER:", session.user.id);
+        console.log("ORDER ID:", orderId);
 
         const { data: orderData, error: orderError } = await supabase
           .from("orders")
           .select(
             `
-              id,
-              status,
-              total_amount_cents,
-              rx_upload_order_d,
-              rx_mode,
-              verification_mode,
-              rx_source,
-              mode
-            `,
+            id,
+            status,
+            total_amount_cents,
+            rx_upload_order_d,
+            rx_mode,
+            verification_mode,
+            rx_source,
+            mode
+          `,
           )
-          .eq("user_id", session.user.id)
-          .eq("status", "draft")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .then(({ data, error }) => ({
-            data: data?.[0] ?? null,
-            error,
-          }));
+          .eq("id", orderId)
+          .single();
 
         if (orderError || !orderData) {
-          throw new Error("No draft order.");
+          throw new Error("Order not found.");
         }
 
         if (
           typeof orderData.total_amount_cents !== "number" ||
           orderData.total_amount_cents <= 0
         ) {
-          throw new Error("Order missing valid total.");
+          throw new Error("Invalid order total.");
         }
 
-        const rawModeCandidates = [
-          orderData.rx_mode,
-          orderData.verification_mode,
-          orderData.rx_source,
-          orderData.mode,
-        ]
-          .filter((v): v is string => typeof v === "string")
-          .map((v) => v.toLowerCase());
+        setOrder({
+          id: orderData.id,
+          status: orderData.status,
+          total_amount_cents: orderData.total_amount_cents,
+        });
 
-        const looksUploaded =
-          orderData.rx_upload_order_d === true ||
-          rawModeCandidates.some(
-            (v) =>
-              v.includes("upload") ||
-              v.includes("uploaded") ||
-              v.includes("ocr"),
-          );
-
-        if (!cancelled) {
-          setMode(looksUploaded ? "uploaded" : "passive");
-          setOrder({
-            id: orderData.id,
-            status: orderData.status as Order["status"],
-            total_amount_cents: orderData.total_amount_cents,
-          });
-        }
+        setMode(orderData.rx_upload_order_d ? "uploaded" : "passive");
 
         const res = await fetch("/api/checkout/pay", {
           method: "POST",
@@ -296,16 +228,13 @@ export default function CheckoutPage() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({
-            orderId: orderData.id,
-          }),
-          cache: "no-store",
+          body: JSON.stringify({ orderId }),
         });
 
-        const body: CheckoutPayResponse = await res.json().catch(() => ({}));
+        const body: CheckoutPayResponse = await res.json();
 
         if (!res.ok || !body.clientSecret) {
-          throw new Error(body.error || "Payment initialization failed.");
+          throw new Error(body.error || "Payment init failed.");
         }
 
         if (!cancelled) {
@@ -324,7 +253,7 @@ export default function CheckoutPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [orderId]);
 
   if (loading) {
     return <main className="content-shell">Loading checkout…</main>;
@@ -339,11 +268,8 @@ export default function CheckoutPage() {
   }
 
   if (!order || !clientSecret) {
-    return (
-      <main className="content-shell">
-        <p className="order-error">Unable to initialize payment.</p>
-      </main>
-    );
+    router.replace("/cart");
+    return null;
   }
 
   return (
@@ -360,6 +286,7 @@ export default function CheckoutPage() {
             boxShadow: "0 8px 40px rgba(0,0,0,0.4)",
           }}
         >
+          {/* ✅ RESTORED MODE + SUMMARY */}
           <div
             style={{
               background: "#fff",
