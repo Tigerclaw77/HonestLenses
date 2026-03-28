@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { loadStripe } from "@stripe/stripe-js";
 import {
@@ -150,10 +150,10 @@ function CheckoutForm() {
 }
 
 /* =========================
-   Page
+   INNER PAGE (moved logic)
 ========================= */
 
-export default function CheckoutPage() {
+function CheckoutInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -286,7 +286,6 @@ export default function CheckoutPage() {
             boxShadow: "0 8px 40px rgba(0,0,0,0.4)",
           }}
         >
-          {/* ✅ RESTORED MODE + SUMMARY */}
           <div
             style={{
               background: "#fff",
@@ -318,5 +317,17 @@ export default function CheckoutPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+/* =========================
+   OUTER WRAPPER (fix)
+========================= */
+
+export default function CheckoutPage() {
+  return (
+    <Suspense fallback={<main className="content-shell">Loading…</main>}>
+      <CheckoutInner />
+    </Suspense>
   );
 }
