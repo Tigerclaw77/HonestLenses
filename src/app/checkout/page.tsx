@@ -10,7 +10,7 @@ import {
   useElements,
 } from "@stripe/react-stripe-js";
 import { supabase } from "@/lib/supabase-client";
-import AuthGate from "@/components/AuthGate";
+// import AuthGate from "@/components/AuthGate";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!,
@@ -342,8 +342,7 @@ export default function CheckoutPage() {
   }
 
   return (
-    <AuthGate>
-      <main>
+    <main>
         <section className="content-shell">
           <h1 className="upper content-title">Secure Checkout</h1>
 
@@ -365,9 +364,7 @@ export default function CheckoutPage() {
                 marginBottom: 18,
               }}
             >
-              <h2 style={{ marginBottom: 10, fontSize: 22 }}>
-                Order Summary
-              </h2>
+              <h2 style={{ marginBottom: 10, fontSize: 22 }}>Order Summary</h2>
 
               <div style={{ display: "flex", gap: 10 }}>
                 <div style={{ fontWeight: 800 }}>Total:</div>
@@ -388,7 +385,6 @@ export default function CheckoutPage() {
             </Elements>
           </div>
         </section>
-      </main>
-    </AuthGate>
+    </main>
   );
 }
