@@ -181,7 +181,7 @@ export default function ShippingPage() {
 
     console.log("SHIPPING SAVED — NAVIGATING");
 
-    router.push("/checkout");
+    router.push(`/checkout?orderId=${order.id}`);
   }
 
   if (loading) return <main className="content-shell">Loading…</main>;
