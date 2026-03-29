@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabase-client";
+import { supabase } from "@/lib/supabase-client";
 import AuthGate from "@/components/AuthGate";
 
 type DraftOrder = {
@@ -23,33 +23,57 @@ type ShippingForm = {
 };
 
 const US_STATES = [
-  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
-  "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
-  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
-  "VA","WA","WV","WI","WY",
+  "AL",
+  "AK",
+  "AZ",
+  "AR",
+  "CA",
+  "CO",
+  "CT",
+  "DE",
+  "FL",
+  "GA",
+  "HI",
+  "ID",
+  "IL",
+  "IN",
+  "IA",
+  "KS",
+  "KY",
+  "LA",
+  "ME",
+  "MD",
+  "MA",
+  "MI",
+  "MN",
+  "MS",
+  "MO",
+  "MT",
+  "NE",
+  "NV",
+  "NH",
+  "NJ",
+  "NM",
+  "NY",
+  "NC",
+  "ND",
+  "OH",
+  "OK",
+  "OR",
+  "PA",
+  "RI",
+  "SC",
+  "SD",
+  "TN",
+  "TX",
+  "UT",
+  "VT",
+  "VA",
+  "WA",
+  "WV",
+  "WI",
+  "WY",
 ];
-
-function inputBaseStyle(): React.CSSProperties {
-  return {
-    width: "100%",
-    padding: "14px 16px",
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.12)",
-    fontSize: 15,
-    background: "rgba(15, 23, 42, 0.6)",
-    color: "#e5e7eb",
-  };
-}
-
-function labelStyle(): React.CSSProperties {
-  return {
-    display: "block",
-    fontSize: 12,
-    color: "#94a3b8",
-    marginBottom: 6,
-    fontWeight: 600,
-  };
-}
 
 export default function ShippingPage() {
   const router = useRouter();
@@ -76,32 +100,22 @@ export default function ShippingPage() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
+      if (!session) return;
 
-      if (!session) {
-        setError("Not logged in.");
-        setLoading(false);
-        return;
-      }
-
-      console.log("TRACE user:", session.user.id);
-
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("orders")
         .select("id, status")
         .eq("user_id", session.user.id)
         .eq("status", "draft")
         .order("created_at", { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
-      if (error || !data) {
-        console.log("TRACE no draft:", error);
+      if (!data) {
         setError("No active cart found.");
         setLoading(false);
         return;
       }
-
-      console.log("TRACE orderId (fetched):", data.id);
 
       setOrder(data);
       setLoading(false);
@@ -117,38 +131,30 @@ export default function ShippingPage() {
   function validate(): string | null {
     if (!form.shipping_first_name.trim()) return "Enter first name.";
     if (!form.shipping_last_name.trim()) return "Enter last name.";
-    if (!form.shipping_address1.trim()) return "Enter street address.";
+    if (!form.shipping_email.trim()) return "Enter email.";
+    if (!form.shipping_address1.trim()) return "Enter address.";
     if (!form.shipping_city.trim()) return "Enter city.";
     if (!form.shipping_state.trim()) return "Select state.";
-    if (!form.shipping_zip.trim()) return "Enter ZIP code.";
+    if (!form.shipping_zip.trim()) return "Enter ZIP.";
     return null;
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-
-    if (!order) {
-      console.log("TRACE blocked: no order");
-      return;
-    }
+    if (!order) return;
 
     const {
       data: { session },
     } = await supabase.auth.getSession();
-
-    if (!session) {
-      console.log("TRACE blocked: no session");
-      return;
-    }
+    if (!session) return;
 
     const v = validate();
     if (v) {
-      console.log("TRACE validation:", v);
       setError(v);
       return;
     }
 
-    console.log("TRACE orderId (submit):", order.id);
+    setSubmitting(true);
 
     const res = await fetch(`/api/orders/${order.id}/shipping`, {
       method: "POST",
@@ -160,76 +166,159 @@ export default function ShippingPage() {
     });
 
     if (!res.ok) {
-      console.log("TRACE API failed");
       setError("Failed to save shipping.");
+      setSubmitting(false);
       return;
     }
 
-    console.log("TRACE orderId (navigate):", order.id);
-
-    router.push(`/checkout?orderId=${order.id}`);
+    router.push("/checkout");
   }
 
   if (loading) return <main className="content-shell">Loading…</main>;
 
   return (
     <AuthGate>
-      <main>
-        <section className="content-shell">
-          <h1 className="upper content-title">Shipping Information</h1>
+      <main className="content-shell">
+        <h1 className="upper content-title">Shipping Information</h1>
 
-          <div className="hl-card">
-            <form onSubmit={handleSubmit}>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(12, 1fr)",
-                  gap: 16,
-                }}
-              >
-                <div style={{ gridColumn: "span 6" }}>
-                  <span style={labelStyle()}>First name</span>
-                  <input value={form.shipping_first_name} onChange={(e) => setField("shipping_first_name", e.target.value)} style={inputBaseStyle()} />
-                </div>
-
-                <div style={{ gridColumn: "span 6" }}>
-                  <span style={labelStyle()}>Last name</span>
-                  <input value={form.shipping_last_name} onChange={(e) => setField("shipping_last_name", e.target.value)} style={inputBaseStyle()} />
-                </div>
-
-                <div style={{ gridColumn: "span 12" }}>
-                  <span style={labelStyle()}>Address</span>
-                  <input value={form.shipping_address1} onChange={(e) => setField("shipping_address1", e.target.value)} style={inputBaseStyle()} />
-                </div>
-
-                <div style={{ gridColumn: "span 6" }}>
-                  <span style={labelStyle()}>City</span>
-                  <input value={form.shipping_city} onChange={(e) => setField("shipping_city", e.target.value)} style={inputBaseStyle()} />
-                </div>
-
-                <div style={{ gridColumn: "span 3" }}>
-                  <span style={labelStyle()}>State</span>
-                  <select value={form.shipping_state} onChange={(e) => setField("shipping_state", e.target.value)} style={inputBaseStyle()}>
-                    <option value="">Select</option>
-                    {US_STATES.map((s) => (
-                      <option key={s}>{s}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div style={{ gridColumn: "span 3" }}>
-                  <span style={labelStyle()}>ZIP</span>
-                  <input value={form.shipping_zip} onChange={(e) => setField("shipping_zip", e.target.value)} style={inputBaseStyle()} />
-                </div>
-              </div>
-              {error && <p style={{ color: "red" }}>{error}</p>}
-
-              <button type="submit" style={{ marginTop: 20 }}>
-                Continue to Payment
-              </button>
-            </form>
+        <form onSubmit={handleSubmit} className="shipping-grid">
+          <div className="col-6">
+            <label>First name</label>
+            <input
+              value={form.shipping_first_name}
+              onChange={(e) => setField("shipping_first_name", e.target.value)}
+            />
           </div>
-        </section>
+
+          <div className="col-6">
+            <label>Last name</label>
+            <input
+              value={form.shipping_last_name}
+              onChange={(e) => setField("shipping_last_name", e.target.value)}
+            />
+          </div>
+
+          <div className="col-12">
+            <label>Address</label>
+            <input
+              value={form.shipping_address1}
+              onChange={(e) => setField("shipping_address1", e.target.value)}
+            />
+          </div>
+
+          <div className="col-12">
+            <label>Address line 2</label>
+            <input
+              value={form.shipping_address2}
+              onChange={(e) => setField("shipping_address2", e.target.value)}
+            />
+          </div>
+
+          <div className="col-6">
+            <label>Email</label>
+            <input
+              type="email"
+              value={form.shipping_email}
+              onChange={(e) => setField("shipping_email", e.target.value)}
+            />
+          </div>
+
+          <div className="col-6">
+            <label>Phone</label>
+            <input
+              value={form.shipping_phone}
+              onChange={(e) => setField("shipping_phone", e.target.value)}
+            />
+          </div>
+
+          <div className="col-6">
+            <label>City</label>
+            <input
+              value={form.shipping_city}
+              onChange={(e) => setField("shipping_city", e.target.value)}
+            />
+          </div>
+
+          <div className="col-3">
+            <label>State</label>
+            <select
+              value={form.shipping_state}
+              onChange={(e) => setField("shipping_state", e.target.value)}
+            >
+              <option value="">Select</option>
+              {US_STATES.map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="col-3">
+            <label>ZIP</label>
+            <input
+              value={form.shipping_zip}
+              onChange={(e) => setField("shipping_zip", e.target.value)}
+            />
+          </div>
+
+          {error && <p className="error-text">{error}</p>}
+
+          <button type="submit" disabled={submitting} className="submit-btn">
+            {submitting ? "Saving..." : "Continue to Payment"}
+          </button>
+        </form>
+
+        <style>{`
+          .shipping-grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 14px;
+            margin-top: 20px;
+          }
+
+          .col-6 { grid-column: span 6; }
+          .col-3 { grid-column: span 3; }
+          .col-12 { grid-column: span 12; }
+
+          input, select {
+            width: 100%;
+            padding: 14px;
+            border-radius: 10px;
+            background: #0b1220;
+            border: 1px solid rgba(148,163,184,0.3);
+            color: white;
+            transition: border 0.15s, box-shadow 0.15s;
+          }
+
+          input:focus, select:focus {
+            outline: none;
+            border: 1px solid #3b82f6;
+            box-shadow: 0 0 0 2px rgba(59,130,246,0.25);
+          }
+
+          label {
+            font-size: 12px;
+            margin-bottom: 4px;
+            display: block;
+            color: #e2e8f0;
+          }
+
+          .submit-btn {
+            grid-column: span 12;
+            margin-top: 24px;
+            padding: 18px;
+            border-radius: 12px;
+            font-weight: 800;
+            background: linear-gradient(90deg,#2563eb,#1d4ed8);
+            color: white;
+            border: none;
+            cursor: pointer;
+          }
+
+          .submit-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+          }
+        `}</style>
       </main>
     </AuthGate>
   );
