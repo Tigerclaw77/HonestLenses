@@ -171,7 +171,7 @@ export default function ShippingPage() {
       return;
     }
 
-    router.push("/checkout");
+    router.push(`/checkout?orderId=${order.id}`);
   }
 
   if (loading) return <main className="content-shell">Loading…</main>;
@@ -260,7 +260,7 @@ export default function ShippingPage() {
             />
           </div>
 
-          {error && <p className="error-text">{error}</p>}
+          {error && <p className="error-text col-12">{error}</p>}
 
           <button type="submit" disabled={submitting} className="submit-btn">
             {submitting ? "Saving..." : "Continue to Payment"}
