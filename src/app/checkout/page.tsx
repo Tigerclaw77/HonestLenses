@@ -66,7 +66,7 @@ function buildRouteFromAuthorizedResponse(
 }
 
 /* =========================
-   Inner Checkout Form
+   Checkout Form
 ========================= */
 
 function CheckoutForm() {
@@ -134,25 +134,65 @@ function CheckoutForm() {
 
   return (
     <form onSubmit={handleSubmit}>
-      <div style={{ background: "#fff", padding: 24, borderRadius: 10 }}>
+      <div
+        style={{
+          background: "#ffffff",
+          padding: 24,
+          borderRadius: 12,
+        }}
+      >
         <PaymentElement />
       </div>
 
       {error && (
-        <p style={{ marginTop: 12, color: "#dc2626", fontWeight: 600 }}>
+        <p
+          style={{
+            marginTop: 12,
+            color: "#dc2626",
+            fontWeight: 600,
+            textAlign: "center",
+          }}
+        >
           {error}
         </p>
       )}
 
-      <button disabled={!stripe || submitting} style={{ marginTop: 24 }}>
+      <button
+        disabled={!stripe || submitting}
+        style={{
+          marginTop: 28,
+          width: "100%",
+          padding: "18px",
+          borderRadius: 12,
+          fontWeight: 800,
+          fontSize: 16,
+          background: "linear-gradient(90deg,#2563eb,#1d4ed8)",
+          color: "#fff",
+          border: "none",
+          cursor: "pointer",
+          boxShadow: "0 6px 18px rgba(37,99,235,0.35)",
+          transition: "all 0.15s ease",
+        }}
+      >
         {submitting ? "Processing…" : "Complete Checkout"}
       </button>
+
+      <p
+        style={{
+          marginTop: 16,
+          fontSize: 12,
+          color: "#94a3b8",
+          textAlign: "center",
+        }}
+      >
+        Secure payments powered by Stripe
+      </p>
     </form>
   );
 }
 
 /* =========================
-   INNER PAGE (moved logic)
+   Inner Page
 ========================= */
 
 function CheckoutInner() {
@@ -160,8 +200,6 @@ function CheckoutInner() {
   const searchParams = useSearchParams();
 
   const orderId = searchParams.get("orderId");
-
-  console.log("TRACE orderId (checkout URL):", orderId);
 
   const [order, setOrder] = useState<Order | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
@@ -175,67 +213,24 @@ function CheckoutInner() {
 
     async function init() {
       try {
-        if (!orderId) {
-          throw new Error("Missing orderId.");
-        }
+        if (!orderId) throw new Error("Missing orderId.");
 
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
-        if (!session) {
-          throw new Error("Not logged in.");
-        }
+        if (!session) throw new Error("Not logged in.");
 
-        console.log("CHECKOUT USER:", session.user.id);
-        console.log("ORDER ID:", orderId);
-
-        await supabase.auth.setSession({
-          access_token: session.access_token,
-          refresh_token: session.refresh_token,
-        });
-
-        console.log("CHECKOUT param orderId:", orderId);
-
-        // const { data: orderData, error: orderError } = await supabase
-        //   .from("orders")
-        //   .select(
-        //     `
-        //     id,
-        //     status,
-        //     total_amount_cents,
-        //     rx_upload_order_d,
-        //     rx_mode,
-        //     verification_mode,
-        //     rx_source,
-        //     mode
-        //   `,
-        //   )
-        //   .eq("id", orderId)
-        //   .single();
-
-        // ===== VALIDATION =====
-        if (!orderId) {
-          console.log("CHECKOUT ERROR: missing orderId");
-          throw new Error("Missing orderId.");
-        }
-
-        // ===== QUERY =====
         const { data: orderData, error: orderError } = await supabase
           .from("orders")
           .select("*")
           .eq("id", orderId)
           .single();
 
-        console.log("CHECKOUT fetched:", orderData);
-        console.log("CHECKOUT error:", orderError);
-
-        // ===== FIXED CHECK =====
         if (orderError || !orderData) {
           throw new Error("Order not found.");
         }
 
-        // ===== VALIDATE TOTAL =====
         if (
           typeof orderData.total_amount_cents !== "number" ||
           orderData.total_amount_cents <= 0
@@ -243,7 +238,6 @@ function CheckoutInner() {
           throw new Error("Invalid order total.");
         }
 
-        // ===== SET STATE =====
         setOrder({
           id: orderData.id,
           status: orderData.status,
@@ -311,21 +305,23 @@ function CheckoutInner() {
           className="order-card"
           style={{
             background: "#0f172a",
-            padding: 32,
-            borderRadius: 12,
-            boxShadow: "0 8px 40px rgba(0,0,0,0.4)",
+            padding: 36,
+            borderRadius: 16,
+            boxShadow: "0 10px 50px rgba(0,0,0,0.5)",
           }}
         >
           <div
             style={{
-              background: "#fff",
+              background: "linear-gradient(180deg,#ffffff,#f8fafc)",
               color: "#0f172a",
               padding: 20,
-              borderRadius: 10,
-              marginBottom: 18,
+              borderRadius: 12,
+              marginBottom: 20,
             }}
           >
-            <h2 style={{ marginBottom: 10, fontSize: 22 }}>Order Summary</h2>
+            <h2 style={{ marginBottom: 10, fontSize: 22 }}>
+              Order Summary
+            </h2>
 
             <div style={{ display: "flex", gap: 10 }}>
               <div style={{ fontWeight: 800 }}>Total:</div>
@@ -333,6 +329,10 @@ function CheckoutInner() {
                 ${(order.total_amount_cents / 100).toFixed(2)}
               </div>
             </div>
+
+            <p style={{ marginTop: 6, fontSize: 12, color: "#64748b" }}>
+              🔒 Encrypted checkout. Your payment information is secure.
+            </p>
 
             <p style={{ marginTop: 8, fontSize: 13, color: "#475569" }}>
               {mode === "uploaded"
@@ -351,7 +351,7 @@ function CheckoutInner() {
 }
 
 /* =========================
-   OUTER WRAPPER (fix)
+   Wrapper
 ========================= */
 
 export default function CheckoutPage() {
