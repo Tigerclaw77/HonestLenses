@@ -11,8 +11,15 @@ import { getColorOptions } from "../../../../../data/lensColors";
    Types
 ========================= */
 
+type VerificationStatus =
+  | "auto_verified"
+  | "flagged"
+  | "requires_review"
+  | "verified"
+  | "pending";
+
 type EyeRx = {
-  coreId: string;
+  coreId: string | null;
   sphere: number;
   cylinder?: number;
   axis?: number;
@@ -31,6 +38,7 @@ type RxData = {
   expires: string;
   right?: EyeRx;
   left?: EyeRx;
+  verification_status?: VerificationStatus;
 } & RxMeta;
 
 /* =========================
@@ -40,6 +48,8 @@ type RxData = {
 function sanitizeEyeRx(eye: EyeRx | undefined): EyeRx | undefined {
   if (!eye) return undefined;
 
+  if (!eye.coreId) return eye;
+
   const lens = lenses.find((l) => l.coreId === eye.coreId);
   if (!lens) return eye;
 
@@ -47,7 +57,6 @@ function sanitizeEyeRx(eye: EyeRx | undefined): EyeRx | undefined {
 
   const clean: EyeRx = { ...eye };
 
-  // Strip invalid color
   if (!allowedColors.length) {
     delete clean.color;
   } else if (clean.color && !allowedColors.includes(clean.color)) {
@@ -69,14 +78,6 @@ function isVerifiedLike(v: unknown): boolean {
 
 /* =========================
    POST /api/orders/:id/rx
-   RESPONSIBILITY:
-   - Validate RX
-   - Resolve SKU from RX
-   - Persist RX + SKU ONLY
-   - Persist OCR metadata (if present)
-   - ✅ Set verification_status appropriately (manual=pending, upload/ocr=verified)
-   - ❌ NO PRICING
-   - ❌ NO BOX COUNTS
 ========================= */
 
 export async function POST(
@@ -101,49 +102,68 @@ export async function POST(
      2️⃣ Parse RX payload
   ========================= */
   let rx: RxData;
+
   try {
     rx = (await req.json()) as RxData;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  const incomingVerificationStatus: VerificationStatus | null =
+    rx.verification_status ?? null;
+
   /* =========================
-     3️⃣ Extract & sanitize OCR metadata
+     3️⃣ Extract metadata
   ========================= */
 
   const patient_name =
     typeof rx.patient_name === "string" ? rx.patient_name.trim() : null;
 
   const prescriber_name =
-    typeof rx.prescriber_name === "string" ? rx.prescriber_name.trim() : null;
+    typeof rx.prescriber_name === "string"
+      ? rx.prescriber_name.trim()
+      : null;
 
   const prescriber_phone =
-    typeof rx.prescriber_phone === "string" ? rx.prescriber_phone.trim() : null;
+    typeof rx.prescriber_phone === "string"
+      ? rx.prescriber_phone.trim()
+      : null;
 
   /* =========================
-     4️⃣ Extract coreId (AUTHORITATIVE)
+     4️⃣ Extract coreId
   ========================= */
+
   const coreId = rx?.right?.coreId ?? rx?.left?.coreId ?? null;
 
-  if (!coreId) {
-    return NextResponse.json({ error: "RX missing coreId" }, { status: 400 });
-  }
-
-  /* =========================
-     5️⃣ Resolve SKU (RX → SKU)
-  ========================= */
-  const sku = resolveDefaultSku(coreId);
-
-  if (!sku) {
+  // 🔥 FIX: allow null ONLY for requires_review
+  if (!coreId && incomingVerificationStatus !== "requires_review") {
     return NextResponse.json(
-      { error: `No default SKU configured for coreId ${coreId}` },
+      { error: "RX missing coreId" },
       { status: 400 },
     );
   }
 
   /* =========================
-     6️⃣ Verify order ownership (and read source)
+     5️⃣ Resolve SKU (if applicable)
   ========================= */
+
+  let sku: string | null = null;
+
+  if (coreId) {
+    sku = resolveDefaultSku(coreId);
+
+    if (!sku) {
+      return NextResponse.json(
+        { error: `No default SKU configured for coreId ${coreId}` },
+        { status: 400 },
+      );
+    }
+  }
+
+  /* =========================
+     6️⃣ Verify order ownership
+  ========================= */
+
   const { data: order, error: orderError } = await supabaseServer
     .from("orders")
     .select("id, status, verification_status, rx_source, rx_upload_path")
@@ -159,12 +179,16 @@ export async function POST(
   }
 
   if (!["draft", "pending", "authorized"].includes(order.status)) {
-    return NextResponse.json({ error: "Order is not editable" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Order is not editable" },
+      { status: 400 },
+    );
   }
 
   /* =========================
-     7️⃣ Sanitize RX (SERVER AUTHORITATIVE)
+     7️⃣ Sanitize RX
   ========================= */
+
   const sanitizedRx = {
     expires: rx.expires,
     right: sanitizeEyeRx(rx.right),
@@ -172,9 +196,7 @@ export async function POST(
   };
 
   /* =========================
-     8️⃣ Determine verification_status (critical fix)
-     - If order was created from upload/OCR, treat as verified so UI bypasses
-     - Never downgrade a verified order to pending
+     8️⃣ FINAL VERIFICATION STATUS
   ========================= */
 
   const existingVs = order.verification_status;
@@ -184,27 +206,36 @@ export async function POST(
     order.rx_source === "ocr" ||
     Boolean(order.rx_upload_path);
 
-  // If already verified-like, keep it.
-  // Else if upload/ocr, set to verified.
-  // Else manual => pending.
-  const nextVerificationStatus = isVerifiedLike(existingVs)
-    ? existingVs
-    : isUploadOrOcrOrder
-      ? "verified"
-      : "pending";
+  let nextVerificationStatus: VerificationStatus;
+
+  // ✅ TRUST FRONTEND IF PROVIDED
+  if (
+    incomingVerificationStatus === "auto_verified" ||
+    incomingVerificationStatus === "flagged" ||
+    incomingVerificationStatus === "requires_review"
+  ) {
+    nextVerificationStatus = incomingVerificationStatus;
+  }
+
+  // fallback logic
+  else if (isVerifiedLike(existingVs)) {
+    nextVerificationStatus = existingVs as VerificationStatus;
+  } else if (isUploadOrOcrOrder) {
+    nextVerificationStatus = "verified";
+  } else {
+    nextVerificationStatus = "pending";
+  }
 
   /* =========================
-     9️⃣ Persist RX + SKU + META
-     - ✅ Do NOT force status to draft
+     9️⃣ Persist
   ========================= */
+
   const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
       rx: sanitizedRx,
       sku,
       verification_status: nextVerificationStatus,
-
-      // OCR metadata (null for manual entry)
       patient_name,
       prescriber_name,
       prescriber_phone,

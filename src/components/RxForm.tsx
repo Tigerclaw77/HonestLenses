@@ -628,6 +628,34 @@ export default function RxForm({
     leftLensNotListed,
   ]);
 
+  function isLensFamilyMatch(a: string, b: string): boolean {
+    const lensA = lenses.find((l) => l.coreId === a);
+    const lensB = lenses.find((l) => l.coreId === b);
+
+    if (!lensA || !lensB) return false;
+
+    // 1. Replacement (your real guard)
+    if (lensA.replacement !== lensB.replacement) return false;
+
+    // 2. Structure (correct property path)
+    if (lensA.type.toric !== lensB.type.toric) return false;
+    if (lensA.type.multifocal !== lensB.type.multifocal) return false;
+
+    // 3. Family name (correct field)
+    const normalize = (name: string) =>
+      name.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    const nameA = normalize(lensA.displayName);
+    const nameB = normalize(lensB.displayName);
+
+    const tokensA = nameA.split(/(?=[A-Z])/);
+    const tokensB = nameB.split(/(?=[A-Z])/);
+
+    const overlap = tokensA.some((t) => tokensB.includes(t));
+
+    return overlap;
+  }
+
   /* =========================
      Submit
   ========================= */
@@ -711,9 +739,17 @@ export default function RxForm({
 
       // Case 2: OCR mismatch (only if we have OCR + selected lens)
       else if (mode === "ocr" && proposedLensId) {
-        const rightMismatch = rightcoreId && rightcoreId !== proposedLensId;
+        const rightMismatch =
+          rightTouched &&
+          rightcoreId &&
+          proposedLensId &&
+          !isLensFamilyMatch(rightcoreId, proposedLensId);
 
-        const leftMismatch = leftcoreId && leftcoreId !== proposedLensId;
+        const leftMismatch =
+          leftTouched &&
+          leftcoreId &&
+          proposedLensId &&
+          !isLensFamilyMatch(leftcoreId, proposedLensId);
 
         if (rightMismatch || leftMismatch) {
           verificationStatus = "flagged";
@@ -823,13 +859,7 @@ export default function RxForm({
         throw new Error("Prescription submission failed");
       }
 
-      if (requiresReview) {
-        alert(
-          "Your prescription was saved. We couldn't match your lens automatically, so we'll review the prescription on file and assist you manually.",
-        );
-        router.push("/");
-        return;
-      }
+      router.push(`/order/${finalOrderId}?status=review`);
 
       console.log("STEP 4: resolving cart");
 
