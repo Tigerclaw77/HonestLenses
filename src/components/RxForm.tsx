@@ -697,19 +697,45 @@ export default function RxForm({
 
       const requiresReview = rightLensNotListed || leftLensNotListed;
 
+      // =========================
+      // AUTO VALIDATION (OCR vs Selection)
+      // =========================
+
+      let verificationStatus: "auto_verified" | "flagged" | "requires_review" =
+        "auto_verified";
+
+      // Case 1: lens not listed → requires review
+      if (requiresReview) {
+        verificationStatus = "requires_review";
+      }
+
+      // Case 2: OCR mismatch (only if we have OCR + selected lens)
+      else if (mode === "ocr" && proposedLensId) {
+        const rightMismatch = rightcoreId && rightcoreId !== proposedLensId;
+
+        const leftMismatch = leftcoreId && leftcoreId !== proposedLensId;
+
+        if (rightMismatch || leftMismatch) {
+          verificationStatus = "flagged";
+        }
+      }
+
       const rx: RxPayload & {
         patient_name?: string;
         prescriber_name?: string;
         prescriber_phone?: string;
         brand_confidence?: "high" | "medium" | "low" | "unknown";
         requires_review?: boolean;
+        verification_status?: "auto_verified" | "flagged" | "requires_review";
       } = { expires };
 
       if (mode === "ocr") {
         rx.brand_confidence = proposalConfidence ?? "unknown";
       }
 
-      if (requiresReview) {
+      rx.verification_status = verificationStatus;
+
+      if (verificationStatus === "requires_review") {
         rx.requires_review = true;
       }
 
