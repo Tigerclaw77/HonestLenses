@@ -85,10 +85,7 @@ function isRxData(value: unknown): value is RxData {
 
 function isFiniteNonNegativeInt(n: unknown): n is number {
   return (
-    typeof n === "number" &&
-    Number.isFinite(n) &&
-    Number.isInteger(n) &&
-    n >= 0
+    typeof n === "number" && Number.isFinite(n) && Number.isInteger(n) && n >= 0
   );
 }
 
@@ -133,7 +130,7 @@ function daysUntil(expires: string): number {
   const todayUTC = Date.UTC(
     now.getUTCFullYear(),
     now.getUTCMonth(),
-    now.getUTCDate()
+    now.getUTCDate(),
   );
 
   return Math.floor((expUTC - todayUTC) / MS_PER_DAY);
@@ -166,7 +163,8 @@ export async function POST(req: Request) {
 
   let query = supabaseServer
     .from("orders")
-    .select(`
+    .select(
+      `
       id,
       user_id,
       status,
@@ -175,8 +173,10 @@ export async function POST(req: Request) {
       right_box_count,
       left_box_count,
       brand_confidence,
+      verification_status,
       created_at
-    `)
+    `,
+    )
     .eq("user_id", user.id)
     .eq("status", "draft");
 
@@ -201,7 +201,7 @@ export async function POST(req: Request) {
   if (!order) {
     return NextResponse.json(
       { error: "No active draft order." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -210,24 +210,28 @@ export async function POST(req: Request) {
   ========================= */
 
   if (!isRxData(order.rx)) {
-    return NextResponse.json(
-      { error: "Order missing RX." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Order missing RX." }, { status: 400 });
   }
 
   const rx = order.rx;
 
-  const coreId =
-    rx.right?.coreId ??
-    rx.left?.coreId ??
-    null;
+  /* =========================
+   AUTO VERIFICATION GATE
+========================= */
+
+  if (order.verification_status !== "auto_verified") {
+    console.log("🚫 BLOCKED: verification_status =", order.verification_status);
+
+    return NextResponse.json(
+      { error: "Order requires verification before proceeding." },
+      { status: 400 },
+    );
+  }
+
+  const coreId = rx.right?.coreId ?? rx.left?.coreId ?? null;
 
   if (!coreId) {
-    return NextResponse.json(
-      { error: "Missing coreId." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Missing coreId." }, { status: 400 });
   }
 
   /* =========================
@@ -239,7 +243,7 @@ export async function POST(req: Request) {
   if (remainingDays < 0) {
     return NextResponse.json(
       { error: "Prescription expired." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -247,10 +251,7 @@ export async function POST(req: Request) {
 
   const resolvedSku = resolveDefaultSku(coreId, targetMonths);
   if (!resolvedSku) {
-    return NextResponse.json(
-      { error: "No SKU found." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "No SKU found." }, { status: 400 });
   }
 
   const durationMonths = getSkuBoxDurationMonths(resolvedSku);
