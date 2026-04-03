@@ -1094,13 +1094,19 @@ export default function RxForm({
                   }}
                 >
                   <option value="">Select lens</option>
-                  {lenses.map((l) => (
+                  {(mode === "ocr" && proposedLensId
+                    ? lenses.filter((l) =>
+                        isLensFamilyMatch(l.coreId, proposedLensId),
+                      )
+                    : lenses
+                  ).map((l) => (
                     <option key={l.coreId} value={l.coreId}>
                       {getLensDisplayName(l.coreId, null)}
                     </option>
                   ))}
 
-                  <option value={NOT_LISTED_VALUE}>My lens isn’t listed</option>
+                  <option disabled>────────────</option>
+                  <option value="__NOT_LISTED__">My lens isn’t listed</option>
                 </select>
 
                 {rightLensNotListed ? (
@@ -1430,7 +1436,12 @@ export default function RxForm({
                   }}
                 >
                   <option value="">Select lens</option>
-                  {lenses.map((l) => (
+                  {(mode === "ocr" && proposedLensId
+                    ? lenses.filter((l) =>
+                        isLensFamilyMatch(l.coreId, proposedLensId),
+                      )
+                    : lenses
+                  ).map((l) => (
                     <option key={l.coreId} value={l.coreId}>
                       {getLensDisplayName(l.coreId, null)}
                     </option>
