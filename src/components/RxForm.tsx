@@ -21,7 +21,6 @@ import { resolveCylinderOptions } from "@/LensCore/helpers/resolveCylinderOption
 import {
   formatBC,
   formatHundredths,
-  // AXIS_OPTIONS,
   isEyeTouched,
   isValidFutureExpiration,
 } from "./RxFormUtils";
@@ -53,6 +52,7 @@ type EyeRx = {
   axis?: number;
   add?: string;
   base_curve?: number;
+  color?: string;
 };
 
 type RxPayload = {
@@ -93,16 +93,31 @@ type Props = {
 ========================= */
 
 const LS_RX_DRAFT = "hl_rx_draft_v1";
+const NOT_LISTED_VALUE = "__NOT_LISTED__";
 
 function validateEye(
   d: EyeRxDraft,
   lensObj: LensCore | undefined,
   colorOptions: string[],
+  lensNotListed = false,
 ): EyeFieldErrorMap | null {
-  if (!(d.coreId || d.sph || d.cyl || d.axis || d.add || d.bc || d.color))
+  if (!(d.coreId || d.sph || d.cyl || d.axis || d.add || d.bc || d.color)) {
     return null;
+  }
 
   const e: EyeFieldErrorMap = {};
+
+  if (lensNotListed) {
+    if (!d.sph) e.sph = true;
+
+    const hasCyl = Boolean(d.cyl);
+    const hasAxis = Boolean(d.axis);
+
+    if (hasCyl && !hasAxis) e.axis = true;
+    if (hasAxis && !hasCyl) e.cyl = true;
+
+    return Object.keys(e).length ? e : null;
+  }
 
   if (!d.coreId || !lensObj) e.lens = true;
   if (!d.sph) e.sph = true;
@@ -148,7 +163,6 @@ export default function RxForm({
 
   const [loading, setLoading] = useState(false);
   const [hydrated, setHydrated] = useState(false);
-
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({});
 
   /* =========================
@@ -161,6 +175,7 @@ export default function RxForm({
   const [rightAdd, setRightAdd] = useState("");
   const [rightColor, setRightColor] = useState("");
   const [rightBC, setRightBC] = useState("");
+  const [rightLensNotListed, setRightLensNotListed] = useState(false);
 
   /* =========================
      State – Left Eye
@@ -172,46 +187,25 @@ export default function RxForm({
   const [leftAdd, setLeftAdd] = useState("");
   const [leftColor, setLeftColor] = useState("");
   const [leftBC, setLeftBC] = useState("");
+  const [leftLensNotListed, setLeftLensNotListed] = useState(false);
 
   const [expires, setExpires] = useState("");
 
   const proposedLensId = ocrExtract?.proposedLensId ?? null;
-  const hasProposal = Boolean(proposedLensId);
-
   const proposalConfidence =
     mode === "ocr" ? (ocrExtract?.proposalConfidence ?? null) : null;
 
-  // Gate: user must acknowledge detected lens before editing Rx values (OCR mode only)
-  const [proposalAck, setProposalAck] = useState<boolean>(mode !== "ocr");
-
-  // Instead of showLensDropdown: track whether we are using the proposed lens (hides dropdown)
-  const [useProposedLens, setUseProposedLens] = useState<boolean>(() => {
-    if (mode !== "ocr") return false;
-    return Boolean(proposedLensId);
-  });
-
   const [ocrError, setOcrError] = useState(false);
 
-  const locked = mode === "ocr" && hasProposal && !proposalAck;
-
-  // Derived “should show dropdown” (manual always shows; OCR shows when user chose manual OR no proposal)
-  const showLensDropdown = mode !== "ocr" || !hasProposal || !useProposedLens;
-
-  // Lens card state machine (OCR mode only)
-  const lensCardState: "error" | "suggested" | "manual" | "confirmed" =
-    ocrError || !hasProposal
+  const lensCardState: "error" | "suggested" | "manual" =
+    ocrError || !proposedLensId
       ? "error"
-      : proposalConfidence === "high" && !proposalAck
+      : proposalConfidence === "high"
         ? "suggested"
-        : proposalConfidence === "high" && proposalAck && useProposedLens
-          ? "confirmed"
-          : proposalConfidence === "medium"
-            ? "manual"
-            : proposalConfidence === "low"
-              ? "error"
-              : "manual";
+        : proposalConfidence === "medium"
+          ? "manual"
+          : "error";
 
-  // OCR-only meta (does not exist for manual entry)
   const [patientName, setPatientName] = useState(
     mode === "ocr" ? (ocrExtract?.patientName ?? "") : "",
   );
@@ -221,8 +215,6 @@ export default function RxForm({
   const [doctorPhone, setDoctorPhone] = useState(
     mode === "ocr" ? (ocrExtract?.doctorPhone ?? "") : "",
   );
-
-  const [confirmGlow, setConfirmGlow] = useState(false);
 
   const rightLens = lenses.find((l) => l.coreId === rightcoreId);
   const leftLens = lenses.find((l) => l.coreId === leftcoreId);
@@ -261,23 +253,6 @@ export default function RxForm({
     return getColorOptions(leftLens.coreId);
   }, [leftLens]);
 
-  /* =========================
-     CYL (LensCore-driven)
-     Source of truth: lens.parameters.toric.groups[].cylinders
-  ========================= */
-
-  // const rightCylOptions = useMemo(() => {
-  //   if (!rightLens?.type.toric) return [];
-  //   const groups = rightLens.parameters.toric?.groups ?? [];
-  //   const set = new Set<number>();
-
-  //   for (const g of groups) {
-  //     for (const c of g.cylinders) set.add(c);
-  //   }
-
-  //   return Array.from(set).sort((a, b) => a - b);
-  // }, [rightLens]);
-
   const rightCylOptions = useMemo(() => {
     if (!rightLens?.type.toric) return [];
 
@@ -287,18 +262,6 @@ export default function RxForm({
     return resolveCylinderOptions(rightLens, axis, sph);
   }, [rightLens, rightAxis, rightSph]);
 
-  // const leftCylOptions = useMemo(() => {
-  //   if (!leftLens?.type.toric) return [];
-  //   const groups = leftLens.parameters.toric?.groups ?? [];
-  //   const set = new Set<number>();
-
-  //   for (const g of groups) {
-  //     for (const c of g.cylinders) set.add(c);
-  //   }
-
-  //   return Array.from(set).sort((a, b) => a - b);
-  // }, [leftLens]);
-
   const leftCylOptions = useMemo(() => {
     if (!leftLens?.type.toric) return [];
 
@@ -307,10 +270,6 @@ export default function RxForm({
 
     return resolveCylinderOptions(leftLens, axis, sph);
   }, [leftLens, leftAxis, leftSph]);
-
-  /* =========================
-   AXIS (LensCore-driven)
-========================= */
 
   const rightAxisOptions = useMemo(() => {
     if (!rightLens?.type.toric) return [];
@@ -376,6 +335,7 @@ export default function RxForm({
     setRightAdd(d.right.add);
     setRightBC(d.right.bc);
     setRightColor(d.right.color);
+    setRightLensNotListed(false);
 
     setLeftcoreId(d.left.coreId);
     setLeftSph(d.left.sph);
@@ -384,6 +344,7 @@ export default function RxForm({
     setLeftAdd(d.left.add);
     setLeftBC(d.left.bc);
     setLeftColor(d.left.color);
+    setLeftLensNotListed(false);
 
     setExpires(d.expires);
   }, []);
@@ -403,7 +364,6 @@ export default function RxForm({
     try {
       const parsed: RxDraft = JSON.parse(raw);
 
-      /* Showroom selections override draft */
       if (initialRightLens) {
         parsed.right.coreId = initialRightLens;
       }
@@ -443,40 +403,52 @@ export default function RxForm({
 
     if (noSphereDetected) {
       setOcrError(true);
-      setProposalAck(true);
-      setUseProposedLens(false); // force dropdown (manual pick)
     } else {
-      // Normal OCR path: if we have proposal, default to using it; else force manual
       setOcrError(false);
-      setUseProposedLens(Boolean(proposedLensId));
-      setProposalAck(!Boolean(proposedLensId));
+
+      if (proposedLensId && proposalConfidence !== "low") {
+        if (!initialDraft.right.coreId) setRightcoreId(proposedLensId);
+        if (!initialDraft.left.coreId) setLeftcoreId(proposedLensId);
+      }
     }
 
-    // meta from OCR
+    setRightLensNotListed(false);
+    setLeftLensNotListed(false);
+
     setPatientName(ocrExtract?.patientName ?? "");
     setDoctorName(ocrExtract?.doctorName ?? "");
     setDoctorPhone(ocrExtract?.doctorPhone ?? "");
 
     setHydrated(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, initialDraft, applyDraft]);
+  }, [
+    mode,
+    initialDraft,
+    applyDraft,
+    ocrExtract,
+    proposedLensId,
+    proposalConfidence,
+  ]);
 
   function resetToOcr() {
     if (mode !== "ocr" || !initialDraft) return;
 
-    const extract = ocrExtract;
-
     applyDraft(initialDraft);
 
-    setPatientName(extract?.patientName ?? "");
-    setDoctorName(extract?.doctorName ?? "");
-    setDoctorPhone(extract?.doctorPhone ?? "");
+    if (proposedLensId && proposalConfidence !== "low") {
+      if (!initialDraft.right.coreId) setRightcoreId(proposedLensId);
+      if (!initialDraft.left.coreId) setLeftcoreId(proposedLensId);
+    }
 
-    const hasProp = Boolean(extract?.proposedLensId);
+    setRightLensNotListed(false);
+    setLeftLensNotListed(false);
 
-    setOcrError(false);
-    setProposalAck(!hasProp);
-    setUseProposedLens(hasProp);
+    setPatientName(ocrExtract?.patientName ?? "");
+    setDoctorName(ocrExtract?.doctorName ?? "");
+    setDoctorPhone(ocrExtract?.doctorPhone ?? "");
+
+    const noSphereDetected =
+      !initialDraft?.right?.sph && !initialDraft?.left?.sph;
+    setOcrError(noSphereDetected);
 
     setFieldErrors({});
   }
@@ -615,10 +587,20 @@ export default function RxForm({
       map.expires = true;
     }
 
-    const rErr = validateEye(rightDraft, rightLens, rightColorOptions);
+    const rErr = validateEye(
+      rightDraft,
+      rightLens,
+      rightColorOptions,
+      rightLensNotListed,
+    );
     if (rErr) map.right = rErr;
 
-    const lErr = validateEye(leftDraft, leftLens, leftColorOptions);
+    const lErr = validateEye(
+      leftDraft,
+      leftLens,
+      leftColorOptions,
+      leftLensNotListed,
+    );
     if (lErr) map.left = lErr;
 
     return map;
@@ -642,6 +624,8 @@ export default function RxForm({
     leftLens,
     rightColorOptions,
     leftColorOptions,
+    rightLensNotListed,
+    leftLensNotListed,
   ]);
 
   /* =========================
@@ -650,13 +634,6 @@ export default function RxForm({
 
   async function submitRx() {
     if (loading) return;
-
-    if (locked) {
-      alert(
-        "Please confirm the detected lens (or mark it incorrect) before continuing.",
-      );
-      return;
-    }
 
     const map = validateAll();
     setFieldErrors(map);
@@ -708,18 +685,6 @@ export default function RxForm({
         accessToken = "dev-local-token";
       }
 
-      // if (!accessToken) {
-      //   const next = window.location.pathname + window.location.search;
-      //   router.replace(`/login?next=${encodeURIComponent(next)}`);
-      //   return;
-      // }
-
-      // if (!session) {
-      //   const next = window.location.pathname + window.location.search;
-      //   router.replace(`/login?next=${encodeURIComponent(next)}`);
-      //   return;
-      // }
-
       if (!accessToken) {
         const next = window.location.pathname + window.location.search;
         router.replace(`/login?next=${encodeURIComponent(next)}`);
@@ -730,43 +695,74 @@ export default function RxForm({
       const finalOrderId = await getOrCreateDraftOrder(accessToken);
       console.log("STEP 2: draft order id =", finalOrderId);
 
+      const requiresReview = rightLensNotListed || leftLensNotListed;
+
       const rx: RxPayload & {
         patient_name?: string;
         prescriber_name?: string;
         prescriber_phone?: string;
         brand_confidence?: "high" | "medium" | "low" | "unknown";
+        requires_review?: boolean;
       } = { expires };
 
       if (mode === "ocr") {
         rx.brand_confidence = proposalConfidence ?? "unknown";
       }
 
-      if (rightTouched && rightLens) {
-        rx.right = {
-          coreId: rightcoreId,
-          sphere: Number(rightSph),
-          ...(rightLens.type.toric && {
-            cylinder: Number(rightCyl),
-            axis: Number(rightAxis),
-          }),
-          ...(rightLens.type.multifocal && rightAdd && { add: rightAdd }),
-          ...(rightBC && { base_curve: Number(rightBC) }),
-          ...(rightColor && { color: rightColor }),
-        };
+      if (requiresReview) {
+        rx.requires_review = true;
       }
 
-      if (leftTouched && leftLens) {
-        rx.left = {
-          coreId: leftcoreId,
-          sphere: Number(leftSph),
-          ...(leftLens.type.toric && {
-            cylinder: Number(leftCyl),
-            axis: Number(leftAxis),
-          }),
-          ...(leftLens.type.multifocal && leftAdd && { add: leftAdd }),
-          ...(leftBC && { base_curve: Number(leftBC) }),
-          ...(leftColor && { color: leftColor }),
-        };
+      if (rightTouched) {
+        if (rightLensNotListed) {
+          rx.right = {
+            coreId: null,
+            sphere: Number(rightSph),
+            ...(rightCyl && { cylinder: Number(rightCyl) }),
+            ...(rightAxis && { axis: Number(rightAxis) }),
+            ...(rightAdd && { add: rightAdd }),
+            ...(rightBC && { base_curve: Number(rightBC) }),
+            ...(rightColor && { color: rightColor }),
+          };
+        } else if (rightLens) {
+          rx.right = {
+            coreId: rightcoreId,
+            sphere: Number(rightSph),
+            ...(rightLens.type.toric && {
+              cylinder: Number(rightCyl),
+              axis: Number(rightAxis),
+            }),
+            ...(rightLens.type.multifocal && rightAdd && { add: rightAdd }),
+            ...(rightBC && { base_curve: Number(rightBC) }),
+            ...(rightColor && { color: rightColor }),
+          };
+        }
+      }
+
+      if (leftTouched) {
+        if (leftLensNotListed) {
+          rx.left = {
+            coreId: null,
+            sphere: Number(leftSph),
+            ...(leftCyl && { cylinder: Number(leftCyl) }),
+            ...(leftAxis && { axis: Number(leftAxis) }),
+            ...(leftAdd && { add: leftAdd }),
+            ...(leftBC && { base_curve: Number(leftBC) }),
+            ...(leftColor && { color: leftColor }),
+          };
+        } else if (leftLens) {
+          rx.left = {
+            coreId: leftcoreId,
+            sphere: Number(leftSph),
+            ...(leftLens.type.toric && {
+              cylinder: Number(leftCyl),
+              axis: Number(leftAxis),
+            }),
+            ...(leftLens.type.multifocal && leftAdd && { add: leftAdd }),
+            ...(leftBC && { base_curve: Number(leftBC) }),
+            ...(leftColor && { color: leftColor }),
+          };
+        }
       }
 
       if (mode === "ocr") {
@@ -774,6 +770,7 @@ export default function RxForm({
         rx.prescriber_name = doctorName || undefined;
         rx.prescriber_phone = doctorPhone || undefined;
       }
+
       console.log("STEP 3: posting RX");
 
       const rxRes = await fetch(`/api/orders/${finalOrderId}/rx`, {
@@ -789,13 +786,23 @@ export default function RxForm({
       let rxBody: unknown = null;
       try {
         rxBody = await rxRes.json();
-      } catch {}
+      } catch {
+        // ignore
+      }
 
       if (!rxRes.ok) {
         if (rxBody && typeof rxBody === "object" && "error" in rxBody) {
           throw new Error(String((rxBody as { error: unknown }).error));
         }
         throw new Error("Prescription submission failed");
+      }
+
+      if (requiresReview) {
+        alert(
+          "Your prescription was saved. We couldn't match your lens automatically, so we'll review the prescription on file and assist you manually.",
+        );
+        router.push("/");
+        return;
       }
 
       console.log("STEP 4: resolving cart");
@@ -813,7 +820,9 @@ export default function RxForm({
       let resolveBody: unknown = null;
       try {
         resolveBody = await resolveRes.json();
-      } catch {}
+      } catch {
+        // ignore
+      }
 
       if (!resolveRes.ok) {
         if (
@@ -836,9 +845,16 @@ export default function RxForm({
   }
 
   function copyRightToLeft() {
-    if (!rightcoreId) return;
+    if (!rightcoreId && !rightLensNotListed) return;
 
-    setLeftcoreId(rightcoreId);
+    if (rightLensNotListed) {
+      setLeftLensNotListed(true);
+      setLeftcoreId("");
+    } else {
+      setLeftLensNotListed(false);
+      setLeftcoreId(rightcoreId);
+    }
+
     setLeftSph(rightSph);
     setLeftCyl(rightCyl);
     setLeftAxis(rightAxis);
@@ -848,268 +864,263 @@ export default function RxForm({
   }
 
   function copyLeftToRight() {
-    if (!leftcoreId) return;
+    if (!leftcoreId && !leftLensNotListed) return;
 
-    setRightcoreId(leftcoreId);
+    if (leftLensNotListed) {
+      setRightLensNotListed(true);
+      setRightcoreId("");
+    } else {
+      setRightLensNotListed(false);
+      setRightcoreId(leftcoreId);
+    }
+
     setRightSph(leftSph);
     setRightCyl(leftCyl);
     setRightAxis(leftAxis);
     setRightAdd(leftAdd);
-    setRightBC(rightBC);
+    setRightBC(leftBC);
     setRightColor(leftColor);
   }
 
-  /* =========================
-     Render
-  ========================= */
   if (!hydrated) {
     return null;
   }
 
   return (
-    <>
-      <main>
-        <section className="content-shell">
-          <h1 className="upper content-title">
-            {mode === "ocr"
-              ? "Confirm Your Prescription"
-              : "Enter Prescription"}
-          </h1>
+    <main>
+      <section className="content-shell">
+        <h1 className="upper content-title">
+          {mode === "ocr" ? "Confirm Your Prescription" : "Enter Prescription"}
+        </h1>
 
-          {mode === "ocr" && (
+        {mode === "ocr" && (
+          <div
+            className="order-card rx-meta-section"
+            style={{ marginBottom: 16 }}
+          >
+            <h3 style={{ marginBottom: 12 }}>Scanned prescription details</h3>
+
             <div
-              className="order-card rx-meta-section"
-              style={{ marginBottom: 16 }}
+              style={{
+                fontSize: "0.95rem",
+                fontWeight: 400,
+                letterSpacing: "0.4px",
+              }}
+              className={`order-card detected-lens-card ${lensCardState}`}
             >
-              <h3 style={{ marginBottom: 12 }}>Scanned prescription details</h3>
-
-              <div
-                style={{
-                  fontSize: "0.95rem",
-                  fontWeight: 400,
-                  letterSpacing: "0.4px",
-                }}
-                className={`order-card detected-lens-card ${lensCardState} ${
-                  confirmGlow ? "pulse-confirm" : ""
-                }`}
-              >
-                {proposedLensId && lensCardState === "suggested" && (
-                  <div className="proposal-row">
-                    <div className="proposal-meta">
-                      <div className="proposal-label">Detected lens</div>
-                      <div className="proposal-name">
-                        {getLensDisplayName(proposedLensId, null)}
-                      </div>
-                    </div>
-
-                    <div className="proposal-actions">
-                      <button
-                        type="button"
-                        className="proposal-confirm"
-                        onClick={() => {
-                          setConfirmGlow(true);
-                          setProposalAck(true);
-                          setUseProposedLens(true);
-
-                          setTimeout(() => {
-                            setConfirmGlow(false);
-                          }, 900);
-                        }}
-                      >
-                        Use this lens
-                      </button>
-
-                      <button
-                        type="button"
-                        className="proposal-change"
-                        onClick={() => {
-                          setConfirmGlow(false);
-                          setProposalAck(true);
-                          setUseProposedLens(false);
-                        }}
-                      >
-                        Select different lens
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {lensCardState === "confirmed" && (
-                  <div className="rx-hint mt-2">
-                    <span
-                      style={{
-                        fontSize: "0.95rem",
-                        fontWeight: 600,
-                        letterSpacing: "0.25px",
-                      }}
-                    >
-                      ✓ Lens brand confirmed
-                    </span>
-                  </div>
-                )}
-
-                {lensCardState === "manual" && (
-                  <div className="rx-hint mt-2">
-                    <span style={{ fontSize: "0.9rem", fontWeight: 500 }}>
-                      Please select the lens brand exactly as written on your
-                      prescription below. A licensed optometrist will review the
-                      selection before shipping.
-                    </span>
-                  </div>
-                )}
-
-                {lensCardState === "error" && (
-                  <div className="rx-hint mt-2">
-                    <span
-                      style={{
-                        fontSize: "0.95rem",
-                        fontWeight: 400,
-                        letterSpacing: "0.25px",
-                      }}
-                    >
-                      We couldn’t confidently extract prescription values from
-                      the uploaded image. Please enter them manually below. A
-                      licensed optometrist will verify before shipping.
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div className="rx-meta-grid" style={{ marginBottom: 12 }}>
-                <div className="rx-field">
-                  <label className="rx-label">Patient name</label>
-                  <input
-                    className="rx-input"
-                    value={patientName}
-                    onChange={(e) => setPatientName(e.target.value)}
-                    placeholder="Patient name"
-                  />
+              {proposedLensId && lensCardState === "suggested" && (
+                <div className="rx-hint mt-2">
+                  <span style={{ fontSize: "0.95rem", fontWeight: 600 }}>
+                    ✓ Detected lens: {getLensDisplayName(proposedLensId, null)}
+                  </span>
                 </div>
-
-                <div className="rx-field">
-                  <label className="rx-label">Prescriber name</label>
-                  <input
-                    className="rx-input"
-                    value={doctorName}
-                    onChange={(e) => setDoctorName(e.target.value)}
-                    placeholder="Doctor name"
-                  />
-                </div>
-
-                <div className="rx-field">
-                  <label className="rx-label">Doctor phone</label>
-                  <input
-                    className="rx-input"
-                    value={doctorPhone}
-                    onChange={(e) => setDoctorPhone(e.target.value)}
-                    placeholder="(###) ###-####"
-                  />
-                </div>
-              </div>
-
-              {!ocrError && (
-                <button
-                  type="button"
-                  className="reset-link"
-                  onClick={resetToOcr}
-                >
-                  Reset to scanned values
-                </button>
               )}
+
+              {lensCardState === "manual" && (
+                <div className="rx-hint mt-2">
+                  <span style={{ fontSize: "0.9rem", fontWeight: 500 }}>
+                    We found a possible match. Please review the lens brand and
+                    prescription values below before continuing.
+                  </span>
+                </div>
+              )}
+
+              {lensCardState === "error" && (
+                <div className="rx-hint mt-2">
+                  <span
+                    style={{
+                      fontSize: "0.95rem",
+                      fontWeight: 400,
+                      letterSpacing: "0.25px",
+                    }}
+                  >
+                    We couldn’t confidently extract prescription values from the
+                    uploaded image. Please enter them manually below. A licensed
+                    optometrist will verify before shipping.
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="rx-meta-grid" style={{ marginBottom: 12 }}>
+              <div className="rx-field">
+                <label className="rx-label">Patient name</label>
+                <input
+                  className="rx-input"
+                  value={patientName}
+                  onChange={(e) => setPatientName(e.target.value)}
+                  placeholder="Patient name"
+                />
+              </div>
+
+              <div className="rx-field">
+                <label className="rx-label">Prescriber name</label>
+                <input
+                  className="rx-input"
+                  value={doctorName}
+                  onChange={(e) => setDoctorName(e.target.value)}
+                  placeholder="Doctor name"
+                />
+              </div>
+
+              <div className="rx-field">
+                <label className="rx-label">Doctor phone</label>
+                <input
+                  className="rx-input"
+                  value={doctorPhone}
+                  onChange={(e) => setDoctorPhone(e.target.value)}
+                  placeholder="(###) ###-####"
+                />
+              </div>
+            </div>
+
+            {!ocrError && (
+              <button type="button" className="reset-link" onClick={resetToOcr}>
+                Reset to scanned values
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="order-card">
+          {fieldErrors.noneEntered && (
+            <div className="rx-eye-error">
+              Please enter a prescription for at least one eye.
             </div>
           )}
 
-          <div className="order-card">
-            {fieldErrors.noneEntered && (
-              <div className="rx-eye-error">
-                Please enter a prescription for at least one eye.
-              </div>
+          {/* ===== RIGHT EYE ===== */}
+          <div className="rx-eye-header">
+            <h3 className="rx-eye-title">Right Eye (OD)</h3>
+
+            {(mode === "manual" || lensCardState === "error") && (
+              <button
+                type="button"
+                className="copy-eye-btn"
+                disabled={!rightcoreId && !rightLensNotListed}
+                onClick={copyRightToLeft}
+              >
+                Copy to left eye
+              </button>
             )}
+          </div>
 
-            {/* ===== RIGHT EYE ===== */}
-            <div className="rx-eye-header">
-              <h3 className="rx-eye-title">Right Eye (OD)</h3>
-
-              {(mode === "manual" || lensCardState === "error") && (
-                <button
-                  type="button"
-                  className="copy-eye-btn"
-                  disabled={!rightcoreId}
-                  onClick={copyRightToLeft}
-                >
-                  Copy to left eye
-                </button>
-              )}
+          {eyeHasErrors("right") && (
+            <div className="rx-eye-error">
+              Please complete the highlighted fields.
             </div>
+          )}
 
-            {eyeHasErrors("right") && (
-              <div className="rx-eye-error">
-                Please complete the highlighted fields.
+          <div className="rx-eye">
+            <div className="rx-grid">
+              <div className="rx-field">
+                {mode === "ocr" ? (
+                  <label className="rx-label">
+                    Select the exact lens written on your prescription
+                  </label>
+                ) : (
+                  <EmptyLabel />
+                )}
+
+                <select
+                  className={cls("lens-select", fieldErrors.right?.lens)}
+                  value={rightLensNotListed ? NOT_LISTED_VALUE : rightcoreId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+
+                    if (val === NOT_LISTED_VALUE) {
+                      setRightcoreId("");
+                      setRightLensNotListed(true);
+                    } else {
+                      setRightcoreId(val);
+                      setRightLensNotListed(false);
+                    }
+                  }}
+                >
+                  <option value="">Select lens</option>
+                  {lenses.map((l) => (
+                    <option key={l.coreId} value={l.coreId}>
+                      {getLensDisplayName(l.coreId, null)}
+                    </option>
+                  ))}
+
+                  <option value={NOT_LISTED_VALUE}>My lens isn’t listed</option>
+                </select>
+
+                {rightLensNotListed ? (
+                  <div className="rx-hint">
+                    We’ll review the prescription you uploaded and assist
+                    manually if this lens isn’t in our catalog yet.
+                  </div>
+                ) : (
+                  mode === "ocr" &&
+                  proposalConfidence === "high" &&
+                  proposedLensId && (
+                    <div className="rx-hint">
+                      Detected from your prescription.
+                    </div>
+                  )
+                )}
               </div>
-            )}
 
-            <div
-              className="rx-eye"
-              style={locked ? { pointerEvents: "none" } : undefined}
-            >
-              <div className="rx-grid">
-                {/* ===== LENS ===== */}
-                <div className="rx-field">
-                  {mode === "ocr" && showLensDropdown ? (
-                    <label className="rx-label">
-                      Select the exact lens written on your prescription
-                    </label>
-                  ) : (
-                    <EmptyLabel />
-                  )}
+              <div className="rx-field">
+                <EmptyLabel />
+                <select
+                  className={cls("rx-select", fieldErrors.right?.sph)}
+                  value={rightSph}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setRightSph(v);
 
-                  {mode !== "ocr" || showLensDropdown ? (
-                    <select
-                      className={cls("lens-select", fieldErrors.right?.lens)}
-                      value={rightcoreId}
-                      onChange={(e) => setRightcoreId(e.target.value)}
-                    >
-                      <option value="">Select lens</option>
-                      {lenses.map((l) => (
-                        <option key={l.coreId} value={l.coreId}>
-                          {getLensDisplayName(l.coreId, null)}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <>
-                      <input
-                        className="rx-input"
-                        value={
-                          rightcoreId
-                            ? getLensDisplayName(rightcoreId, null)
-                            : ""
-                        }
-                        disabled
-                      />
-                      <EmptyHint />
-                    </>
-                  )}
-                </div>
+                    const nextSph = v ? Number(v) : null;
 
-                {/* ===== SPHERE ===== */}
+                    const nextAxisOptions = rightLens
+                      ? resolveAxisOptions(
+                          rightLens,
+                          rightCyl ? Number(rightCyl) : null,
+                          nextSph,
+                        )
+                      : [];
+
+                    if (
+                      rightAxis &&
+                      nextAxisOptions.length &&
+                      !nextAxisOptions.includes(Number(rightAxis))
+                    ) {
+                      setRightAxis("");
+                    }
+                  }}
+                >
+                  <option value="">SPH</option>
+                  {rightSphereOptions.map((v) => {
+                    const str = formatSphere(v);
+                    return (
+                      <option key={v} value={str}>
+                        {str}
+                      </option>
+                    );
+                  })}
+                </select>
+                <div className="rx-hint">{PLANO_HINT}</div>
+              </div>
+
+              {rightLens?.type.toric && (
                 <div className="rx-field">
                   <EmptyLabel />
                   <select
-                    className={cls("rx-select", fieldErrors.right?.sph)}
-                    value={rightSph}
-                    disabled={mode === "ocr" && !proposalAck}
+                    className={cls("rx-select", fieldErrors.right?.cyl)}
+                    value={rightCyl}
                     onChange={(e) => {
                       const v = e.target.value;
-                      setRightSph(v);
+                      setRightCyl(v);
 
-                      const nextSph = v ? Number(v) : null;
+                      const nextCyl = v ? Number(v) : null;
 
                       const nextAxisOptions = rightLens
                         ? resolveAxisOptions(
                             rightLens,
-                            rightCyl ? Number(rightCyl) : null,
-                            nextSph,
+                            nextCyl,
+                            rightSph ? Number(rightSph) : null,
                           )
                         : [];
 
@@ -1120,335 +1131,332 @@ export default function RxForm({
                       ) {
                         setRightAxis("");
                       }
+
+                      const nextSphereOptions = rightLens
+                        ? resolveSphereOptions(
+                            rightLens,
+                            rightBC ? Number(rightBC) : null,
+                            nextCyl,
+                            rightAxis ? Number(rightAxis) : null,
+                            rightAdd ?? null,
+                          )
+                        : [];
+
+                      if (
+                        rightSph &&
+                        nextSphereOptions.length &&
+                        !nextSphereOptions.includes(Number(rightSph))
+                      ) {
+                        setRightSph("");
+                      }
                     }}
                   >
-                    <option value="">SPH</option>
-                    {rightSphereOptions.map((v) => {
-                      const str = formatSphere(v);
-                      return (
-                        <option key={v} value={str}>
-                          {str}
-                        </option>
-                      );
-                    })}
+                    <option value="">CYL</option>
+                    {rightCylOptions.map((v) => (
+                      <option key={v} value={formatHundredths(v)}>
+                        {formatHundredths(v)}
+                      </option>
+                    ))}
                   </select>
-                  <div className="rx-hint">
-                    {mode === "ocr" && !proposalAck
-                      ? "Confirm detected lens before editing values."
-                      : PLANO_HINT}
-                  </div>
+                  <EmptyHint />
                 </div>
-
-                {/* ===== CYL ===== */}
-                {rightLens?.type.toric && (
-                  <div className="rx-field">
-                    <EmptyLabel />
-                    <select
-                      className={cls("rx-select", fieldErrors.right?.cyl)}
-                      value={rightCyl}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setRightCyl(v);
-
-                        const nextCyl = v ? Number(v) : null;
-
-                        const nextAxisOptions = rightLens
-                          ? resolveAxisOptions(
-                              rightLens,
-                              nextCyl,
-                              rightSph ? Number(rightSph) : null,
-                            )
-                          : [];
-
-                        if (
-                          rightAxis &&
-                          nextAxisOptions.length &&
-                          !nextAxisOptions.includes(Number(rightAxis))
-                        ) {
-                          setRightAxis("");
-                        }
-
-                        const nextSphereOptions = rightLens
-                          ? resolveSphereOptions(
-                              rightLens,
-                              rightBC ? Number(rightBC) : null,
-                              nextCyl,
-                              rightAxis ? Number(rightAxis) : null,
-                              rightAdd ?? null,
-                            )
-                          : [];
-
-                        if (
-                          rightSph &&
-                          nextSphereOptions.length &&
-                          !nextSphereOptions.includes(Number(rightSph))
-                        ) {
-                          setRightSph("");
-                        }
-                      }}
-                    >
-                      <option value="">CYL</option>
-                      {rightCylOptions.map((v) => (
-                        <option key={v} value={formatHundredths(v)}>
-                          {formatHundredths(v)}
-                        </option>
-                      ))}
-                    </select>
-                    <EmptyHint />
-                  </div>
-                )}
-
-                {/* ===== AXIS ===== */}
-                {rightLens?.type.toric && (
-                  <div className="rx-field">
-                    <EmptyLabel />
-                    <select
-                      className={cls("rx-select", fieldErrors.right?.axis)}
-                      value={rightAxis}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setRightAxis(v);
-
-                        const nextAxis = v ? Number(v) : null;
-
-                        const nextCylOptions = rightLens
-                          ? resolveCylinderOptions(
-                              rightLens,
-                              nextAxis,
-                              rightSph ? Number(rightSph) : null,
-                            )
-                          : [];
-
-                        if (
-                          rightCyl &&
-                          nextCylOptions.length &&
-                          !nextCylOptions.includes(Number(rightCyl))
-                        ) {
-                          setRightCyl("");
-                        }
-
-                        const nextSphereOptions = rightLens
-                          ? resolveSphereOptions(
-                              rightLens,
-                              rightBC ? Number(rightBC) : null,
-                              rightCyl ? Number(rightCyl) : null,
-                              nextAxis,
-                              rightAdd ?? null,
-                            )
-                          : [];
-
-                        if (
-                          rightSph &&
-                          nextSphereOptions.length &&
-                          !nextSphereOptions.includes(Number(rightSph))
-                        ) {
-                          setRightSph("");
-                        }
-                      }}
-                    >
-                      <option value="">Axis</option>
-                      {rightAxisOptions.map((v) => (
-                        <option key={v} value={v}>
-                          {v}
-                        </option>
-                      ))}
-                    </select>
-                    <EmptyHint />
-                  </div>
-                )}
-
-                {/* ===== ADD ===== */}
-                {rightLens?.type.multifocal && (
-                  <div className="rx-field">
-                    <EmptyLabel />
-                    <div
-                      className={fieldErrors.right?.add ? "rx-error-wrap" : ""}
-                    >
-                      <AddSelector
-                        value={rightAdd ?? ""}
-                        onChange={(v) => setRightAdd(v)}
-                        options={resolveAddOptions(
-                          rightLens,
-                          rightBC ? Number(rightBC) : null,
-                          rightSph ? Number(rightSph) : null,
-                        )}
-                      />
-                    </div>
-                    <EmptyHint />
-                  </div>
-                )}
-
-                {/* ===== BC ===== */}
-                {rightLens &&
-                  (rightLens.parameters.baseCurve &&
-                  rightLens.parameters.baseCurve.length > 1 ? (
-                    <div className="rx-field">
-                      <EmptyLabel />
-                      <select
-                        className={cls("rx-select", fieldErrors.right?.bc)}
-                        value={rightBC}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setRightBC(v);
-                          const nextBC = v ? Number(v) : null;
-                          if (rightLens?.type.multifocal) {
-                            const nextAddOptions = resolveAddOptions(
-                              rightLens,
-                              nextBC,
-                              rightSph ? Number(rightSph) : null,
-                            );
-
-                            if (
-                              rightAdd &&
-                              !nextAddOptions.includes(rightAdd)
-                            ) {
-                              setRightAdd("");
-                            }
-                          }
-                        }}
-                      >
-                        <option value="">BC</option>
-                        {rightLens.parameters.baseCurve
-                          .filter((bc) => {
-                            if (!rightLens.type.multifocal) return true;
-
-                            if (!rightAdd) return bc !== 8.7;
-
-                            const isXRAdd = rightAdd.endsWith("N");
-
-                            if (!isXRAdd && bc === 8.7) return false;
-
-                            return true;
-                          })
-                          .map((bc) => (
-                            <option key={bc} value={formatBC(bc)}>
-                              {formatBC(bc)}
-                            </option>
-                          ))}
-                      </select>
-                      <EmptyHint />
-                    </div>
-                  ) : (
-                    <div className="rx-field">
-                      <EmptyLabel />
-                      <input
-                        className={cls("rx-input", fieldErrors.right?.bc)}
-                        value={
-                          rightLens.parameters.baseCurve?.[0]
-                            ? formatBC(rightLens.parameters.baseCurve[0])
-                            : ""
-                        }
-                        disabled
-                      />
-                      <EmptyHint />
-                    </div>
-                  ))}
-
-                {/* ===== COLOR ===== */}
-                {rightLens && rightColorOptions.length > 0 && (
-                  <div className="rx-field">
-                    <EmptyLabel />
-                    <div
-                      className={
-                        fieldErrors.right?.color ? "rx-error-wrap" : ""
-                      }
-                    >
-                      <ColorSelector
-                        value={rightColor}
-                        onChange={(v) => setRightColor(v)}
-                        options={rightColorOptions}
-                      />
-                    </div>
-                    <EmptyHint />
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="rx-divider" />
-
-            {/* ===== LEFT EYE ===== */}
-            <div className="rx-eye-header">
-              <h3 className="rx-eye-title">Left Eye (OS)</h3>
-
-              {(mode === "manual" || lensCardState === "error") && (
-                <button
-                  type="button"
-                  className="copy-eye-btn"
-                  disabled={!leftcoreId}
-                  onClick={copyLeftToRight}
-                >
-                  Copy to right eye
-                </button>
               )}
-            </div>
 
-            {eyeHasErrors("left") && (
-              <div className="rx-eye-error">
-                Please complete the highlighted fields.
-              </div>
-            )}
-
-            <div
-              className="rx-eye"
-              style={locked ? { pointerEvents: "none" } : undefined}
-            >
-              <div className="rx-grid">
-                {/* ===== LENS ===== */}
-                <div className="rx-field">
-                  {mode === "ocr" && showLensDropdown ? (
-                    <label className="rx-label">
-                      Select the exact lens written on your prescription
-                    </label>
-                  ) : (
-                    <EmptyLabel />
-                  )}
-
-                  {mode !== "ocr" || showLensDropdown ? (
-                    <select
-                      className={cls("lens-select", fieldErrors.left?.lens)}
-                      value={leftcoreId}
-                      onChange={(e) => setLeftcoreId(e.target.value)}
-                    >
-                      <option value="">Select lens</option>
-                      {lenses.map((l) => (
-                        <option key={l.coreId} value={l.coreId}>
-                          {getLensDisplayName(l.coreId, null)}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <>
-                      <input
-                        className="rx-input"
-                        value={
-                          leftcoreId ? getLensDisplayName(leftcoreId, null) : ""
-                        }
-                        disabled
-                      />
-                      <EmptyHint />
-                    </>
-                  )}
-                </div>
-
-                {/* ===== SPHERE ===== */}
+              {rightLens?.type.toric && (
                 <div className="rx-field">
                   <EmptyLabel />
                   <select
-                    className={cls("rx-select", fieldErrors.left?.sph)}
-                    value={leftSph}
-                    disabled={mode === "ocr" && !proposalAck}
+                    className={cls("rx-select", fieldErrors.right?.axis)}
+                    value={rightAxis}
                     onChange={(e) => {
                       const v = e.target.value;
-                      setLeftSph(v);
+                      setRightAxis(v);
 
-                      const nextSph = v ? Number(v) : null;
+                      const nextAxis = v ? Number(v) : null;
+
+                      const nextCylOptions = rightLens
+                        ? resolveCylinderOptions(
+                            rightLens,
+                            nextAxis,
+                            rightSph ? Number(rightSph) : null,
+                          )
+                        : [];
+
+                      if (
+                        rightCyl &&
+                        nextCylOptions.length &&
+                        !nextCylOptions.includes(Number(rightCyl))
+                      ) {
+                        setRightCyl("");
+                      }
+
+                      const nextSphereOptions = rightLens
+                        ? resolveSphereOptions(
+                            rightLens,
+                            rightBC ? Number(rightBC) : null,
+                            rightCyl ? Number(rightCyl) : null,
+                            nextAxis,
+                            rightAdd ?? null,
+                          )
+                        : [];
+
+                      if (
+                        rightSph &&
+                        nextSphereOptions.length &&
+                        !nextSphereOptions.includes(Number(rightSph))
+                      ) {
+                        setRightSph("");
+                      }
+                    }}
+                  >
+                    <option value="">Axis</option>
+                    {rightAxisOptions.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                  <EmptyHint />
+                </div>
+              )}
+
+              {rightLens?.type.multifocal && (
+                <div className="rx-field">
+                  <EmptyLabel />
+                  <div
+                    className={fieldErrors.right?.add ? "rx-error-wrap" : ""}
+                  >
+                    <AddSelector
+                      value={rightAdd ?? ""}
+                      onChange={(v) => setRightAdd(v)}
+                      options={resolveAddOptions(
+                        rightLens,
+                        rightBC ? Number(rightBC) : null,
+                        rightSph ? Number(rightSph) : null,
+                      )}
+                    />
+                  </div>
+                  <EmptyHint />
+                </div>
+              )}
+
+              {rightLens &&
+                rightLens.parameters.baseCurve &&
+                rightLens.parameters.baseCurve.length > 1 && (
+                  <div className="rx-field">
+                    <EmptyLabel />
+                    <select
+                      className={cls("rx-select", fieldErrors.right?.bc)}
+                      value={rightBC}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setRightBC(v);
+                        const nextBC = v ? Number(v) : null;
+
+                        if (rightLens?.type.multifocal) {
+                          const nextAddOptions = resolveAddOptions(
+                            rightLens,
+                            nextBC,
+                            rightSph ? Number(rightSph) : null,
+                          );
+
+                          if (rightAdd && !nextAddOptions.includes(rightAdd)) {
+                            setRightAdd("");
+                          }
+                        }
+                      }}
+                    >
+                      <option value="">BC</option>
+                      {rightLens.parameters.baseCurve
+                        .filter((bc) => {
+                          if (!rightLens.type.multifocal) return true;
+                          if (!rightAdd) return bc !== 8.7;
+
+                          const isXRAdd = rightAdd.endsWith("N");
+                          if (!isXRAdd && bc === 8.7) return false;
+
+                          return true;
+                        })
+                        .map((bc) => (
+                          <option key={bc} value={formatBC(bc)}>
+                            {formatBC(bc)}
+                          </option>
+                        ))}
+                    </select>
+                    <EmptyHint />
+                  </div>
+                )}
+
+              {rightLens &&
+                rightLens.parameters.baseCurve &&
+                rightLens.parameters.baseCurve.length === 1 && (
+                  <div className="rx-field">
+                    <EmptyLabel />
+                    <input
+                      className={cls("rx-input", fieldErrors.right?.bc)}
+                      value={
+                        rightLens.parameters.baseCurve?.[0]
+                          ? formatBC(rightLens.parameters.baseCurve[0])
+                          : ""
+                      }
+                      disabled
+                    />
+                    <EmptyHint />
+                  </div>
+                )}
+
+              {rightLens && rightColorOptions.length > 0 && (
+                <div className="rx-field">
+                  <EmptyLabel />
+                  <div
+                    className={fieldErrors.right?.color ? "rx-error-wrap" : ""}
+                  >
+                    <ColorSelector
+                      value={rightColor}
+                      onChange={(v) => setRightColor(v)}
+                      options={rightColorOptions}
+                    />
+                  </div>
+                  <EmptyHint />
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="rx-divider" />
+
+          {/* ===== LEFT EYE ===== */}
+          <div className="rx-eye-header">
+            <h3 className="rx-eye-title">Left Eye (OS)</h3>
+
+            {(mode === "manual" || lensCardState === "error") && (
+              <button
+                type="button"
+                className="copy-eye-btn"
+                disabled={!leftcoreId && !leftLensNotListed}
+                onClick={copyLeftToRight}
+              >
+                Copy to right eye
+              </button>
+            )}
+          </div>
+
+          {eyeHasErrors("left") && (
+            <div className="rx-eye-error">
+              Please complete the highlighted fields.
+            </div>
+          )}
+
+          <div className="rx-eye">
+            <div className="rx-grid">
+              <div className="rx-field">
+                {mode === "ocr" ? (
+                  <label className="rx-label">
+                    Select the exact lens written on your prescription
+                  </label>
+                ) : (
+                  <EmptyLabel />
+                )}
+
+                <select
+                  className={cls("lens-select", fieldErrors.left?.lens)}
+                  value={leftLensNotListed ? NOT_LISTED_VALUE : leftcoreId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+
+                    if (val === NOT_LISTED_VALUE) {
+                      setLeftcoreId("");
+                      setLeftLensNotListed(true);
+                    } else {
+                      setLeftcoreId(val);
+                      setLeftLensNotListed(false);
+                    }
+                  }}
+                >
+                  <option value="">Select lens</option>
+                  {lenses.map((l) => (
+                    <option key={l.coreId} value={l.coreId}>
+                      {getLensDisplayName(l.coreId, null)}
+                    </option>
+                  ))}
+
+                  <option value={NOT_LISTED_VALUE}>My lens isn’t listed</option>
+                </select>
+
+                {leftLensNotListed ? (
+                  <div className="rx-hint">
+                    We’ll review the prescription you uploaded and assist
+                    manually if this lens isn’t in our catalog yet.
+                  </div>
+                ) : (
+                  mode === "ocr" &&
+                  proposalConfidence === "high" &&
+                  proposedLensId && (
+                    <div className="rx-hint">
+                      Detected from your prescription.
+                    </div>
+                  )
+                )}
+              </div>
+
+              <div className="rx-field">
+                <EmptyLabel />
+                <select
+                  className={cls("rx-select", fieldErrors.left?.sph)}
+                  value={leftSph}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setLeftSph(v);
+
+                    const nextSph = v ? Number(v) : null;
+
+                    const nextAxisOptions = leftLens
+                      ? resolveAxisOptions(
+                          leftLens,
+                          leftCyl ? Number(leftCyl) : null,
+                          nextSph,
+                        )
+                      : [];
+
+                    if (
+                      leftAxis &&
+                      nextAxisOptions.length &&
+                      !nextAxisOptions.includes(Number(leftAxis))
+                    ) {
+                      setLeftAxis("");
+                    }
+                  }}
+                >
+                  <option value="">SPH</option>
+                  {leftSphereOptions.map((v) => {
+                    const str = formatSphere(v);
+                    return (
+                      <option key={v} value={str}>
+                        {str}
+                      </option>
+                    );
+                  })}
+                </select>
+                <div className="rx-hint">{PLANO_HINT}</div>
+              </div>
+
+              {leftLens?.type.toric && (
+                <div className="rx-field">
+                  <EmptyLabel />
+                  <select
+                    className={cls("rx-select", fieldErrors.left?.cyl)}
+                    value={leftCyl}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setLeftCyl(v);
+
+                      const nextCyl = v ? Number(v) : null;
 
                       const nextAxisOptions = leftLens
                         ? resolveAxisOptions(
                             leftLens,
-                            leftCyl ? Number(leftCyl) : null,
-                            nextSph,
+                            nextCyl,
+                            leftSph ? Number(leftSph) : null,
                           )
                         : [];
 
@@ -1459,286 +1467,238 @@ export default function RxForm({
                       ) {
                         setLeftAxis("");
                       }
+
+                      const nextSphereOptions = leftLens
+                        ? resolveSphereOptions(
+                            leftLens,
+                            leftBC ? Number(leftBC) : null,
+                            nextCyl,
+                            leftAxis ? Number(leftAxis) : null,
+                            leftAdd ?? null,
+                          )
+                        : [];
+
+                      if (
+                        leftSph &&
+                        nextSphereOptions.length &&
+                        !nextSphereOptions.includes(Number(leftSph))
+                      ) {
+                        setLeftSph("");
+                      }
                     }}
                   >
-                    <option value="">SPH</option>
-                    {leftSphereOptions.map((v) => {
-                      const str = formatSphere(v);
-                      return (
-                        <option key={v} value={str}>
-                          {str}
-                        </option>
-                      );
-                    })}
+                    <option value="">CYL</option>
+                    {leftCylOptions.map((v) => (
+                      <option key={v} value={formatHundredths(v)}>
+                        {formatHundredths(v)}
+                      </option>
+                    ))}
                   </select>
-                  <div className="rx-hint">{PLANO_HINT}</div>
+                  <EmptyHint />
                 </div>
+              )}
 
-                {/* ===== CYL ===== */}
-                {leftLens?.type.toric && (
+              {leftLens?.type.toric && (
+                <div className="rx-field">
+                  <EmptyLabel />
+                  <select
+                    className={cls("rx-select", fieldErrors.left?.axis)}
+                    value={leftAxis}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setLeftAxis(v);
+
+                      const nextAxis = v ? Number(v) : null;
+
+                      const nextCylOptions = leftLens
+                        ? resolveCylinderOptions(
+                            leftLens,
+                            nextAxis,
+                            leftSph ? Number(leftSph) : null,
+                          )
+                        : [];
+
+                      if (
+                        leftCyl &&
+                        nextCylOptions.length &&
+                        !nextCylOptions.includes(Number(leftCyl))
+                      ) {
+                        setLeftCyl("");
+                      }
+
+                      const nextSphereOptions = leftLens
+                        ? resolveSphereOptions(
+                            leftLens,
+                            leftBC ? Number(leftBC) : null,
+                            leftCyl ? Number(leftCyl) : null,
+                            nextAxis,
+                            leftAdd ?? null,
+                          )
+                        : [];
+
+                      if (
+                        leftSph &&
+                        nextSphereOptions.length &&
+                        !nextSphereOptions.includes(Number(leftSph))
+                      ) {
+                        setLeftSph("");
+                      }
+                    }}
+                  >
+                    <option value="">Axis</option>
+                    {leftAxisOptions.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                  <EmptyHint />
+                </div>
+              )}
+
+              {leftLens?.type.multifocal && (
+                <div className="rx-field">
+                  <EmptyLabel />
+                  <div className={fieldErrors.left?.add ? "rx-error-wrap" : ""}>
+                    <AddSelector
+                      value={leftAdd ?? ""}
+                      onChange={(v) => setLeftAdd(v)}
+                      options={resolveAddOptions(
+                        leftLens,
+                        leftBC ? Number(leftBC) : null,
+                        leftSph ? Number(leftSph) : null,
+                      )}
+                    />
+                  </div>
+                  <EmptyHint />
+                </div>
+              )}
+
+              {leftLens &&
+                leftLens.parameters.baseCurve &&
+                leftLens.parameters.baseCurve.length > 1 && (
                   <div className="rx-field">
                     <EmptyLabel />
                     <select
-                      className={cls("rx-select", fieldErrors.left?.cyl)}
-                      value={leftCyl}
+                      className={cls("rx-select", fieldErrors.left?.bc)}
+                      value={leftBC}
                       onChange={(e) => {
                         const v = e.target.value;
-                        setLeftCyl(v);
+                        setLeftBC(v);
 
-                        const nextCyl = v ? Number(v) : null;
+                        const nextBC = v ? Number(v) : null;
 
-                        const nextAxisOptions = leftLens
-                          ? resolveAxisOptions(
-                              leftLens,
-                              nextCyl,
-                              leftSph ? Number(leftSph) : null,
-                            )
-                          : [];
+                        if (leftLens?.type.multifocal) {
+                          const nextAddOptions = resolveAddOptions(
+                            leftLens,
+                            nextBC,
+                            leftSph ? Number(leftSph) : null,
+                          );
 
-                        if (
-                          leftAxis &&
-                          nextAxisOptions.length &&
-                          !nextAxisOptions.includes(Number(leftAxis))
-                        ) {
-                          setLeftAxis("");
-                        }
-
-                        const nextSphereOptions = leftLens
-                          ? resolveSphereOptions(
-                              leftLens,
-                              leftBC ? Number(leftBC) : null,
-                              nextCyl,
-                              leftAxis ? Number(leftAxis) : null,
-                              leftAdd ?? null,
-                            )
-                          : [];
-
-                        if (
-                          leftSph &&
-                          nextSphereOptions.length &&
-                          !nextSphereOptions.includes(Number(leftSph))
-                        ) {
-                          setLeftSph("");
-                        }
-                      }}
-                    >
-                      <option value="">CYL</option>
-                      {leftCylOptions.map((v) => (
-                        <option key={v} value={formatHundredths(v)}>
-                          {formatHundredths(v)}
-                        </option>
-                      ))}
-                    </select>
-                    <EmptyHint />
-                  </div>
-                )}
-
-                {/* ===== AXIS ===== */}
-                {leftLens?.type.toric && (
-                  <div className="rx-field">
-                    <EmptyLabel />
-                    <select
-                      className={cls("rx-select", fieldErrors.left?.axis)}
-                      value={leftAxis}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setLeftAxis(v);
-
-                        const nextAxis = v ? Number(v) : null;
-
-                        const nextCylOptions = leftLens
-                          ? resolveCylinderOptions(
-                              leftLens,
-                              nextAxis,
-                              leftSph ? Number(leftSph) : null,
-                            )
-                          : [];
-
-                        if (
-                          leftCyl &&
-                          nextCylOptions.length &&
-                          !nextCylOptions.includes(Number(leftCyl))
-                        ) {
-                          setLeftCyl("");
-                        }
-
-                        const nextSphereOptions = leftLens
-                          ? resolveSphereOptions(
-                              leftLens,
-                              leftBC ? Number(leftBC) : null,
-                              leftCyl ? Number(leftCyl) : null,
-                              nextAxis,
-                              leftAdd ?? null,
-                            )
-                          : [];
-
-                        if (
-                          leftSph &&
-                          nextSphereOptions.length &&
-                          !nextSphereOptions.includes(Number(leftSph))
-                        ) {
-                          setLeftSph("");
-                        }
-                      }}
-                    >
-                      <option value="">Axis</option>
-                      {leftAxisOptions.map((v) => (
-                        <option key={v} value={v}>
-                          {v}
-                        </option>
-                      ))}
-                    </select>
-                    <EmptyHint />
-                  </div>
-                )}
-
-                {/* ===== ADD ===== */}
-                {leftLens?.type.multifocal && (
-                  <div className="rx-field">
-                    <EmptyLabel />
-                    <div
-                      className={fieldErrors.left?.add ? "rx-error-wrap" : ""}
-                    >
-                      <AddSelector
-                        value={leftAdd ?? ""}
-                        onChange={(v) => setLeftAdd(v)}
-                        options={resolveAddOptions(
-                          leftLens,
-                          leftBC ? Number(leftBC) : null,
-                          leftSph ? Number(leftSph) : null,
-                        )}
-                      />
-                    </div>
-                    <EmptyHint />
-                  </div>
-                )}
-
-                {/* ===== BC ===== */}
-                {leftLens &&
-                  (leftLens.parameters.baseCurve &&
-                  leftLens.parameters.baseCurve.length > 1 ? (
-                    <div className="rx-field">
-                      <EmptyLabel />
-                      <select
-                        className={cls("rx-select", fieldErrors.left?.bc)}
-                        value={leftBC}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setLeftBC(v);
-
-                          const nextBC = v ? Number(v) : null;
-
-                          if (leftLens?.type.multifocal) {
-                            const nextAddOptions = resolveAddOptions(
-                              leftLens,
-                              nextBC,
-                              leftSph ? Number(leftSph) : null,
-                            );
-
-                            if (leftAdd && !nextAddOptions.includes(leftAdd)) {
-                              setLeftAdd("");
-                            }
+                          if (leftAdd && !nextAddOptions.includes(leftAdd)) {
+                            setLeftAdd("");
                           }
-                        }}
-                      >
-                        <option value="">BC</option>
-                        {leftLens.parameters.baseCurve
-                          .filter((bc) => {
-                            if (!leftLens.type.multifocal) return true;
-
-                            if (!leftAdd) return bc !== 8.7;
-
-                            const isXRAdd = leftAdd.endsWith("N");
-
-                            if (!isXRAdd && bc === 8.7) return false;
-
-                            return true;
-                          })
-                          .map((bc) => (
-                            <option key={bc} value={formatBC(bc)}>
-                              {formatBC(bc)}
-                            </option>
-                          ))}
-                      </select>
-                      <EmptyHint />
-                    </div>
-                  ) : (
-                    <div className="rx-field">
-                      <EmptyLabel />
-                      <input
-                        className={cls("rx-input", fieldErrors.left?.bc)}
-                        value={
-                          leftLens.parameters.baseCurve?.[0]
-                            ? formatBC(leftLens.parameters.baseCurve[0])
-                            : ""
                         }
-                        disabled
-                      />
-                      <EmptyHint />
-                    </div>
-                  ))}
-
-                {/* ===== COLOR ===== */}
-                {leftLens && leftColorOptions.length > 0 && (
-                  <div className="rx-field">
-                    <EmptyLabel />
-                    <div
-                      className={fieldErrors.left?.color ? "rx-error-wrap" : ""}
+                      }}
                     >
-                      <ColorSelector
-                        value={leftColor}
-                        onChange={(v) => setLeftColor(v)}
-                        options={leftColorOptions}
-                      />
-                    </div>
+                      <option value="">BC</option>
+                      {leftLens.parameters.baseCurve
+                        .filter((bc) => {
+                          if (!leftLens.type.multifocal) return true;
+                          if (!leftAdd) return bc !== 8.7;
+
+                          const isXRAdd = leftAdd.endsWith("N");
+                          if (!isXRAdd && bc === 8.7) return false;
+
+                          return true;
+                        })
+                        .map((bc) => (
+                          <option key={bc} value={formatBC(bc)}>
+                            {formatBC(bc)}
+                          </option>
+                        ))}
+                    </select>
                     <EmptyHint />
                   </div>
                 )}
-              </div>
-            </div>
 
-            <div className="rx-divider" />
+              {leftLens &&
+                leftLens.parameters.baseCurve &&
+                leftLens.parameters.baseCurve.length === 1 && (
+                  <div className="rx-field">
+                    <EmptyLabel />
+                    <input
+                      className={cls("rx-input", fieldErrors.left?.bc)}
+                      value={
+                        leftLens.parameters.baseCurve?.[0]
+                          ? formatBC(leftLens.parameters.baseCurve[0])
+                          : ""
+                      }
+                      disabled
+                    />
+                    <EmptyHint />
+                  </div>
+                )}
 
-            <div className="rx-footer-row">
-              <div className="rx-expiration">
-  <label htmlFor="expires">Expiration date</label>
-
-  <ExpirationDatePicker
-    value={expires}
-    onChange={setExpires}
-    hasError={fieldErrors.expires}
-  />
-
-  {fieldErrors.expires && (
-    <div className="rx-hint" style={{ marginTop: 4 }}>
-      A valid, unexpired prescription date is required to proceed.
-    </div>
-  )}
-</div>
-
-              <button
-                className={
-                  isMobile
-                    ? `mobile-cta ${!loading ? "active" : "disabled"}`
-                    : "primary-btn"
-                }
-                onClick={submitRx}
-                disabled={loading}
-              >
-                {loading ? "Processing…" : <>Review & Continue ➜</>}
-              </button>
+              {leftLens && leftColorOptions.length > 0 && (
+                <div className="rx-field">
+                  <EmptyLabel />
+                  <div
+                    className={fieldErrors.left?.color ? "rx-error-wrap" : ""}
+                  >
+                    <ColorSelector
+                      value={leftColor}
+                      onChange={(v) => setLeftColor(v)}
+                      options={leftColorOptions}
+                    />
+                  </div>
+                  <EmptyHint />
+                </div>
+              )}
             </div>
           </div>
 
-          {mode === "manual" && (
-            <div className="order-actions">
-              <Link href="/upload-prescription" className="ghost-link">
-                Upload prescription instead
-              </Link>
+          <div className="rx-divider" />
+
+          <div className="rx-footer-row">
+            <div className="rx-expiration">
+              <label htmlFor="expires">Expiration date</label>
+
+              <ExpirationDatePicker
+                value={expires}
+                onChange={setExpires}
+                hasError={fieldErrors.expires}
+              />
+
+              {fieldErrors.expires && (
+                <div className="rx-hint" style={{ marginTop: 4 }}>
+                  A valid, unexpired prescription date is required to proceed.
+                </div>
+              )}
             </div>
-          )}
-        </section>
-      </main>
-    </>
+
+            <button
+              className={
+                isMobile
+                  ? `mobile-cta ${!loading ? "active" : "disabled"}`
+                  : "primary-btn"
+              }
+              onClick={submitRx}
+              disabled={loading}
+            >
+              {loading ? "Processing…" : <>Review & Continue ➜</>}
+            </button>
+          </div>
+        </div>
+
+        {mode === "manual" && (
+          <div className="order-actions">
+            <Link href="/upload-prescription" className="ghost-link">
+              Upload prescription instead
+            </Link>
+          </div>
+        )}
+      </section>
+    </main>
   );
 }
