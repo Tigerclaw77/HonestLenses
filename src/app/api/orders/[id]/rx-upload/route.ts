@@ -76,10 +76,7 @@ export async function POST(
     });
 
   if (uploadError) {
-    return NextResponse.json(
-      { error: uploadError.message },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: uploadError.message }, { status: 500 });
   }
 
   /* ======================================================
@@ -91,18 +88,13 @@ export async function POST(
     .from("orders")
     .update({
       rx_upload_path: storagePath,
-      rx_upload_filename: file.name,
-      rx_upload_size: file.size,
       rx_source: "upload",
       verification_status: "verified",
     })
     .eq("id", orderId);
 
   if (updateError) {
-    return NextResponse.json(
-      { error: updateError.message },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
   /* ======================================================
