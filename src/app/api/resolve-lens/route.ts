@@ -27,6 +27,25 @@ function shouldDebug(req: Request): boolean {
 }
 
 /* =========================
+   🔥 NEW: Fuzzy Matching
+========================= */
+
+function normalize(str: string): string {
+  return str.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function fuzzyMatchLens(raw: string): string | null {
+  const norm = normalize(raw);
+
+  const match = lenses.find((l) => {
+    const name = normalize(l.displayName);
+    return name.includes(norm) || norm.includes(name);
+  });
+
+  return match?.coreId ?? null;
+}
+
+/* =========================
    ADD Detection (Clinical Canon)
 ========================= */
 
@@ -132,12 +151,26 @@ export async function POST(req: Request) {
     }
 
     /* =========================
+       🔥 NEW: FUZZY FALLBACK (CRITICAL FIX)
+    ========================= */
+
+    let fuzzyLensId: string | null = null;
+
+    if (!hybrid.lensId) {
+      fuzzyLensId = fuzzyMatchLens(rawString);
+
+      if (debug) {
+        console.log("Fuzzy match:", fuzzyLensId);
+      }
+    }
+
+    /* =========================
        2️⃣ AI Rescue (only when needed)
     ========================= */
 
     let aiLensId: string | null = null;
 
-    if (hybrid.confidence === "low") {
+    if (hybrid.confidence === "low" && !fuzzyLensId) {
       const candidates = lensList.map((l) => ({
         coreId: l.coreId,
         label: l.displayName.trim(),
@@ -167,7 +200,15 @@ export async function POST(req: Request) {
       hybrid.lensId
     ) {
       finalLensId = hybrid.lensId;
-    } else if (hybrid.confidence === "low") {
+    }
+
+    // 🔥 NEW: use fuzzy before AI
+    else if (fuzzyLensId) {
+      finalLensId = fuzzyLensId;
+      confidence = "medium";
+    }
+
+    else if (hybrid.confidence === "low") {
       if (aiLensId) {
         finalLensId = aiLensId;
         confidence = "medium";
