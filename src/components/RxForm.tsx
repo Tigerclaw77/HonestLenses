@@ -197,12 +197,19 @@ export default function RxForm({
 
   const [ocrError, setOcrError] = useState(false);
 
+  const boostedConfidence =
+    proposalConfidence === "medium" &&
+    proposedLensId &&
+    lenses.find((l) => l.coreId === proposedLensId)?.type.toric
+      ? "high"
+      : proposalConfidence;
+
   const lensCardState: "error" | "suggested" | "manual" =
     ocrError || !proposedLensId
       ? "error"
-      : proposalConfidence === "high"
+      : boostedConfidence === "high"
         ? "suggested"
-        : proposalConfidence === "medium"
+        : boostedConfidence === "medium"
           ? "manual"
           : "error";
 
@@ -1116,7 +1123,7 @@ export default function RxForm({
                   </div>
                 ) : (
                   mode === "ocr" &&
-                  proposalConfidence === "high" &&
+                  boostedConfidence === "high" &&
                   proposedLensId && (
                     <div className="rx-hint">
                       Detected from your prescription.
