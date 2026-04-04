@@ -866,7 +866,7 @@ export default function RxForm({
         throw new Error("Prescription submission failed");
       }
 
-      router.push(`/order/${finalOrderId}?status=review`);
+      router.push(`/cart?orderId=${finalOrderId}`);
 
       console.log("STEP 4: resolving cart");
 
