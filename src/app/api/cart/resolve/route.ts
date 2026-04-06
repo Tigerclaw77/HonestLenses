@@ -120,17 +120,43 @@ function isResolveBody(value: unknown): value is ResolveBody {
    Helpers
 ========================= */
 
-function daysUntil(expires: string): number {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(expires);
-  if (!m) throw new Error("Invalid RX expiration date");
+function parseFlexibleDate(input: string): Date | null {
+  if (!input) return null;
 
-  const expUTC = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  // Case 1: ISO (YYYY-MM-DD)
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input);
+  if (iso) {
+    return new Date(Date.UTC(+iso[1], +iso[2] - 1, +iso[3]));
+  }
+
+  // Case 2: M/D/YYYY or MM/DD/YYYY
+  const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(input);
+  if (us) {
+    return new Date(Date.UTC(+us[3], +us[1] - 1, +us[2]));
+  }
+
+  return null;
+}
+
+function daysUntil(expires: string): number {
+  const parsed = parseFlexibleDate(expires);
+
+  if (!parsed) {
+    console.warn("⚠️ Invalid RX expiration format", { expires });
+    return 365; // 👈 SAFE DEFAULT (treat as valid, not expired)
+  }
 
   const now = new Date();
   const todayUTC = Date.UTC(
     now.getUTCFullYear(),
     now.getUTCMonth(),
     now.getUTCDate(),
+  );
+
+  const expUTC = Date.UTC(
+    parsed.getUTCFullYear(),
+    parsed.getUTCMonth(),
+    parsed.getUTCDate(),
   );
 
   return Math.floor((expUTC - todayUTC) / MS_PER_DAY);
@@ -219,7 +245,10 @@ export async function POST(req: Request) {
    AUTO VERIFICATION GATE
 ========================= */
 
-  if (order.verification_status !== "auto_verified") {
+  if (
+    order.verification_status !== "auto_verified" &&
+    order.verification_status !== "verified"
+  ) {
     console.log("🚫 BLOCKED: verification_status =", order.verification_status);
 
     return NextResponse.json(
@@ -238,6 +267,12 @@ export async function POST(req: Request) {
      SKU + Pricing
   ========================= */
 
+  console.log("RESOLVE INPUT", {
+    orderId: order.id,
+    expires: rx.expires,
+    verification_status: order.verification_status,
+  });
+
   const remainingDays = daysUntil(rx.expires);
 
   if (remainingDays < 0) {
@@ -248,6 +283,11 @@ export async function POST(req: Request) {
   }
 
   const targetMonths = remainingDays >= MIN_DAYS_FOR_ANNUAL ? 12 : 6;
+
+  console.log("RESOLVE OUTPUT", {
+    orderId: order.id,
+    remainingDays,
+  });
 
   const resolvedSku = resolveDefaultSku(coreId, targetMonths);
   if (!resolvedSku) {
@@ -262,6 +302,13 @@ export async function POST(req: Request) {
   const left = rx.left ? defaultPerEye : null;
 
   const totalBoxes = (right ?? 0) + (left ?? 0);
+
+  console.log("RESOLVE SKU", {
+    orderId: order.id,
+    coreId,
+    resolvedSku,
+    totalBoxes,
+  });
 
   const pricing = getPrice({ sku: resolvedSku, box_count: totalBoxes });
 

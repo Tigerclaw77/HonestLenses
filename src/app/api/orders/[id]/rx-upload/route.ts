@@ -35,6 +35,7 @@ export async function POST(
     .single();
 
   if (orderError || !order) {
+    console.error("ORDER LOOKUP FAILED", { orderId, userId: user.id, orderError });
     return NextResponse.json(
       { error: "Order not found or not owned by user" },
       { status: 404 },
@@ -52,36 +53,52 @@ export async function POST(
     return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
   }
 
+  console.log("RX UPLOAD START", {
+    orderId,
+    fileName: file.name,
+    fileType: file.type,
+    fileSize: file.size,
+  });
+
   /* ======================================================
      4️⃣ Convert File → Buffer
-     (more reliable for Supabase Storage in Node runtime)
   ====================================================== */
 
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
 
-  const ext = file.name.split(".").pop() || "pdf";
+  const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
 
   const storagePath = `rx/${orderId}/${crypto.randomUUID()}.${ext}`;
 
   /* ======================================================
-     5️⃣ Upload prescription to Supabase Storage
+     5️⃣ Upload to Supabase Storage
   ====================================================== */
 
-  const { error: uploadError } = await supabaseServer.storage
-    .from("prescriptions")
-    .upload(storagePath, buffer, {
-      contentType: file.type,
-      upsert: false,
-    });
+  const { data: uploadData, error: uploadError } =
+    await supabaseServer.storage
+      .from("prescriptions")
+      .upload(storagePath, buffer, {
+        contentType: file.type || "application/octet-stream",
+        upsert: false,
+      });
+
+  console.log("UPLOAD RESULT", {
+    storagePath,
+    uploadData,
+    uploadError,
+  });
 
   if (uploadError) {
-    return NextResponse.json({ error: uploadError.message }, { status: 500 });
+    console.error("UPLOAD FAILED", uploadError);
+    return NextResponse.json(
+      { error: "Upload failed: " + uploadError.message },
+      { status: 500 },
+    );
   }
 
   /* ======================================================
      6️⃣ Persist RX metadata on order
-     (uploads count as verified in your workflow)
   ====================================================== */
 
   const { error: updateError } = await supabaseServer
@@ -94,12 +111,21 @@ export async function POST(
     .eq("id", orderId);
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    console.error("ORDER UPDATE FAILED", updateError);
+    return NextResponse.json(
+      { error: updateError.message },
+      { status: 500 },
+    );
   }
 
   /* ======================================================
      7️⃣ Success
   ====================================================== */
 
-  return NextResponse.json({ ok: true });
+  console.log("RX UPLOAD SUCCESS", { orderId, storagePath });
+
+  return NextResponse.json({
+    ok: true,
+    path: storagePath, // 👈 useful for debugging + future preview UI
+  });
 }
