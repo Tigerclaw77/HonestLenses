@@ -195,7 +195,7 @@ export async function POST(
   const systemPrompt = `...`; // unchanged
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4.1-mini",
+    model: "gpt-4o",
     messages: [
       { role: "system", content: systemPrompt },
       {
@@ -204,7 +204,7 @@ export async function POST(
           { type: "text", text: "Extract prescription data from this image." },
           {
             type: "image_url",
-            image_url: { url: `data:image/png;base64,${base64}` },
+            image_url: { url: `data:image/jpeg;base64,${base64}` },
           },
         ],
       },
