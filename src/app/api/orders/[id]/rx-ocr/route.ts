@@ -125,7 +125,6 @@ export async function GET(
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  // ✅ FIX: Do NOT return 404 if OCR not ready
   if (!order.rx_ocr_raw) {
     return NextResponse.json({
       status: "pending",
@@ -191,11 +190,11 @@ export async function POST(
   const arrayBuffer = await fileData.arrayBuffer();
   const base64 = Buffer.from(arrayBuffer).toString("base64");
 
-  const systemPrompt = `...`; // unchanged
+  const systemPrompt = `...`;
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",
-    response_format: { type: "json_object" }, // 🔥 THIS IS THE FIX
+    response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
@@ -219,35 +218,55 @@ Return ONLY valid JSON. Do not include text, markdown, or explanation.`,
 
   const rawText = response.choices[0].message.content ?? "";
 
-  const cleaned = rawText
-    .replace(/```json/g, "")
-    .replace(/```/g, "")
-    .trim();
-
   let parsed;
   try {
-    parsed = JSON.parse(cleaned);
+    parsed = JSON.parse(rawText);
   } catch {
-    console.error("OCR JSON PARSE FAILED", cleaned);
+    console.error("OCR JSON PARSE FAILED", rawText);
     return NextResponse.json(
       { error: "OCR returned invalid JSON" },
       { status: 500 },
     );
   }
 
-  const originalExpires = parsed.expires ?? null;
-  const normalizedExpires = normalizeDate(originalExpires);
+  // 🔥 CRITICAL FIX — NORMALIZE TO YESTERDAY’S SHAPE
+  const normalized = {
+    right: parsed?.Prescription?.["O.D."]
+      ? {
+          sphere: Number(parsed.Prescription["O.D."]["Power/SPH"]),
+          cylinder: Number(parsed.Prescription["O.D."]["CYL"]),
+          axis: Number(parsed.Prescription["O.D."]["Axis"]),
+          base_curve: Number(parsed.Prescription["O.D."]["BC"]),
+          diameter: Number(parsed.Prescription["O.D."]["DIA"]),
+          add: parsed.Prescription["O.D."]["ADD"] ?? null,
+        }
+      : null,
 
-  if (normalizedExpires) {
-    parsed.expires = normalizedExpires;
-  }
+    left: parsed?.Prescription?.["O.S."]
+      ? {
+          sphere: Number(parsed.Prescription["O.S."]["Power/SPH"]),
+          cylinder: Number(parsed.Prescription["O.S."]["CYL"]),
+          axis: Number(parsed.Prescription["O.S."]["Axis"]),
+          base_curve: Number(parsed.Prescription["O.S."]["BC"]),
+          diameter: Number(parsed.Prescription["O.S."]["DIA"]),
+          add: parsed.Prescription["O.S."]["ADD"] ?? null,
+        }
+      : null,
 
-  const brandConstraints = detectBrandConstraints(parsed.brand_raw);
+    expires: normalizeDate(parsed?.Prescription?.Expires ?? null),
+    issued_date: normalizeDate(parsed?.Prescription?.Issued ?? null),
+    patient_name: parsed?.Patient?.Name ?? null,
+    doctor_name: parsed?.Doctor?.Name ?? null,
+    prescriber_phone: parsed?.Doctor?.Phone ?? null,
+    brand_raw: parsed?.Prescription?.Brand ?? null,
+  };
+
+  const brandConstraints = detectBrandConstraints(normalized.brand_raw);
 
   const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
-      rx_ocr_raw: parsed,
+      rx_ocr_raw: normalized,
       rx_ocr_meta: {
         brand_constraints: brandConstraints,
       },
