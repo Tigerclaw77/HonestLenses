@@ -16,11 +16,9 @@ const openai = new OpenAI({
 function normalizeDate(input: string | null): string | null {
   if (!input) return null;
 
-  // ISO already
   const iso = /^(\d{4})-(\d{2})-(\d{2})$/;
   if (iso.test(input)) return input;
 
-  // US format M/D/YYYY
   const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
   const match = input.match(us);
 
@@ -127,11 +125,17 @@ export async function GET(
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
+  // ✅ FIX: Do NOT return 404 if OCR not ready
   if (!order.rx_ocr_raw) {
-    return NextResponse.json({ error: "OCR not found" }, { status: 404 });
+    return NextResponse.json({
+      status: "pending",
+      ocr_json: null,
+      ocr_meta: null,
+    });
   }
 
   return NextResponse.json({
+    status: "complete",
     ocr_json: order.rx_ocr_raw,
     ocr_meta: order.rx_ocr_meta ?? null,
   });
@@ -146,6 +150,8 @@ export async function POST(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id: orderId } = await context.params;
+
+  console.log("OCR START", { orderId });
 
   const user = await getUserFromRequest(req);
   if (!user) {
@@ -176,6 +182,7 @@ export async function POST(
       .download(order.rx_upload_path);
 
   if (downloadError || !fileData) {
+    console.error("OCR DOWNLOAD FAILED", downloadError);
     return NextResponse.json(
       { error: "Failed to download prescription image" },
       { status: 500 },
@@ -216,15 +223,12 @@ export async function POST(
   try {
     parsed = JSON.parse(cleaned);
   } catch {
+    console.error("OCR JSON PARSE FAILED", cleaned);
     return NextResponse.json(
       { error: "OCR returned invalid JSON" },
       { status: 500 },
     );
   }
-
-  /* =========================
-     🔥 DATE NORMALIZATION HERE
-  ========================= */
 
   const originalExpires = parsed.expires ?? null;
   const normalizedExpires = normalizeDate(originalExpires);
@@ -232,15 +236,6 @@ export async function POST(
   if (normalizedExpires) {
     parsed.expires = normalizedExpires;
   }
-
-  console.log("DATE NORMALIZATION", {
-    original: originalExpires,
-    normalized: normalizedExpires,
-  });
-
-  /* =========================
-     BRAND CONSTRAINT ANALYSIS
-  ========================= */
 
   const brandConstraints = detectBrandConstraints(parsed.brand_raw);
 
@@ -257,11 +252,14 @@ export async function POST(
     .eq("user_id", user.id);
 
   if (updateError) {
+    console.error("OCR SAVE FAILED", updateError);
     return NextResponse.json(
       { error: updateError.message },
       { status: 500 },
     );
   }
+
+  console.log("OCR COMPLETE", { orderId });
 
   return NextResponse.json({ ok: true });
 }

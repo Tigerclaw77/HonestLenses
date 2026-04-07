@@ -35,7 +35,11 @@ export async function POST(
     .single();
 
   if (orderError || !order) {
-    console.error("ORDER LOOKUP FAILED", { orderId, userId: user.id, orderError });
+    console.error("ORDER LOOKUP FAILED", {
+      orderId,
+      userId: user.id,
+      orderError,
+    });
     return NextResponse.json(
       { error: "Order not found or not owned by user" },
       { status: 404 },
@@ -75,13 +79,12 @@ export async function POST(
      5️⃣ Upload to Supabase Storage
   ====================================================== */
 
-  const { data: uploadData, error: uploadError } =
-    await supabaseServer.storage
-      .from("prescriptions")
-      .upload(storagePath, buffer, {
-        contentType: file.type || "application/octet-stream",
-        upsert: false,
-      });
+  const { data: uploadData, error: uploadError } = await supabaseServer.storage
+    .from("prescriptions")
+    .upload(storagePath, buffer, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
 
   console.log("UPLOAD RESULT", {
     storagePath,
@@ -112,11 +115,15 @@ export async function POST(
 
   if (updateError) {
     console.error("ORDER UPDATE FAILED", updateError);
-    return NextResponse.json(
-      { error: updateError.message },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
+
+  // 🔥 Trigger OCR after upload
+  fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/ocr/${orderId}`, {
+    method: "POST",
+  }).catch((err) => {
+    console.error("OCR trigger failed", err);
+  });
 
   /* ======================================================
      7️⃣ Success
