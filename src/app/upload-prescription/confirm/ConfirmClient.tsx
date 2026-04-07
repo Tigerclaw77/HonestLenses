@@ -18,17 +18,19 @@ type EyeRx = {
   diameter?: number;
 };
 
+type ParsedOcr = {
+  brand_raw?: string | null;
+  right?: EyeRx;
+  left?: EyeRx;
+  expires?: string;
+  issued_date?: string;
+  patient_name?: string;
+  doctor_name?: string;
+  prescriber_phone?: string;
+};
+
 type OcrApiResponse = {
-  ocr_json?: {
-    brand_raw?: string | null;
-    right?: EyeRx;
-    left?: EyeRx;
-    expires?: string;
-    issued_date?: string;
-    patient_name?: string;
-    doctor_name?: string;
-    prescriber_phone?: string;
-  };
+  ocr_json?: ParsedOcr | string;
   ocr_meta?: {
     brand_constraints?: {
       lockedManufacturer?: string | null;
@@ -56,7 +58,6 @@ type RxDraft = {
 
 function isMeaningfulCyl(value: unknown): boolean {
   if (typeof value !== "number") return false;
-  // Treat 0.00 as no cyl; small tolerance for OCR noise.
   return Math.abs(value) >= 0.12;
 }
 
@@ -66,15 +67,12 @@ function isMeaningfulAdd(add: unknown): boolean {
   const s = add.trim().toLowerCase();
   if (!s) return false;
 
-  // Ignore legend / option-list patterns like: "D,N,H or L"
   const compact = s.replace(/\s+/g, "");
   if (s.includes("or") && s.includes(",")) return false;
   if (compact === "d,n,h,orl" || compact === "d,n,horl") return false;
 
-  // Numeric add like +1.25 / 2.00 / 1.75
   if (/[+-]?\d+(\.\d+)?/.test(s)) return true;
 
-  // Letter-based adds (keep conservative)
   if (["h", "hi", "high", "m", "med", "medium", "l", "lo", "low"].includes(s)) {
     return true;
   }
@@ -108,7 +106,6 @@ export default function ConfirmClient() {
         const accessToken = session?.access_token;
         if (!accessToken) throw new Error("No auth session found");
 
-        // 1) Pull OCR payload for this order
         const res = await fetch(`/api/orders/${orderId}/rx-ocr`, {
           method: "GET",
           cache: "no-store",
@@ -122,20 +119,29 @@ export default function ConfirmClient() {
         }
 
         const data: OcrApiResponse = await res.json();
-        if (!data.ocr_json)
+
+        if (!data.ocr_json) {
           throw new Error("OCR data not found for this order");
+        }
 
-        const ocr = data.ocr_json;
+        // 🔥 FIX: normalize string vs object
+        const raw = data.ocr_json;
 
-        // 2) Structural detection (conservative, ignores legend strings)
+        const ocr: ParsedOcr =
+          typeof raw === "string"
+            ? JSON.parse(raw)
+            : raw;
+
+        // ===== STRUCTURAL DETECTION =====
         const hasCyl =
           isMeaningfulCyl(ocr.right?.cylinder) ||
           isMeaningfulCyl(ocr.left?.cylinder);
 
         const hasAdd =
-          isMeaningfulAdd(ocr.right?.add) || isMeaningfulAdd(ocr.left?.add);
+          isMeaningfulAdd(ocr.right?.add) ||
+          isMeaningfulAdd(ocr.left?.add);
 
-        // 3) Resolve lens server-side (hybrid + AI audit)
+        // ===== RESOLVER =====
         let proposedLensId: string | null = null;
         let proposalConfidence: "high" | "medium" | "low" | null = null;
 
@@ -145,7 +151,6 @@ export default function ConfirmClient() {
             cache: "no-store",
             headers: {
               "Content-Type": "application/json",
-              // keep auth consistent; your resolver route can ignore it if not needed
               Authorization: `Bearer ${accessToken}`,
             },
             body: JSON.stringify({
@@ -164,21 +169,17 @@ export default function ConfirmClient() {
             );
           }
 
-          const resolverData: {
-            finalLensId: string | null;
-            confidence: "high" | "medium" | "low";
-          } = await resolveRes.json();
+          const resolverData = await resolveRes.json();
 
           proposedLensId = resolverData.finalLensId ?? null;
           proposalConfidence = resolverData.confidence ?? null;
 
-          // 🔒 CooperVision temporary block
-          if (proposedLensId && proposedLensId.startsWith("CV")) {
+          if (proposedLensId?.startsWith("CV")) {
             if (isMounted) setShowComingSoon(true);
           }
         }
 
-        // 4) Map eye -> draft
+        // ===== MAP DRAFT =====
         const mapEye = (eye?: EyeRx): EyeRxDraft => ({
           coreId: proposedLensId ?? "",
           sph: eye?.sphere != null ? Number(eye.sphere).toFixed(2) : "",
@@ -195,7 +196,6 @@ export default function ConfirmClient() {
           expires: ocr.expires ?? "",
         };
 
-        // 5) Build OcrExtract (use shared type from @/types/ocr)
         const meta: OcrExtract = {
           patientName: ocr.patient_name ?? undefined,
           doctorName: ocr.doctor_name ?? undefined,
