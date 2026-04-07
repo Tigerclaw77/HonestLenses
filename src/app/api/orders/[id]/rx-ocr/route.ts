@@ -199,7 +199,9 @@ export async function POST(
     messages: [
       {
         role: "system",
-        content: systemPrompt,
+        content: `${systemPrompt}
+
+Return ONLY valid JSON. Do not include text, markdown, or explanation.`,
       },
       {
         role: "user",
