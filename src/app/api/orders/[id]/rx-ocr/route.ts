@@ -231,34 +231,62 @@ Return ONLY valid JSON. Do not include text, markdown, or explanation.`,
 
   // 🔥 CRITICAL FIX — NORMALIZE TO YESTERDAY’S SHAPE
   const normalized = {
-    right: parsed?.Prescription?.["O.D."]
+    // ✅ support OLD format (yesterday)
+    right: parsed?.right
       ? {
-          sphere: Number(parsed.Prescription["O.D."]["Power/SPH"]),
-          cylinder: Number(parsed.Prescription["O.D."]["CYL"]),
-          axis: Number(parsed.Prescription["O.D."]["Axis"]),
-          base_curve: Number(parsed.Prescription["O.D."]["BC"]),
-          diameter: Number(parsed.Prescription["O.D."]["DIA"]),
-          add: parsed.Prescription["O.D."]["ADD"] ?? null,
+          sphere: parsed.right.sphere ?? null,
+          cylinder: parsed.right.cylinder ?? null,
+          axis: parsed.right.axis ?? null,
+          base_curve: parsed.right.base_curve ?? null,
+          diameter: parsed.right.diameter ?? null,
+          add: parsed.right.add ?? null,
         }
-      : null,
+      : // ✅ fallback to NEW format (today)
+        parsed?.Prescription?.["O.D."]
+        ? {
+            sphere: Number(parsed.Prescription["O.D."]["Power/SPH"]),
+            cylinder: Number(parsed.Prescription["O.D."]["CYL"]),
+            axis: Number(parsed.Prescription["O.D."]["Axis"]),
+            base_curve: Number(parsed.Prescription["O.D."]["BC"]),
+            diameter: Number(parsed.Prescription["O.D."]["DIA"]),
+            add: parsed.Prescription["O.D."]["ADD"] ?? null,
+          }
+        : null,
 
-    left: parsed?.Prescription?.["O.S."]
+    left: parsed?.left
       ? {
-          sphere: Number(parsed.Prescription["O.S."]["Power/SPH"]),
-          cylinder: Number(parsed.Prescription["O.S."]["CYL"]),
-          axis: Number(parsed.Prescription["O.S."]["Axis"]),
-          base_curve: Number(parsed.Prescription["O.S."]["BC"]),
-          diameter: Number(parsed.Prescription["O.S."]["DIA"]),
-          add: parsed.Prescription["O.S."]["ADD"] ?? null,
+          sphere: parsed.left.sphere ?? null,
+          cylinder: parsed.left.cylinder ?? null,
+          axis: parsed.left.axis ?? null,
+          base_curve: parsed.left.base_curve ?? null,
+          diameter: parsed.left.diameter ?? null,
+          add: parsed.left.add ?? null,
         }
-      : null,
+      : parsed?.Prescription?.["O.S."]
+        ? {
+            sphere: Number(parsed.Prescription["O.S."]["Power/SPH"]),
+            cylinder: Number(parsed.Prescription["O.S."]["CYL"]),
+            axis: Number(parsed.Prescription["O.S."]["Axis"]),
+            base_curve: Number(parsed.Prescription["O.S."]["BC"]),
+            diameter: Number(parsed.Prescription["O.S."]["DIA"]),
+            add: parsed.Prescription["O.S."]["ADD"] ?? null,
+          }
+        : null,
 
-    expires: normalizeDate(parsed?.Prescription?.Expires ?? null),
-    issued_date: normalizeDate(parsed?.Prescription?.Issued ?? null),
-    patient_name: parsed?.Patient?.Name ?? null,
-    doctor_name: parsed?.Doctor?.Name ?? null,
-    prescriber_phone: parsed?.Doctor?.Phone ?? null,
-    brand_raw: parsed?.Prescription?.Brand ?? null,
+    expires:
+      parsed?.expires ?? normalizeDate(parsed?.Prescription?.Expires ?? null),
+
+    issued_date:
+      parsed?.issued_date ??
+      normalizeDate(parsed?.Prescription?.Issued ?? null),
+
+    patient_name: parsed?.patient_name ?? parsed?.Patient?.Name ?? null,
+
+    doctor_name: parsed?.doctor_name ?? parsed?.Doctor?.Name ?? null,
+
+    prescriber_phone: parsed?.prescriber_phone ?? parsed?.Doctor?.Phone ?? null,
+
+    brand_raw: parsed?.brand_raw ?? parsed?.Prescription?.Brand ?? null,
   };
 
   const brandConstraints = detectBrandConstraints(normalized.brand_raw);
