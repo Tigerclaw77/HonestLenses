@@ -118,12 +118,22 @@ export async function POST(
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
-  // 🔥 Trigger OCR after upload
-  fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/ocr/${orderId}`, {
-    method: "POST",
-  }).catch((err) => {
+  // 🔥 TRIGGER OCR (THIS IS THE MISSING LINK)
+  try {
+    const res = await fetch(
+      `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"}/api/orders/${orderId}/rx-ocr`,
+      {
+        method: "POST",
+        headers: {
+          cookie: req.headers.get("cookie") || "",
+        },
+      },
+    );
+
+    console.log("OCR TRIGGER RESPONSE", await res.text());
+  } catch (err) {
     console.error("OCR trigger failed", err);
-  });
+  }
 
   /* ======================================================
      7️⃣ Success

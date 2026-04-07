@@ -75,15 +75,15 @@ function detectBrandConstraints(brandRaw: string | null) {
 
   const normalized = normalizeBrandText(brandRaw);
 
-  const matches = BRAND_TOKEN_RULES.filter(rule =>
-    normalized.includes(rule.token)
+  const matches = BRAND_TOKEN_RULES.filter((rule) =>
+    normalized.includes(rule.token),
   );
 
-  const lockMatch = matches.find(m => m.strength === "lock");
+  const lockMatch = matches.find((m) => m.strength === "lock");
 
   if (lockMatch) {
     result.lockedManufacturer = lockMatch.manufacturer;
-    result.matchedTokens = matches.map(m => m.token);
+    result.matchedTokens = matches.map((m) => m.token);
     return result;
   }
 
@@ -95,7 +95,7 @@ function detectBrandConstraints(brandRaw: string | null) {
     }
   }
 
-  result.matchedTokens = matches.map(m => m.token);
+  result.matchedTokens = matches.map((m) => m.token);
   return result;
 }
 
@@ -176,10 +176,9 @@ export async function POST(
     );
   }
 
-  const { data: fileData, error: downloadError } =
-    await supabaseServer.storage
-      .from("prescriptions")
-      .download(order.rx_upload_path);
+  const { data: fileData, error: downloadError } = await supabaseServer.storage
+    .from("prescriptions")
+    .download(order.rx_upload_path);
 
   if (downloadError || !fileData) {
     console.error("OCR DOWNLOAD FAILED", downloadError);
@@ -196,15 +195,19 @@ export async function POST(
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",
+    response_format: { type: "json_object" }, // 🔥 THIS IS THE FIX
     messages: [
-      { role: "system", content: systemPrompt },
+      {
+        role: "system",
+        content: systemPrompt,
+      },
       {
         role: "user",
         content: [
           { type: "text", text: "Extract prescription data from this image." },
           {
             type: "image_url",
-            image_url: { url: `data:image/jpeg;base64,${base64}` },
+            image_url: { url: `data:image/png;base64,${base64}` },
           },
         ],
       },
@@ -253,10 +256,7 @@ export async function POST(
 
   if (updateError) {
     console.error("OCR SAVE FAILED", updateError);
-    return NextResponse.json(
-      { error: updateError.message },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
   console.log("OCR COMPLETE", { orderId });
