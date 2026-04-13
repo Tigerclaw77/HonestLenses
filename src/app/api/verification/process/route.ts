@@ -31,13 +31,20 @@ export async function POST(req: Request) {
   }
 
   for (const order of orders) {
+    if (order.rx_upload_path) continue;
     if (!order.payment_intent_id) continue;
 
     const intent = await stripe.paymentIntents.retrieve(
-      order.payment_intent_id
+      order.payment_intent_id,
     );
 
-    if (intent.status !== "requires_capture") continue;
+    if (intent.status !== "requires_capture") {
+      console.log("Skipping - not capturable", {
+        orderId: order.id,
+        status: intent.status,
+      });
+      continue;
+    }
 
     await stripe.paymentIntents.capture(order.payment_intent_id);
 
