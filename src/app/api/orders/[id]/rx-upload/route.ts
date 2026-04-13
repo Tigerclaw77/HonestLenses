@@ -73,10 +73,22 @@ export async function POST(
 
   const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
 
-  const storagePath = `rx/${orderId}/${crypto.randomUUID()}.${ext}`;
+  /* ======================================================
+     5️⃣ BUILD CLEAN STORAGE PATH (FIXED)
+  ====================================================== */
+
+  const now = new Date();
+
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+
+  const timestamp = now.toISOString().replace(/[:.]/g, "-");
+
+  const storagePath = `rx/${yyyy}/${mm}/${dd}/${orderId}/rx_${timestamp}.${ext}`;
 
   /* ======================================================
-     5️⃣ Upload to Supabase Storage
+     6️⃣ Upload to Supabase Storage
   ====================================================== */
 
   const { data: uploadData, error: uploadError } = await supabaseServer.storage
@@ -101,7 +113,7 @@ export async function POST(
   }
 
   /* ======================================================
-     6️⃣ Persist RX metadata on order
+     7️⃣ Persist RX metadata on order (FIXED)
   ====================================================== */
 
   const { error: updateError } = await supabaseServer
@@ -109,7 +121,7 @@ export async function POST(
     .update({
       rx_upload_path: storagePath,
       rx_source: "upload",
-      verification_status: "verified",
+      // ❌ REMOVED: verification_status = "verified"
     })
     .eq("id", orderId);
 
@@ -118,7 +130,10 @@ export async function POST(
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
-  // 🔥 TRIGGER OCR (THIS IS THE MISSING LINK)
+  /* ======================================================
+     8️⃣ Trigger OCR (optional)
+  ====================================================== */
+
   try {
     const res = await fetch(
       `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"}/api/orders/${orderId}/rx-ocr`,
@@ -136,13 +151,13 @@ export async function POST(
   }
 
   /* ======================================================
-     7️⃣ Success
+     9️⃣ Success
   ====================================================== */
 
   console.log("RX UPLOAD SUCCESS", { orderId, storagePath });
 
   return NextResponse.json({
     ok: true,
-    path: storagePath, // 👈 useful for debugging + future preview UI
+    path: storagePath,
   });
 }

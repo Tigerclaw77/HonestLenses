@@ -20,29 +20,9 @@ function getString(o: UnknownRecord, key: string): string | null {
   return typeof v === "string" ? v : null;
 }
 
-function getBoolean(o: UnknownRecord, key: string): boolean | null {
-  const v = o[key];
-  return typeof v === "boolean" ? v : null;
-}
-
-function looksLikeUploadMode(order: unknown): boolean {
-  if (!isRecord(order)) return false;
-
-  if (getBoolean(order, "rx_upload_order_d") === true) return true;
-
-  const keys = ["rx_mode", "verification_mode", "rx_source", "mode"];
-  for (const k of keys) {
-    const v = getString(order, k);
-    if (!v) continue;
-
-    const s = v.toLowerCase();
-    if (s.includes("upload") || s.includes("uploaded") || s.includes("ocr")) {
-      return true;
-    }
-  }
-
-  return false;
-}
+/* =========================
+   MAIN HANDLER
+========================= */
 
 export async function POST(req: Request) {
   /* =========================
@@ -116,12 +96,21 @@ export async function POST(req: Request) {
   }
 
   /* =========================
-     4️⃣ Determine Mode
+     4️⃣ Determine Upload Truth (FIXED)
   ========================= */
 
-  const isUploaded = looksLikeUploadMode(orderRaw);
+  const isUploaded = !!orderRaw.rx_upload_path;
 
-  // Auto-capture if verification not required
+  console.log("UPLOAD CHECK", {
+    orderId,
+    rx_upload_path: orderRaw.rx_upload_path,
+    isUploaded,
+  });
+
+  /* =========================
+     5️⃣ Capture if Upload Flow
+  ========================= */
+
   if (isUploaded && intent.status === "requires_capture") {
     try {
       const capturedIntent = await stripe.paymentIntents.capture(intent.id);
@@ -141,12 +130,16 @@ export async function POST(req: Request) {
     }
   }
 
+  /* =========================
+     6️⃣ Update Order
+  ========================= */
+
   const updatePayload: Record<string, unknown> = {
     status: isUploaded ? "captured" : "authorized",
     verification_status: isUploaded ? "verified" : "pending",
   };
 
-  const { data: updatedRows, error: updateError } = await supabaseServer
+  const { error: updateError } = await supabaseServer
     .from("orders")
     .update(updatePayload)
     .eq("id", orderId)
@@ -158,17 +151,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
-  if (!updatedRows || updatedRows.length === 0) {
-    return NextResponse.json({
-      ok: true,
-      orderId,
-      next: isUploaded ? "success" : "verification-details",
-      mode: isUploaded ? "uploaded" : "passive",
-    });
-  }
-
   /* =========================
-     5️⃣ Send Admin Email
+     7️⃣ Email Admin
   ========================= */
 
   try {
@@ -242,7 +226,7 @@ export async function POST(req: Request) {
   }
 
   /* =========================
-     6️⃣ Send Customer Confirmation
+     8️⃣ Email Customer
   ========================= */
 
   if (user.email) {
@@ -281,22 +265,13 @@ export async function POST(req: Request) {
   }
 
   /* =========================
-     7️⃣ Return Next Step
+     9️⃣ Return Next Step
   ========================= */
-
-  if (isUploaded) {
-    return NextResponse.json({
-      ok: true,
-      orderId,
-      next: "success",
-      mode: "uploaded",
-    });
-  }
 
   return NextResponse.json({
     ok: true,
     orderId,
-    next: "verification-details",
-    mode: "passive",
+    next: isUploaded ? "success" : "verification-details",
+    mode: isUploaded ? "uploaded" : "passive",
   });
 }
