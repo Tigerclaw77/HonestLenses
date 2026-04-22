@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import RxForm, { type RxDraft } from "@/components/RxForm";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase-client";
+import { resolveBrand } from "@/lib/resolveBrand";
+import { lenses } from "@/LensCore";
 
 /* =========================
    TYPES
@@ -19,6 +21,16 @@ type Eye = {
   brand_raw?: string;
 };
 
+function toFixedSafe(val: unknown): string {
+  if (val === null || val === undefined || val === "") return "";
+  const num = Number(val);
+  return !isNaN(num) ? num.toFixed(2) : "";
+}
+
+function toStringSafe(val: unknown): string {
+  return val != null ? String(val) : "";
+}
+
 /* =========================
    COMPONENT
 ========================= */
@@ -27,14 +39,12 @@ export default function ConfirmClient() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("orderId");
 
-  const safeOrderId = orderId; // ✅ FIX
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [initialDraft, setInitialDraft] = useState<RxDraft | null>(null);
 
   useEffect(() => {
-    if (!safeOrderId) {
+    if (!orderId) {
       setError("Missing orderId");
       setLoading(false);
       return;
@@ -43,11 +53,6 @@ export default function ConfirmClient() {
     async function load() {
       try {
         setLoading(true);
-
-        const supabase = createClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        );
 
         const {
           data: { session },
@@ -60,7 +65,7 @@ export default function ConfirmClient() {
           throw new Error("No auth session found");
         }
 
-        const res = await fetch(`/api/orders/${safeOrderId}`, {
+        const res = await fetch(`/api/orders/${orderId}`, {
           cache: "no-store",
           headers: {
             Authorization: `Bearer ${session.access_token}`,
@@ -82,27 +87,72 @@ export default function ConfirmClient() {
           throw new Error("No prescription data found for this order");
         }
 
-        const rx = order.rx;
+        const rx = order.rx as {
+          left?: Eye;
+          right?: Eye;
+          expires?: string;
+        };
 
         console.log("ORDER RX RAW DATA", rx);
 
-        const mapEye = (eye?: Eye): RxDraft["left"] => ({
-          coreId: "",
-          brand: eye?.brand_raw ?? "",
-          sph:
-            eye?.sphere != null && !isNaN(Number(eye.sphere))
-              ? Number(eye.sphere).toFixed(2)
-              : "",
-          cyl:
-            eye?.cylinder != null && !isNaN(Number(eye.cylinder))
-              ? Number(eye.cylinder).toFixed(2)
-              : "",
-          axis: eye?.axis != null ? String(eye.axis) : "",
-          add: eye?.add ?? "",
-          bc: eye?.base_curve ?? "",
-          dia: eye?.diameter ?? "",
-          color: "",
-        });
+        const mapEye = (eye?: Eye): RxDraft["left"] => {
+          const rawString = (eye?.brand_raw ?? "").trim();
+
+          const result = resolveBrand(
+            {
+              rawString,
+              hasCyl: eye?.cylinder != null,
+              hasAdd: eye?.add != null && eye?.add !== "",
+              bc: eye?.base_curve ? Number(eye.base_curve) : null,
+              dia: eye?.diameter ? Number(eye.diameter) : null,
+            },
+            lenses,
+          );
+
+          let coreId = result?.lensId ?? "";
+
+          // 🔥 CRITICAL FIX — HARD FALLBACK
+          if (!coreId && rawString) {
+            const normalized = rawString.toLowerCase();
+
+            const match = lenses.find((l) =>
+              l.displayName.toLowerCase().includes(normalized)
+            );
+
+            if (match) {
+              coreId = match.coreId;
+              console.log("🟨 FALLBACK MATCH USED", {
+                rawString,
+                matched: match.displayName,
+                coreId,
+              });
+            }
+          }
+
+          // 🔍 DEBUG — DO NOT REMOVE YET
+          console.log("RESOLVE BRAND DEBUG", {
+            rawString,
+            result,
+            finalCoreId: coreId,
+          });
+
+          // 🚨 FAIL LOUD (temporary safety)
+          if (!coreId) {
+            console.warn("⚠️ NO CORE ID FOR EYE", eye);
+          }
+
+          return {
+            coreId,
+            brand: eye?.brand_raw ?? "",
+            sph: toFixedSafe(eye?.sphere),
+            cyl: toFixedSafe(eye?.cylinder),
+            axis: toStringSafe(eye?.axis),
+            add: eye?.add ?? "",
+            bc: toStringSafe(eye?.base_curve),
+            dia: toStringSafe(eye?.diameter),
+            color: "",
+          };
+        };
 
         const draft: RxDraft = {
           left: mapEye(rx.left),
@@ -128,7 +178,7 @@ export default function ConfirmClient() {
     }
 
     load();
-  }, [safeOrderId]);
+  }, [orderId]);
 
   /* =========================
      UI STATES
