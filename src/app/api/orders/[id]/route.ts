@@ -11,7 +11,8 @@ type OrderRow = {
   revised_total_amount_cents: number | null;
   verification_status: string | null;
   price_reason: string | null;
-  rx: unknown;  // ← change this
+  rx: unknown;
+  rx_ocr_raw: unknown;
   user_id: string;
 };
 
@@ -53,6 +54,7 @@ export async function GET(
       verification_status,
       price_reason,
       rx,
+      rx_ocr_raw,
       user_id
     `
     )
@@ -79,6 +81,7 @@ export async function GET(
       verification_status: order.verification_status,
       price_reason: order.price_reason,
       rx: order.rx,
+      rx_ocr_raw: order.rx_ocr_raw,
     },
   });
 }
