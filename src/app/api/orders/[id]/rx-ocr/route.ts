@@ -1,6 +1,6 @@
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import OpenAI from "openai";
 import { supabaseServer } from "@/lib/supabase-server";
 
@@ -190,10 +190,12 @@ Return STRICT JSON:
 ========================= */
 
 export async function POST(
-  req: Request,
-  { params }: { params: { id: string } },
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const { id: orderId } = await context.params;
+
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 
@@ -219,7 +221,7 @@ export async function POST(
       (interpretation.confidence ?? 0) > 0.85;
 
     console.log({
-      orderId: params.id,
+      orderId,
       usable,
       isLikelyRx,
       confidence: interpretation.confidence,
@@ -234,7 +236,7 @@ export async function POST(
         verification_status: isLikelyRx ? "auto_verified" : "pending",
         rx_ocr_raw: interpretation,
       })
-      .eq("id", params.id);
+      .eq("id", orderId);
 
     if (updateError) {
       console.error("RX UPDATE ERROR:", updateError);
