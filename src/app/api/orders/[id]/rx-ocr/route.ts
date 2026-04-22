@@ -1,314 +1,253 @@
 export const runtime = "nodejs";
 
+import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "../../../../../lib/supabase-server";
-import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
+import { supabaseServer } from "@/lib/supabase-server";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
 /* =========================
-   DATE NORMALIZATION
+   TYPES
 ========================= */
 
-function normalizeDate(input: string | null): string | null {
-  if (!input) return null;
-
-  const iso = /^(\d{4})-(\d{2})-(\d{2})$/;
-  if (iso.test(input)) return input;
-
-  const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
-  const match = input.match(us);
-
-  if (match) {
-    const [, m, d, y] = match;
-    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
-  }
-
-  console.warn("⚠️ Could not normalize date", input);
-  return null;
-}
-
-/* =========================
-   BRAND TOKEN RULE SYSTEM
-========================= */
-
-type Manufacturer = "alcon" | "vistakon" | "bausch" | "coopervision";
-type BrandTokenStrength = "lock" | "boost";
-
-type BrandTokenRule = {
-  token: string;
-  manufacturer: Manufacturer;
-  strength: BrandTokenStrength;
+type Eye = {
+  sphere: number | null;
+  cylinder: number | null;
+  axis: number | null;
+  base_curve: number | null;
+  diameter: number | null;
 };
 
-const BRAND_TOKEN_RULES: BrandTokenRule[] = [
-  { token: "acuvue", manufacturer: "vistakon", strength: "lock" },
-  { token: "oasys", manufacturer: "vistakon", strength: "lock" },
-  { token: "total1", manufacturer: "alcon", strength: "lock" },
-  { token: "total 1", manufacturer: "alcon", strength: "lock" },
-  { token: "air optix", manufacturer: "alcon", strength: "lock" },
-  { token: "purevision", manufacturer: "bausch", strength: "lock" },
-  { token: "biofinity", manufacturer: "coopervision", strength: "lock" },
-  { token: "dailies", manufacturer: "alcon", strength: "boost" },
-];
+type Rx = {
+  right: Eye | null;
+  left: Eye | null;
+  expires: string | null;
+};
 
-function normalizeBrandText(s: string) {
-  return s
-    .toLowerCase()
-    .replace(/[\u2010-\u2015]/g, "-")
-    .replace(/[^a-z0-9\s-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+type Interpretation = {
+  right?: {
+    sphere?: number | null;
+    cylinder?: number | null;
+    axis?: number | null;
+    baseCurve?: number | null;
+    diameter?: number | null;
+  } | null;
+  left?: {
+    sphere?: number | null;
+    cylinder?: number | null;
+    axis?: number | null;
+    baseCurve?: number | null;
+    diameter?: number | null;
+  } | null;
+  expirationDate?: string | null;
+  patient_name?: string | null;
+  doctor_name?: string | null;
+  prescriber_phone?: string | null;
+  brand_raw?: string | null;
+  confidence?: number;
+  looks_like_contact_lens_rx?: boolean;
+  notes?: string | null;
+};
 
-function detectBrandConstraints(brandRaw: string | null) {
-  const result = {
-    lockedManufacturer: null as Manufacturer | null,
-    boostManufacturers: [] as Manufacturer[],
-    matchedTokens: [] as string[],
+/* =========================
+   HELPERS
+========================= */
+
+function mapInterpretationToRx(interp: Interpretation): Rx {
+  return {
+    right: interp.right
+      ? {
+          sphere: interp.right.sphere ?? null,
+          cylinder: interp.right.cylinder ?? null,
+          axis: interp.right.axis ?? null,
+          base_curve: interp.right.baseCurve ?? null,
+          diameter: interp.right.diameter ?? null,
+        }
+      : null,
+
+    left: interp.left
+      ? {
+          sphere: interp.left.sphere ?? null,
+          cylinder: interp.left.cylinder ?? null,
+          axis: interp.left.axis ?? null,
+          base_curve: interp.left.baseCurve ?? null,
+          diameter: interp.left.diameter ?? null,
+        }
+      : null,
+
+    expires: interp.expirationDate ?? null,
   };
+}
 
-  if (!brandRaw) return result;
-
-  const normalized = normalizeBrandText(brandRaw);
-
-  const matches = BRAND_TOKEN_RULES.filter((rule) =>
-    normalized.includes(rule.token),
+function hasUsableRx(rx: Rx): boolean {
+  return (
+    (rx.right?.sphere !== null || rx.left?.sphere !== null) &&
+    rx.expires !== null
   );
-
-  const lockMatch = matches.find((m) => m.strength === "lock");
-
-  if (lockMatch) {
-    result.lockedManufacturer = lockMatch.manufacturer;
-    result.matchedTokens = matches.map((m) => m.token);
-    return result;
-  }
-
-  for (const m of matches) {
-    if (m.strength === "boost") {
-      if (!result.boostManufacturers.includes(m.manufacturer)) {
-        result.boostManufacturers.push(m.manufacturer);
-      }
-    }
-  }
-
-  result.matchedTokens = matches.map((m) => m.token);
-  return result;
 }
 
 /* =========================
-   GET → Return stored OCR
+   INTERPRETATION ENGINE
 ========================= */
 
-export async function GET(
-  req: NextRequest,
-  context: { params: Promise<{ id: string }> },
-) {
-  const { id: orderId } = await context.params;
+async function runPrescriptionInterpretation(
+  base64: string,
+  mimeType: string,
+): Promise<Interpretation> {
+  const dataUrl = `data:${mimeType};base64,${base64}`;
 
-  const user = await getUserFromRequest(req);
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const prompt = `
+You are interpreting a contact lens prescription.
 
-  const { data: order, error } = await supabaseServer
-    .from("orders")
-    .select("rx_ocr_raw, rx_ocr_meta")
-    .eq("id", orderId)
-    .eq("user_id", user.id)
-    .single();
+Your job is to READ and INTERPRET the prescription like an optometrist.
 
-  if (error || !order) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
-  }
+Even if labels are missing, infer meaning based on standard formats.
 
-  if (!order.rx_ocr_raw) {
-    return NextResponse.json({
-      status: "pending",
-      ocr_json: null,
-      ocr_meta: null,
-    });
-  }
+Examples:
+- "-100-125x10 8.6 14.5" → sphere, cylinder, axis, base curve, diameter
 
-  return NextResponse.json({
-    status: "complete",
-    ocr_json: order.rx_ocr_raw,
-    ocr_meta: order.rx_ocr_meta ?? null,
-  });
+Rules:
+- Do NOT guess values not present
+- Axis must be 1–180
+- BC and DIA are decimal values
+- Prefer correct interpretation over returning null
+- If ambiguous, choose most standard interpretation and note in "notes"
+
+IMPORTANT:
+
+Many prescriptions contain multiple sections (e.g., glasses and contact lenses).
+
+- The glasses section may be empty.
+- You MUST scan the ENTIRE document.
+- You MUST prioritize the CONTACT LENS section.
+- The contact lens section often includes:
+  - Brand / Model
+  - BC (base curve)
+  - DIA (diameter)
+
+If one section is empty but another contains valid data, use the section with valid data.
+
+Do NOT stop at the first table.
+
+If both glasses and contact lens data exist, ONLY return contact lens values.
+
+Return STRICT JSON:
+{
+  "right": {...},
+  "left": {...},
+  "expirationDate": string | null,
+  "patient_name": string | null,
+  "doctor_name": string | null,
+  "prescriber_phone": string | null,
+  "brand_raw": string | null,
+  "confidence": number,
+  "looks_like_contact_lens_rx": boolean,
+  "notes": string | null
 }
+`;
 
-/* =========================
-   POST → Run OCR + Store
-========================= */
+  const content = [
+    { type: "input_text", text: prompt },
+    { type: "input_image", image_url: dataUrl, detail: "auto" },
+  ];
 
-export async function POST(
-  req: NextRequest,
-  context: { params: Promise<{ id: string }> },
-) {
-  const { id: orderId } = await context.params;
-
-  console.log("OCR START", { orderId });
-
-  const user = await getUserFromRequest(req);
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { data: order, error } = await supabaseServer
-    .from("orders")
-    .select("id, rx_upload_path")
-    .eq("id", orderId)
-    .eq("user_id", user.id)
-    .single();
-
-  if (error || !order) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
-  }
-
-  if (!order.rx_upload_path) {
-    return NextResponse.json(
-      { error: "No uploaded prescription found" },
-      { status: 400 },
-    );
-  }
-
-  const { data: fileData, error: downloadError } = await supabaseServer.storage
-    .from("prescriptions")
-    .download(order.rx_upload_path);
-
-  if (downloadError || !fileData) {
-    console.error("OCR DOWNLOAD FAILED", downloadError);
-    return NextResponse.json(
-      { error: "Failed to download prescription image" },
-      { status: 500 },
-    );
-  }
-
-  const arrayBuffer = await fileData.arrayBuffer();
-  const base64 = Buffer.from(arrayBuffer).toString("base64");
-
-  const systemPrompt = `...`;
-
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content: `${systemPrompt}
-
-Return ONLY valid JSON. Do not include text, markdown, or explanation.`,
-      },
+  const response = await openai.responses.create({
+    model: "gpt-4.1",
+    input: [
       {
         role: "user",
-        content: [
-          { type: "text", text: "Extract prescription data from this image." },
-          {
-            type: "image_url",
-            image_url: { url: `data:image/png;base64,${base64}` },
-          },
-        ],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        content: content as any,
       },
     ],
     temperature: 0,
   });
 
-  const rawText = response.choices[0].message.content ?? "";
+  const rawText = response.output_text?.trim();
 
-  let parsed;
+  if (!rawText) {
+    throw new Error("Interpretation returned empty output");
+  }
+
+  console.log("INTERPRET RAW:", rawText);
+
+  let parsed: unknown;
+
   try {
     parsed = JSON.parse(rawText);
   } catch {
-    console.error("OCR JSON PARSE FAILED", rawText);
-    return NextResponse.json(
-      { error: "OCR returned invalid JSON" },
-      { status: 500 },
+    console.error("INTERPRET PARSE FAIL:", rawText);
+    throw new Error("Invalid JSON from interpretation");
+  }
+
+  return parsed as Interpretation;
+}
+
+/* =========================
+   ROUTE HANDLER
+========================= */
+
+export async function POST(
+  req: Request,
+  { params }: { params: { id: string } },
+) {
+  try {
+    const formData = await req.formData();
+    const file = formData.get("file") as File | null;
+
+    if (!file) {
+      return new Response("No file uploaded", { status: 400 });
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
+    const mimeType = file.type;
+
+    const interpretation = await runPrescriptionInterpretation(
+      base64,
+      mimeType,
     );
+
+    const rx = mapInterpretationToRx(interpretation);
+    const usable = hasUsableRx(rx);
+
+    const isLikelyRx =
+      usable &&
+      interpretation.looks_like_contact_lens_rx === true &&
+      (interpretation.confidence ?? 0) > 0.85;
+
+    console.log({
+      orderId: params.id,
+      usable,
+      isLikelyRx,
+      confidence: interpretation.confidence,
+      rx,
+    });
+
+    const { error: updateError } = await supabaseServer
+      .from("orders")
+      .update({
+        rx,
+        rx_status: usable ? "ocr_complete" : "ocr_failed",
+        verification_status: isLikelyRx ? "auto_verified" : "pending",
+        rx_ocr_raw: interpretation,
+      })
+      .eq("id", params.id);
+
+    if (updateError) {
+      console.error("RX UPDATE ERROR:", updateError);
+      return new Response("Failed to save Rx", { status: 500 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      usable,
+      confidence: interpretation.confidence ?? 0,
+    });
+  } catch (err) {
+    console.error("RX OCR ROUTE ERROR:", err);
+    return new Response("Server error", { status: 500 });
   }
-
-  // 🔥 CRITICAL FIX — NORMALIZE TO YESTERDAY’S SHAPE
-  const normalized = {
-    // ✅ support OLD format (yesterday)
-    right: parsed?.right
-      ? {
-          sphere: parsed.right.sphere ?? null,
-          cylinder: parsed.right.cylinder ?? null,
-          axis: parsed.right.axis ?? null,
-          base_curve: parsed.right.base_curve ?? null,
-          diameter: parsed.right.diameter ?? null,
-          add: parsed.right.add ?? null,
-        }
-      : // ✅ fallback to NEW format (today)
-        parsed?.Prescription?.["O.D."]
-        ? {
-            sphere: Number(parsed.Prescription["O.D."]["Power/SPH"]),
-            cylinder: Number(parsed.Prescription["O.D."]["CYL"]),
-            axis: Number(parsed.Prescription["O.D."]["Axis"]),
-            base_curve: Number(parsed.Prescription["O.D."]["BC"]),
-            diameter: Number(parsed.Prescription["O.D."]["DIA"]),
-            add: parsed.Prescription["O.D."]["ADD"] ?? null,
-          }
-        : null,
-
-    left: parsed?.left
-      ? {
-          sphere: parsed.left.sphere ?? null,
-          cylinder: parsed.left.cylinder ?? null,
-          axis: parsed.left.axis ?? null,
-          base_curve: parsed.left.base_curve ?? null,
-          diameter: parsed.left.diameter ?? null,
-          add: parsed.left.add ?? null,
-        }
-      : parsed?.Prescription?.["O.S."]
-        ? {
-            sphere: Number(parsed.Prescription["O.S."]["Power/SPH"]),
-            cylinder: Number(parsed.Prescription["O.S."]["CYL"]),
-            axis: Number(parsed.Prescription["O.S."]["Axis"]),
-            base_curve: Number(parsed.Prescription["O.S."]["BC"]),
-            diameter: Number(parsed.Prescription["O.S."]["DIA"]),
-            add: parsed.Prescription["O.S."]["ADD"] ?? null,
-          }
-        : null,
-
-    expires:
-      parsed?.expires ?? normalizeDate(parsed?.Prescription?.Expires ?? null),
-
-    issued_date:
-      parsed?.issued_date ??
-      normalizeDate(parsed?.Prescription?.Issued ?? null),
-
-    patient_name: parsed?.patient_name ?? parsed?.Patient?.Name ?? null,
-
-    doctor_name: parsed?.doctor_name ?? parsed?.Doctor?.Name ?? null,
-
-    prescriber_phone: parsed?.prescriber_phone ?? parsed?.Doctor?.Phone ?? null,
-
-    brand_raw: parsed?.brand_raw ?? parsed?.Prescription?.Brand ?? null,
-  };
-
-  const brandConstraints = detectBrandConstraints(normalized.brand_raw);
-
-  const { error: updateError } = await supabaseServer
-    .from("orders")
-    .update({
-      rx_ocr_raw: normalized,
-      rx_ocr_meta: {
-        brand_constraints: brandConstraints,
-      },
-      rx_status: "ocr_complete",
-    })
-    .eq("id", orderId)
-    .eq("user_id", user.id);
-
-  if (updateError) {
-    console.error("OCR SAVE FAILED", updateError);
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
-  }
-
-  console.log("OCR COMPLETE", { orderId });
-
-  return NextResponse.json({ ok: true });
 }
