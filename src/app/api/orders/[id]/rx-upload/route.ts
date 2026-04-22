@@ -77,15 +77,17 @@ export async function POST(
      5️⃣ BUILD CLEAN STORAGE PATH (FIXED)
   ====================================================== */
 
-  const now = new Date();
+  // const now = new Date();
 
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
+  // const yyyy = now.getFullYear();
+  // const mm = String(now.getMonth() + 1).padStart(2, "0");
+  // const dd = String(now.getDate()).padStart(2, "0");
 
-  const timestamp = now.toISOString().replace(/[:.]/g, "-");
+  // const timestamp = now.toISOString().replace(/[:.]/g, "-");
 
-  const storagePath = `rx/${yyyy}/${mm}/${dd}/${orderId}/rx_${timestamp}.${ext}`;
+  // const storagePath = `rx/${yyyy}/${mm}/${dd}/${orderId}/rx_${timestamp}.${ext}`;
+
+  const storagePath = `rx/${orderId}/original.${ext}`;
 
   /* ======================================================
      6️⃣ Upload to Supabase Storage
@@ -95,7 +97,7 @@ export async function POST(
     .from("prescriptions")
     .upload(storagePath, buffer, {
       contentType: file.type || "application/octet-stream",
-      upsert: false,
+      upsert: true,
     });
 
   console.log("UPLOAD RESULT", {
