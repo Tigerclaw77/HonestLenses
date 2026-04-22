@@ -4,6 +4,31 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 
+/* =========================
+   TYPES
+========================= */
+
+type ParsedRx = {
+  left?: {
+    sphere?: number | string;
+    cylinder?: number | string;
+    axis?: number | string;
+    base_curve?: string;
+    diameter?: string;
+    add?: string;
+  };
+  right?: {
+    sphere?: number | string;
+    cylinder?: number | string;
+    axis?: number | string;
+    base_curve?: string;
+    diameter?: string;
+    add?: string;
+  };
+  brand_raw?: string;
+  expires?: string;
+};
+
 export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -74,18 +99,8 @@ export async function POST(
   const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
 
   /* ======================================================
-     5️⃣ BUILD CLEAN STORAGE PATH (FIXED)
+     5️⃣ Storage path
   ====================================================== */
-
-  // const now = new Date();
-
-  // const yyyy = now.getFullYear();
-  // const mm = String(now.getMonth() + 1).padStart(2, "0");
-  // const dd = String(now.getDate()).padStart(2, "0");
-
-  // const timestamp = now.toISOString().replace(/[:.]/g, "-");
-
-  // const storagePath = `rx/${yyyy}/${mm}/${dd}/${orderId}/rx_${timestamp}.${ext}`;
 
   const storagePath = `rx/${orderId}/original.${ext}`;
 
@@ -93,18 +108,12 @@ export async function POST(
      6️⃣ Upload to Supabase Storage
   ====================================================== */
 
-  const { data: uploadData, error: uploadError } = await supabaseServer.storage
+  const { error: uploadError } = await supabaseServer.storage
     .from("prescriptions")
     .upload(storagePath, buffer, {
       contentType: file.type || "application/octet-stream",
       upsert: true,
     });
-
-  console.log("UPLOAD RESULT", {
-    storagePath,
-    uploadData,
-    uploadError,
-  });
 
   if (uploadError) {
     console.error("UPLOAD FAILED", uploadError);
@@ -115,7 +124,67 @@ export async function POST(
   }
 
   /* ======================================================
-     7️⃣ Persist RX metadata on order (FIXED)
+     7️⃣ AI PARSE
+  ====================================================== */
+
+  const publicUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/prescriptions/${storagePath}`;
+
+  const aiRes = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4.1-mini",
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: `Extract contact lens prescription. Return JSON:
+{
+  left: { sphere, cylinder, axis, base_curve, diameter, add },
+  right: { sphere, cylinder, axis, base_curve, diameter, add },
+  brand_raw,
+  expires
+}`,
+            },
+            {
+              type: "input_image",
+              image_url: publicUrl,
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  const aiData = await aiRes.json();
+
+  console.log("AI RAW RESPONSE", aiData);
+
+  const text = aiData.output?.[0]?.content?.[0]?.text ?? "{}";
+
+  let parsed: ParsedRx = {};
+
+  try {
+    const temp = JSON.parse(text);
+
+    if (typeof temp === "object" && temp !== null) {
+      parsed = temp as ParsedRx;
+    }
+  } catch (err: unknown) {
+    console.error("AI PARSE FAILED", text);
+
+    if (err instanceof Error) {
+      console.error("PARSE ERROR", err.message);
+    }
+  }
+
+  /* ======================================================
+     8️⃣ SAVE FINAL RX (SOURCE OF TRUTH)
   ====================================================== */
 
   const { error: updateError } = await supabaseServer
@@ -123,7 +192,8 @@ export async function POST(
     .update({
       rx_upload_path: storagePath,
       rx_source: "upload",
-      // ❌ REMOVED: verification_status = "verified"
+      rx: parsed,
+      verification_status: "auto_verified",
     })
     .eq("id", orderId);
 
@@ -133,30 +203,14 @@ export async function POST(
   }
 
   /* ======================================================
-     8️⃣ Trigger OCR (optional)
-  ====================================================== */
-
-  try {
-    const res = await fetch(
-      `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"}/api/orders/${orderId}/rx-ocr`,
-      {
-        method: "POST",
-        headers: {
-          cookie: req.headers.get("cookie") || "",
-        },
-      },
-    );
-
-    console.log("OCR TRIGGER RESPONSE", await res.text());
-  } catch (err) {
-    console.error("OCR trigger failed", err);
-  }
-
-  /* ======================================================
      9️⃣ Success
   ====================================================== */
 
-  console.log("RX UPLOAD SUCCESS", { orderId, storagePath });
+  console.log("RX UPLOAD + AI PARSE SUCCESS", {
+    orderId,
+    storagePath,
+    parsed,
+  });
 
   return NextResponse.json({
     ok: true,
