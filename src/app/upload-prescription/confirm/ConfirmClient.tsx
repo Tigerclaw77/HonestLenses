@@ -48,6 +48,7 @@ export default function ConfirmClient() {
 
         const res = await fetch(`/api/orders/${safeOrderId}`, {
           cache: "no-store",
+          credentials: "include",
         });
 
         if (!res.ok) {
