@@ -126,7 +126,7 @@ function UploadPrescriptionContent() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const uploadRes = await fetch(`/api/orders/${orderId}/rx-upload`, {
+      const ocrRes = await fetch(`/api/orders/${orderId}/rx-ocr`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -134,18 +134,10 @@ function UploadPrescriptionContent() {
         body: formData,
       });
 
-      if (!uploadRes.ok) {
-        const body: { error?: string } = await uploadRes.json();
+      if (!ocrRes.ok) {
+        const body: { error?: string } = await ocrRes.json();
         throw new Error(body.error ?? "Upload failed");
       }
-
-      // trigger OCR / verification pipeline
-      await fetch(`/api/orders/${orderId}/rx-ocr`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
 
       const params = new URLSearchParams({
         orderId,
@@ -177,7 +169,6 @@ function UploadPrescriptionContent() {
           </h2>
 
           <div className="rx-choice-grid">
-
             {/* Upload Card */}
 
             <div
@@ -216,7 +207,9 @@ function UploadPrescriptionContent() {
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 10 }}
+                  >
                     <span style={{ fontSize: 18 }}>✔</span>
                     <span style={{ fontWeight: 600, fontSize: 15 }}>
                       Prescription uploaded
@@ -277,7 +270,8 @@ function UploadPrescriptionContent() {
               </p>
 
               <p className="rx-manual-hint">
-                You can enter your prescription details manually in a short form.
+                You can enter your prescription details manually in a short
+                form.
               </p>
 
               <Link
@@ -293,7 +287,6 @@ function UploadPrescriptionContent() {
                 Enter prescription manually
               </Link>
             </div>
-
           </div>
 
           <p className="order-fineprint">
