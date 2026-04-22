@@ -18,6 +18,7 @@ type Eye = {
   axis: number | null;
   base_curve: number | null;
   diameter: number | null;
+  brand_raw: string | null;
 };
 
 type Rx = {
@@ -33,6 +34,7 @@ type Interpretation = {
     axis?: number | null;
     baseCurve?: number | null;
     diameter?: number | null;
+    brand_raw?: string | null;
   } | null;
   left?: {
     sphere?: number | null;
@@ -40,6 +42,7 @@ type Interpretation = {
     axis?: number | null;
     baseCurve?: number | null;
     diameter?: number | null;
+    brand_raw?: string | null;
   } | null;
   expirationDate?: string | null;
   patient_name?: string | null;
@@ -64,6 +67,7 @@ function mapInterpretationToRx(interp: Interpretation): Rx {
           axis: interp.right.axis ?? null,
           base_curve: interp.right.baseCurve ?? null,
           diameter: interp.right.diameter ?? null,
+          brand_raw: interp.right?.brand_raw ?? interp.brand_raw ?? null,
         }
       : null,
 
@@ -74,6 +78,7 @@ function mapInterpretationToRx(interp: Interpretation): Rx {
           axis: interp.left.axis ?? null,
           base_curve: interp.left.baseCurve ?? null,
           diameter: interp.left.diameter ?? null,
+          brand_raw: interp.left?.brand_raw ?? interp.brand_raw ?? null,
         }
       : null,
 
@@ -96,8 +101,6 @@ async function runPrescriptionInterpretation(
   base64: string,
   mimeType: string,
 ): Promise<Interpretation> {
-  const dataUrl = `data:${mimeType};base64,${base64}`;
-
   const prompt = `
 You are interpreting a contact lens prescription.
 
@@ -133,10 +136,26 @@ Do NOT stop at the first table.
 
 If both glasses and contact lens data exist, ONLY return contact lens values.
 
+If different brands are listed per eye, assign them correctly.
+
 Return STRICT JSON:
 {
-  "right": {...},
-  "left": {...},
+  "right": {
+    "sphere": number | null,
+    "cylinder": number | null,
+    "axis": number | null,
+    "baseCurve": number | null,
+    "diameter": number | null,
+    "brand_raw": string | null
+  },
+  "left": {
+    "sphere": number | null,
+    "cylinder": number | null,
+    "axis": number | null,
+    "baseCurve": number | null,
+    "diameter": number | null,
+    "brand_raw": string | null
+  },
   "expirationDate": string | null,
   "patient_name": string | null,
   "doctor_name": string | null,
@@ -148,24 +167,24 @@ Return STRICT JSON:
 }
 `;
 
-  const content = [
-    { type: "input_text", text: prompt },
-    { type: "input_image", image_url: dataUrl, detail: "auto" },
-  ];
+  const imageUrl = `data:${mimeType};base64,${base64}`;
 
   const response = await openai.responses.create({
     model: "gpt-4.1",
     input: [
       {
         role: "user",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        content: content as any,
+        content: [
+          { type: "input_text", text: prompt },
+          { type: "input_image", image_url: imageUrl },
+        ] as unknown as string,
       },
     ],
     temperature: 0,
   });
 
-  const rawText = response.output_text?.trim();
+  const rawText =
+    typeof response.output_text === "string" ? response.output_text.trim() : "";
 
   if (!rawText) {
     throw new Error("Interpretation returned empty output");
@@ -203,9 +222,10 @@ export async function POST(
       return new Response("No file uploaded", { status: 400 });
     }
 
+    const mimeType = file.type;
+
     const arrayBuffer = await file.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString("base64");
-    const mimeType = file.type;
 
     const interpretation = await runPrescriptionInterpretation(
       base64,

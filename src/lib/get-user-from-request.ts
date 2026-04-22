@@ -3,7 +3,12 @@ import { createClient } from "@supabase/supabase-js";
 export async function getUserFromRequest(req: Request) {
   const authHeader = req.headers.get("authorization");
 
-  /* LOCAL DEV BYPASS */
+  console.log("GET USER FROM REQUEST", {
+    hasAuthHeader: !!authHeader,
+    authHeaderPrefix: authHeader?.slice(0, 20) ?? null,
+    host: req.headers.get("host"),
+  });
+
   if (
     process.env.NODE_ENV === "development" &&
     req.headers.get("host")?.includes("localhost")
@@ -17,6 +22,11 @@ export async function getUserFromRequest(req: Request) {
   if (!authHeader) return null;
 
   const token = authHeader.replace("Bearer ", "").trim();
+
+  console.log("TOKEN CHECK", {
+    hasToken: !!token,
+    tokenPrefix: token.slice(0, 20),
+  });
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,6 +44,12 @@ export async function getUserFromRequest(req: Request) {
     data: { user },
     error,
   } = await supabase.auth.getUser();
+
+  console.log("SUPABASE AUTH RESULT", {
+    hasUser: !!user,
+    userId: user?.id ?? null,
+    error: error?.message ?? null,
+  });
 
   if (error || !user) return null;
 

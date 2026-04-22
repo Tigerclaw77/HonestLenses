@@ -3,6 +3,11 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import RxForm, { type RxDraft } from "@/components/RxForm";
+import { createClient } from "@supabase/supabase-js";
+
+/* =========================
+   TYPES
+========================= */
 
 type Eye = {
   sphere?: number | string;
@@ -11,51 +16,67 @@ type Eye = {
   add?: string;
   base_curve?: string;
   diameter?: string;
-};
-
-type OrderRx = {
-  left?: Eye;
-  right?: Eye;
   brand_raw?: string;
-  expires?: string;
 };
 
-type OrderResponse = {
-  id: string;
-  rx?: OrderRx | null;
-};
+/* =========================
+   COMPONENT
+========================= */
 
 export default function ConfirmClient() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("orderId");
+
+  const safeOrderId = orderId; // ✅ FIX
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [initialDraft, setInitialDraft] = useState<RxDraft | null>(null);
 
   useEffect(() => {
-    if (!orderId) {
+    if (!safeOrderId) {
       setError("Missing orderId");
       setLoading(false);
       return;
     }
 
-    const safeOrderId = orderId;
-
     async function load() {
       try {
         setLoading(true);
 
+        const supabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        );
+
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+
+        console.log("SESSION DEBUG", { session, sessionError });
+
+        if (!session?.access_token) {
+          throw new Error("No auth session found");
+        }
+
         const res = await fetch(`/api/orders/${safeOrderId}`, {
           cache: "no-store",
-          credentials: "include",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
         });
 
+        console.log("FETCH STATUS", res.status);
+
         if (!res.ok) {
+          const text = await res.text();
+          console.error("FETCH ERROR BODY", text);
           throw new Error(`Failed to load order (${res.status})`);
         }
 
-        const order = (await res.json()) as OrderResponse;
+        const json = await res.json();
+        const order = json.order;
 
         if (!order?.rx) {
           throw new Error("No prescription data found for this order");
@@ -67,13 +88,19 @@ export default function ConfirmClient() {
 
         const mapEye = (eye?: Eye): RxDraft["left"] => ({
           coreId: "",
-          brand: "", // 🔥 REQUIRED now
-          sph: eye?.sphere != null ? Number(eye.sphere).toFixed(2) : "",
-          cyl: eye?.cylinder != null ? Number(eye.cylinder).toFixed(2) : "",
+          brand: eye?.brand_raw ?? "",
+          sph:
+            eye?.sphere != null && !isNaN(Number(eye.sphere))
+              ? Number(eye.sphere).toFixed(2)
+              : "",
+          cyl:
+            eye?.cylinder != null && !isNaN(Number(eye.cylinder))
+              ? Number(eye.cylinder).toFixed(2)
+              : "",
           axis: eye?.axis != null ? String(eye.axis) : "",
           add: eye?.add ?? "",
           bc: eye?.base_curve ?? "",
-          dia: eye?.diameter ?? "", // 🔥 REQUIRED now
+          dia: eye?.diameter ?? "",
           color: "",
         });
 
@@ -101,7 +128,11 @@ export default function ConfirmClient() {
     }
 
     load();
-  }, [orderId]);
+  }, [safeOrderId]);
+
+  /* =========================
+     UI STATES
+  ========================= */
 
   if (loading) {
     return <div style={{ padding: 40 }}>Loading prescription...</div>;
