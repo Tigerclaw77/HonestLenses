@@ -116,7 +116,7 @@ export default function ConfirmClient() {
             const normalized = rawString.toLowerCase();
 
             const match = lenses.find((l) =>
-              l.displayName.toLowerCase().includes(normalized)
+              l.displayName.toLowerCase().includes(normalized),
             );
 
             if (match) {
@@ -142,14 +142,12 @@ export default function ConfirmClient() {
           }
 
           return {
-            coreId,
-            brand: eye?.brand_raw ?? "",
+            coreId: result?.lensId ?? "",
             sph: toFixedSafe(eye?.sphere),
             cyl: toFixedSafe(eye?.cylinder),
             axis: toStringSafe(eye?.axis),
             add: eye?.add ?? "",
             bc: toStringSafe(eye?.base_curve),
-            dia: toStringSafe(eye?.diameter),
             color: "",
           };
         };

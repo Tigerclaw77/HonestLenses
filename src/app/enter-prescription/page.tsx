@@ -12,13 +12,11 @@ import { Suspense } from "react";
 function emptyEye(): RxDraft["left"] {
   return {
     coreId: "",
-    brand: "",
     sph: "",
     cyl: "",
     axis: "",
     add: "",
     bc: "",
-    dia: "",
     color: "",
   };
 }
@@ -39,11 +37,11 @@ function EnterPrescriptionContent() {
     ? {
         right: {
           ...emptyEye(),
-          brand: rightLens,
+          coreId: rightLens,
         },
         left: {
           ...emptyEye(),
-          brand: leftLens,
+          coreId: leftLens,
         },
         expires: "",
       }
