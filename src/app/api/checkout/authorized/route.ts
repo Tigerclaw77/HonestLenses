@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { Resend } from "resend";
+import { sendEmail } from "../../../../lib/email";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 
@@ -136,7 +137,7 @@ export async function POST(req: Request) {
 
   const updatePayload: Record<string, unknown> = {
     status: isUploaded ? "captured" : "authorized",
-    verification_status: isUploaded ? "verified" : "pending",
+    verification_status: isUploaded ? "auto_verified" : "pending",
   };
 
   const { error: updateError } = await supabaseServer
@@ -231,33 +232,35 @@ export async function POST(req: Request) {
 
   if (user.email) {
     try {
-      await resend.emails.send({
-        from: "Honest Lenses <support@honestlenses.com>",
+      await sendEmail({
         to: user.email,
-        subject: "Your Honest Lenses order was received",
-        replyTo: "support@honestlenses.com",
+        subject: "Order received — Honest Lenses",
         html: `
-          <h2>Thank you for your order</h2>
+        <h2>Thank you for your order</h2>
 
-          <p>Your order has been received and is now being processed.</p>
+        <p>Your order has been received and is now being processed.</p>
 
-          <p><strong>Order ID:</strong> ${orderId}</p>
+        <p><strong>Order ID:</strong> ${orderId}</p>
 
-          <p>
-          ${
-            isUploaded
-              ? "Your prescription upload has been received and will be reviewed."
-              : "We will contact your doctor to verify your prescription."
-          }
-          </p>
+        <p>
+        ${
+          isUploaded
+            ? "Your prescription has been received and verified. Your order is moving into fulfillment."
+            : "We will contact your doctor to verify your prescription before shipping."
+        }
+        </p>
 
-          <p>
-          If you have questions, simply reply to this email or contact
-          support@honestlenses.com.
-          </p>
+        <p>
+            View your order:
+            <a href="https://www.honestlenses.com/order/${orderId}">
+              View Order
+            </a>
+        </p>
 
-          <p>— Honest Lenses</p>
-        `,
+        <p>You’ll receive updates as your order progresses.</p>
+
+        <p>— Honest Lenses</p>
+      `,
       });
     } catch (err) {
       console.error("Customer confirmation email failed:", err);

@@ -34,10 +34,8 @@ export default function CheckoutSuccessPage() {
   const isUnknown = mode === "unknown";
 
   let title = "Order Received";
-  let subText =
-    "Your order has been received and is now being processed.";
-  let noteText =
-    "You can check your account for the latest order status.";
+  let subText = "Your order has been received and is now being processed.";
+  let noteText = "You can check your account for the latest order status.";
   let bullets: string[] = [
     "We’ve received your order",
     "We’ll email you if any follow-up is needed",
@@ -76,11 +74,11 @@ export default function CheckoutSuccessPage() {
     subText =
       "We received your order, but the confirmation details were incomplete.";
     noteText =
-      "Please check your email or account for the latest order status.";
+      "Please check your email for the latest order status.";
     bullets = [
       "Your order was received",
       "We’ll contact you if anything further is needed",
-      "You can review your order status in your account",
+      "You’ll receive email updates as your order progresses.",
     ];
   }
 
@@ -221,11 +219,18 @@ export default function CheckoutSuccessPage() {
           )}
 
           <div className="hl-actions">
-            <button
+            {/* <button
               className="hl-primary-btn"
               onClick={() => router.push("/dashboard")}
             >
               Go to My Account
+            </button> */}
+
+            <button
+              className="hl-primary-btn"
+              onClick={() => router.push(`/order/${orderId}`)}
+            >
+              View Your Order
             </button>
 
             <button
