@@ -7,12 +7,7 @@ import { sendVerificationEmail } from "../../../../lib/email";
 
 function isVerifiedLike(v: unknown): boolean {
   if (typeof v !== "string") return false;
-  return (
-    v === "verified" ||
-    v === "ocr_verified" ||
-    v === "uploaded" ||
-    v === "upload_verified"
-  );
+  return v === "verified" || v === "ocr_verified";
 }
 
 export async function POST(req: Request) {
@@ -66,7 +61,10 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (orderError || !order) {
-      return NextResponse.json({ error: "No pending order found" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No pending order found" },
+        { status: 400 },
+      );
     }
 
     // ✅ Critical: never downgrade a verified order back to pending
@@ -102,13 +100,19 @@ export async function POST(req: Request) {
     );
 
     if (deadlineError || !data) {
-      return NextResponse.json({ error: "Passive deadline calculation failed" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Passive deadline calculation failed" },
+        { status: 500 },
+      );
     }
 
     const passiveDeadline = Array.isArray(data) ? data[0] : data;
 
     if (!passiveDeadline) {
-      return NextResponse.json({ error: "Invalid passive deadline" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Invalid passive deadline" },
+        { status: 500 },
+      );
     }
 
     /* =========================
@@ -200,7 +204,10 @@ Verification Department
       .eq("id", order.id);
 
     if (updateError) {
-      return NextResponse.json({ error: "Order update failed" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Order update failed" },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({

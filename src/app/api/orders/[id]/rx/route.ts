@@ -68,12 +68,7 @@ function sanitizeEyeRx(eye: EyeRx | undefined): EyeRx | undefined {
 
 function isVerifiedLike(v: unknown): boolean {
   if (typeof v !== "string") return false;
-  return (
-    v === "verified" ||
-    v === "ocr_verified" ||
-    v === "uploaded" ||
-    v === "upload_verified"
-  );
+  return v === "verified" || v === "ocr_verified";
 }
 
 /* =========================
@@ -120,14 +115,10 @@ export async function POST(
     typeof rx.patient_name === "string" ? rx.patient_name.trim() : null;
 
   const prescriber_name =
-    typeof rx.prescriber_name === "string"
-      ? rx.prescriber_name.trim()
-      : null;
+    typeof rx.prescriber_name === "string" ? rx.prescriber_name.trim() : null;
 
   const prescriber_phone =
-    typeof rx.prescriber_phone === "string"
-      ? rx.prescriber_phone.trim()
-      : null;
+    typeof rx.prescriber_phone === "string" ? rx.prescriber_phone.trim() : null;
 
   /* =========================
      4️⃣ Extract coreId
@@ -137,10 +128,7 @@ export async function POST(
 
   // 🔥 FIX: allow null ONLY for requires_review
   if (!coreId && incomingVerificationStatus !== "requires_review") {
-    return NextResponse.json(
-      { error: "RX missing coreId" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "RX missing coreId" }, { status: 400 });
   }
 
   /* =========================
