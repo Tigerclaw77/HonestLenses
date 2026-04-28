@@ -1,62 +1,49 @@
-import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 
-function checkAuth(request: Request): boolean {
-  const auth = request.headers.get("authorization");
-  if (!auth) return false;
+export async function GET() {
+  try {
+    /* =========================
+       Fetch orders
+    ========================= */
 
-  const token = auth.replace("Bearer ", "").trim();
-  return token === process.env.ADMIN_PASSWORD;
-}
+    const { data, error } = await supabaseServer
+      .from("orders")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-export async function GET(request: Request) {
-  if (!checkAuth(request)) {
-    return new NextResponse("Unauthorized", { status: 401 });
-  }
-
-  const supabase = supabaseServer;
-
-  const { data, error } = await supabase
-    .from("orders")
-    .select("*")
-    .eq("archived", false)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    return NextResponse.json({ error: "Failed to load" }, { status: 500 });
-  }
-
-  const now = Date.now();
-
-  const needsAction = [];
-  const stalled = [];
-  const pipeline = [];
-
-  for (const o of data ?? []) {
-    const ageMin =
-      o.created_at
-        ? (now - new Date(o.created_at).getTime()) / 60000
-        : 0;
-
-    if (o.status === "authorized") {
-      needsAction.push(o);
-      continue;
+    if (error) {
+      console.error("Admin orders fetch error:", error);
+      return new Response("Failed to fetch orders", { status: 500 });
     }
 
-    if (o.status === "draft" && o.payment_intent_id && ageMin > 10) {
-      stalled.push(o);
-      continue;
-    }
+    /* =========================
+       Basic grouping (same shape your frontend expects)
+    ========================= */
 
-    if (o.status === "captured" || o.status === "paid") {
-      pipeline.push(o);
-      continue;
-    }
+    const needsAction = (data ?? []).filter(
+      (o) =>
+        o.status === "authorized" &&
+        !o.rx_upload_path &&
+        !o.prescriber_name
+    );
+
+    const stalled = (data ?? []).filter(
+      (o) =>
+        o.status === "authorized" &&
+        (o.rx_upload_path || o.prescriber_name)
+    );
+
+    const pipeline = (data ?? []).filter(
+      (o) => o.status !== "authorized"
+    );
+
+    return Response.json({
+      needsAction,
+      stalled,
+      pipeline,
+    });
+  } catch (err) {
+    console.error("Admin route crash:", err);
+    return new Response("Server error", { status: 500 });
   }
-
-  return NextResponse.json({
-    needsAction,
-    stalled,
-    pipeline,
-  });
 }

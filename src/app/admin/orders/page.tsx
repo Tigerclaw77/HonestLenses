@@ -109,15 +109,11 @@ export default function AdminOrdersPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   /* =========================
-     Fetch
+     Fetch (FIXED — no password)
   ========================= */
 
   async function fetchData() {
-    const res = await fetch("/api/admin/orders", {
-      headers: {
-        Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_PASSWORD}`,
-      },
-    });
+    const res = await fetch("/api/admin/orders");
 
     const json = await res.json();
 
@@ -167,7 +163,7 @@ export default function AdminOrdersPage() {
   }, []);
 
   /* =========================
-     Notifications (request)
+     Notifications
   ========================= */
 
   useEffect(() => {
@@ -209,10 +205,6 @@ export default function AdminOrdersPage() {
             `${o.shipping_city}, ${o.shipping_state} ${o.shipping_zip}`,
           ].filter((v): v is string => Boolean(v));
 
-          /* =========================
-             Flags
-          ========================= */
-
           const flags: string[] = [];
 
           if (!sameName) flags.push("⚠ NAME");
@@ -235,7 +227,6 @@ export default function AdminOrdersPage() {
                 background: isOpen ? "rgba(30,41,59,0.6)" : "transparent",
               }}
             >
-              {/* GRID ROW */}
               <div
                 style={{
                   display: "grid",
@@ -243,14 +234,12 @@ export default function AdminOrdersPage() {
                   gap: 12,
                 }}
               >
-                {/* COLUMN 1 */}
                 <div>
                   <div style={{ fontWeight: 700 }}>{patientName}</div>
                   <div>{rx.od}</div>
                   <div>{rx.os}</div>
                 </div>
 
-                {/* COLUMN 2 */}
                 <div>
                   {!sameName && (
                     <div style={{ fontWeight: 600 }}>{shippingName}</div>
@@ -260,7 +249,6 @@ export default function AdminOrdersPage() {
                   ))}
                 </div>
 
-                {/* COLUMN 3 */}
                 <div>
                   <div style={{ fontWeight: 700 }}>
                     {formatMoney(o.total_amount_cents)}
@@ -279,7 +267,6 @@ export default function AdminOrdersPage() {
                 </div>
               </div>
 
-              {/* EXPANDED */}
               {isOpen && (
                 <div
                   style={{
@@ -290,9 +277,7 @@ export default function AdminOrdersPage() {
                 >
                   {o.shipping_phone && <div>Phone: {o.shipping_phone}</div>}
                   {o.shipping_email && <div>Email: {o.shipping_email}</div>}
-
                   {rx.exp && <div>Exp: {rx.exp}</div>}
-
                   {o.payment_intent_id && <div>PI: {o.payment_intent_id}</div>}
                 </div>
               )}
