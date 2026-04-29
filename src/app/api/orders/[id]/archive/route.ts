@@ -4,9 +4,11 @@ import { getUserFromRequest } from "@/lib/get-user-from-request";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
+
     const user = await getUserFromRequest(req);
 
     if (!user) {
@@ -22,7 +24,7 @@ export async function POST(
         archived: true,
         archived_at: new Date().toISOString(),
       })
-      .eq("id", params.id);
+      .eq("id", id);
 
     if (!isAdmin) {
       query = query.eq("user_id", user.id);
