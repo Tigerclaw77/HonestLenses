@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 import { getUserFromRequest } from "@/lib/get-user-from-request";
 
+const ADMIN_EMAILS = ["pauldriggers@aol.com"];
+
 export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -15,9 +17,8 @@ export async function POST(
       return new Response("Unauthorized", { status: 401 });
     }
 
-    const isAdmin = user.email === "pauldriggers@aol.com";
+    const isAdmin = ADMIN_EMAILS.includes(user.email ?? "");
 
-    // Build query - admin can archive any order, users only their own
     let query = supabaseServer
       .from("orders")
       .update({
@@ -30,11 +31,15 @@ export async function POST(
       query = query.eq("user_id", user.id);
     }
 
-    const { error } = await query;
+    const { data, error } = await query.select("id").maybeSingle();
 
     if (error) {
       console.error("Archive error:", error);
       return new Response("Failed to archive order", { status: 500 });
+    }
+
+    if (!data) {
+      return new Response("Order not found or not authorized", { status: 404 });
     }
 
     return Response.json({ success: true });

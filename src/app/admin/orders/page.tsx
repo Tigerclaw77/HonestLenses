@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import type { CSSProperties } from "react";
 import { supabase } from "@/lib/supabase-client";
 
 /* =========================
@@ -27,6 +28,7 @@ type Order = {
   id: string;
   status: string;
   verification_status: string;
+  rx_status?: string | null;
   archived?: boolean;
 
   total_amount_cents?: number;
@@ -61,6 +63,8 @@ type Order = {
   payment_intent_id?: string | null;
 };
 
+type BadgeTone = "good" | "warning" | "blocked";
+
 /* =========================
    Helpers
 ========================= */
@@ -76,10 +80,73 @@ function shortStatus(status: string): string {
   return status.toUpperCase();
 }
 
-function shortVerification(v: string): string {
-  if (v === "auto_verified") return "AUTO";
-  if (v === "pending") return "PEND";
-  return v?.toUpperCase?.() ?? "";
+function isVerified(status?: string | null): boolean {
+  return ["verified", "auto_verified", "manual_verified"].includes(status ?? "");
+}
+
+function compareOperationalPriority(a: Order, b: Order): number {
+  const aNeedsVerification = !isVerified(a.verification_status);
+  const bNeedsVerification = !isVerified(b.verification_status);
+
+  if (aNeedsVerification !== bNeedsVerification) {
+    return aNeedsVerification ? -1 : 1;
+  }
+
+  const aTime = Date.parse(a.created_at ?? "") || 0;
+  const bTime = Date.parse(b.created_at ?? "") || 0;
+  return bTime - aTime;
+}
+
+function normalizedRxStatus(order: Order): string {
+  return order.rx_status ?? (order.rx_upload_path ? "uploaded" : "none");
+}
+
+function orderHasRx(order: Order): boolean {
+  const rxStatus = normalizedRxStatus(order);
+  return Boolean(order.rx_upload_path) || rxStatus === "uploaded" || rxStatus === "ocr_complete";
+}
+
+function verificationPath(order: Order): { label: string; tone: BadgeTone } {
+  if (orderHasRx(order)) return { label: "AUTO (Rx uploaded)", tone: "good" };
+  if (order.prescriber_name) return { label: "DOCTOR REQUIRED", tone: "warning" };
+  return { label: "BLOCKED", tone: "blocked" };
+}
+
+function paymentStatus(order: Order): { label: string; tone: BadgeTone } {
+  if (order.payment_intent_id) return { label: "AUTHORIZED", tone: "good" };
+  return { label: "MISSING PI", tone: "blocked" };
+}
+
+function rxTone(order: Order): BadgeTone {
+  return normalizedRxStatus(order) === "none" ? "warning" : "good";
+}
+
+function verificationTone(status?: string | null): BadgeTone {
+  if (isVerified(status)) return "good";
+  if (status === "pending") return "warning";
+  return "blocked";
+}
+
+function badgeStyle(tone: BadgeTone): CSSProperties {
+  const colors = {
+    good: { background: "#dcfce7", color: "#166534", border: "#86efac" },
+    warning: { background: "#fef9c3", color: "#854d0e", border: "#fde68a" },
+    blocked: { background: "#fee2e2", color: "#991b1b", border: "#fecaca" },
+  }[tone];
+
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    border: `1px solid ${colors.border}`,
+    borderRadius: 6,
+    background: colors.background,
+    color: colors.color,
+    fontSize: 12,
+    fontWeight: 700,
+    lineHeight: 1,
+    padding: "5px 7px",
+    whiteSpace: "nowrap",
+  };
 }
 
 function parseRx(rxRaw: string | RxData): {
@@ -157,7 +224,7 @@ export default function AdminOrdersPage() {
     combined.forEach((o) => knownOrderIds.current.add(o.id));
     isInitialLoad.current = false;
 
-    setOrders(combined);
+    setOrders(combined.sort(compareOperationalPriority));
   }
 
   /* =========================
@@ -266,6 +333,9 @@ export default function AdminOrdersPage() {
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {orders.map((o) => {
           const rx = parseRx(o.rx);
+          const rxStatus = normalizedRxStatus(o);
+          const payment = paymentStatus(o);
+          const path = verificationPath(o);
 
           const patientName =
             o.patient_name ||
@@ -347,10 +417,29 @@ export default function AdminOrdersPage() {
                       {formatMoney(o.total_amount_cents)}
                     </div>
 
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 6,
+                        margin: "8px 0",
+                      }}
+                    >
+                      <span style={badgeStyle(payment.tone)}>
+                        Payment: {payment.label}
+                      </span>
+                      <span style={badgeStyle(rxTone(o))}>Rx: {rxStatus}</span>
+                      <span style={badgeStyle(path.tone)}>
+                        Path: {path.label}
+                      </span>
+                      <span style={badgeStyle(verificationTone(o.verification_status))}>
+                        Verification: {o.verification_status ?? "pending"}
+                      </span>
+                    </div>
+
                     <div>
-                      {shortStatus(o.status)} •{" "}
-                      {shortVerification(o.verification_status)}{" "}
-                      {flags.length > 0 && "• " + flags.join(" ")}
+                      Order: {shortStatus(o.status)}{" "}
+                      {flags.length > 0 && "| " + flags.join(" ")}
                     </div>
 
                     <div>
