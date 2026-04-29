@@ -222,10 +222,27 @@ export async function POST(
       return new Response("No file uploaded", { status: 400 });
     }
 
+    const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const storagePath = `rx/${orderId}/rx_${timestamp}.${ext}`;
+
     const mimeType = file.type;
 
     const arrayBuffer = await file.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString("base64");
+    const buffer = Buffer.from(arrayBuffer);
+    const base64 = buffer.toString("base64");
+
+    const { error: uploadError } = await supabaseServer.storage
+      .from("prescriptions")
+      .upload(storagePath, buffer, {
+        contentType: file.type || "application/octet-stream",
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error("RX UPLOAD ERROR:", uploadError);
+      return new Response("Failed to upload Rx file", { status: 500 });
+    }
 
     const interpretation = await runPrescriptionInterpretation(
       base64,
@@ -252,6 +269,7 @@ export async function POST(
       .from("orders")
       .update({
         rx,
+        rx_upload_path: storagePath,
         rx_status: usable ? "ocr_complete" : "ocr_failed",
         verification_status: isLikelyRx ? "auto_verified" : "pending",
         rx_ocr_raw: interpretation,
