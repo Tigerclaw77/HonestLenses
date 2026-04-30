@@ -2,13 +2,11 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { Resend } from "resend";
 import { sendEmail } from "../../../../lib/email";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-const resend = new Resend(process.env.RESEND_API_KEY!);
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -177,8 +175,7 @@ export async function POST(req: Request) {
     const left = isRecord(rx?.left) ? rx.left : null;
     const right = isRecord(rx?.right) ? rx.right : null;
 
-    await resend.emails.send({
-      from: "Honest Lenses <orders@honestlenses.com>",
+    await sendEmail({
       to: "pauldriggers@aol.com",
       subject: `New Honest Lenses Order ${orderId}`,
       html: `

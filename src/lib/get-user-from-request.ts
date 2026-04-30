@@ -15,7 +15,7 @@ export async function getUserFromRequest(req: Request) {
   ) {
     return {
       id: "ef2cc991-f65f-4ce0-85ba-f5816ce2ee76",
-      email: "dev@local.test",
+      email: process.env.DEV_EMAIL ?? null,
     };
   }
 

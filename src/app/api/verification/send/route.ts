@@ -23,7 +23,6 @@ export async function POST(req: Request) {
 
     /* =========================
        2️⃣ Load most recent pending order
-       NOTE: include verification_status so we can avoid overwriting verified orders
     ========================= */
     const { data: order, error: orderError } = await supabaseServer
       .from("orders")
@@ -32,6 +31,8 @@ export async function POST(req: Request) {
         id,
         status,
         verification_status,
+        verification_sent_at,
+        passive_deadline_at,
         sku,
         manufacturer,
         right_box_count,
@@ -55,7 +56,7 @@ export async function POST(req: Request) {
       `,
       )
       .eq("user_id", user.id)
-      .eq("status", "pending")
+      .in("status", ["pending", "authorized"])
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Critical: never downgrade a verified order back to pending
+    // ✅ Never downgrade verified orders
     if (isVerifiedLike(order.verification_status)) {
       return NextResponse.json({
         ok: true,
@@ -76,8 +77,16 @@ export async function POST(req: Request) {
       });
     }
 
+    // ✅ Prevent duplicate sends
+    if (order.verification_sent_at) {
+      return NextResponse.json({
+        ok: true,
+        passive_deadline_at: order.passive_deadline_at,
+        note: "Verification already sent.",
+      });
+    }
+
     if (!order.prescriber_email) {
-      // No email provided — skip email send.
       return NextResponse.json({
         ok: true,
         passive_deadline_at: null,
@@ -174,23 +183,26 @@ Verification Department
        5️⃣ Send Email
     ========================= */
 
-    const testOverride = process.env.EMAIL_OVERRIDE;
+    const recipient = order.prescriber_email;
 
-    const recipient =
-      testOverride && process.env.NODE_ENV !== "production"
-        ? testOverride
-        : order.prescriber_email;
+    try {
+      await sendVerificationEmail({
+        to: recipient,
+        subject,
+        html: htmlBody,
+        text: textBody,
+      });
+    } catch (err) {
+      console.error("Verification email failed:", err);
 
-    await sendVerificationEmail({
-      to: recipient,
-      subject,
-      html: htmlBody,
-      text: textBody,
-    });
+      return NextResponse.json(
+        { error: "Failed to send verification email" },
+        { status: 500 },
+      );
+    }
 
     /* =========================
        6️⃣ Update Order
-       - ✅ Keep verification_status as pending (this is a manual verification flow)
     ========================= */
 
     const { error: updateError } = await supabaseServer
