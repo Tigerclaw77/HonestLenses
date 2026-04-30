@@ -72,11 +72,11 @@ function isMeaningfulOrder(o: OrderRow): boolean {
 
   const hasLens = o.sku || o.brand || o.rx?.left?.coreId || o.rx?.right?.coreId;
 
-  const hasRxPower =
-    o.rx?.left?.sphere !== null || o.rx?.right?.sphere !== null;
+  const hasRxPower = o.rx?.left?.sphere != null || o.rx?.right?.sphere != null;
 
-  return Boolean(hasLens || hasRxPower);
+  return Boolean(hasLens && hasRxPower);
 }
+
 /* =========================
    Route
 ========================= */
