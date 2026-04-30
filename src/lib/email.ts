@@ -25,27 +25,22 @@ type SendEmailParams = {
 Generic Send Helper
 ====================================== */
 
-export async function sendEmail({
-  to,
-  subject,
-  html,
-  text,
-}: SendEmailParams) {
-  try {
-    const result = await resend.emails.send({
-      from: FROM_SUPPORT,
-      to,
-      subject,
-      html,
-      text,
-      replyTo: REPLY_TO_SUPPORT,
-    });
+export async function sendEmail({ to, subject, html, text }: SendEmailParams) {
+  const result = await resend.emails.send({
+    from: FROM_SUPPORT,
+    to,
+    subject,
+    html,
+    text,
+    replyTo: REPLY_TO_SUPPORT,
+  });
 
-    return result;
-  } catch (err) {
-    console.error("Email send failed:", err);
-    throw err;
+  if (result.error) {
+    console.error("Resend error:", result.error);
+    throw new Error("Email send failed");
   }
+
+  return result;
 }
 
 /* ======================================
