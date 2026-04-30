@@ -1,7 +1,7 @@
 import { supabaseServer } from "@/lib/supabase-server";
 
 /* =========================
-   Types (minimal, not overkill)
+   Types (minimal, strict)
 ========================= */
 
 type EyeRx = {
@@ -26,6 +26,7 @@ type OrderRow = {
   rx?: RxData;
   rx_upload_path?: string | null;
   prescriber_name?: string | null;
+  payment_intent_id?: string | null; // 🔑 critical
 };
 
 /* =========================
@@ -67,14 +68,17 @@ function normalizeRx(rx: RxData): RxData {
   };
 }
 
-function isMeaningfulOrder(o: OrderRow): boolean {
+/* =========================
+   Core Filter (STRICT)
+========================= */
+
+function isActionableOrder(o: OrderRow): boolean {
   if (!o) return false;
 
-  const hasLens = o.sku || o.brand || o.rx?.left?.coreId || o.rx?.right?.coreId;
+  // 🔑 HARD RULE: must have PaymentIntent
+  if (!o.payment_intent_id) return false;
 
-  const hasRxPower = o.rx?.left?.sphere != null || o.rx?.right?.sphere != null;
-
-  return Boolean(hasLens && hasRxPower);
+  return true;
 }
 
 /* =========================
@@ -97,29 +101,29 @@ export async function GET() {
       return new Response("Failed to fetch orders", { status: 500 });
     }
 
-    const orders = (data ?? [])
-      /* =========================
-         Normalize + clean
-      ========================= */
+    const orders: OrderRow[] = (data ?? [])
+      .filter((o): o is OrderRow => !!o && !!o.id && !!o.created_at)
       .map((o) => ({
         ...o,
-        rx: normalizeRx(o.rx),
+        rx: normalizeRx(o.rx ?? null),
       }))
-      .filter((o) => o.id && o.created_at)
-      .filter(isMeaningfulOrder); // ✅ removes "null null null" junk
+      .filter(isActionableOrder); // 🔥 only real orders survive
 
     /* =========================
-       Grouping
+       Grouping (unchanged shape)
     ========================= */
 
     const needsAction = orders.filter(
       (o) =>
-        o.status === "authorized" && !o.rx_upload_path && !o.prescriber_name,
+        o.status === "authorized" &&
+        !o.rx_upload_path &&
+        !o.prescriber_name,
     );
 
     const stalled = orders.filter(
       (o) =>
-        o.status === "authorized" && (o.rx_upload_path || o.prescriber_name),
+        o.status === "authorized" &&
+        (o.rx_upload_path || o.prescriber_name),
     );
 
     const pipeline = orders.filter((o) => o.status !== "authorized");
