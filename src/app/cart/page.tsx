@@ -14,7 +14,7 @@ import { buildQuantityConfig } from "../../lib/cart/quantityConfig";
 import type { CartOrder } from "../../lib/cart/types";
 import { fetchCart, resolveCart } from "../../lib/cart/api";
 import { getLensDisplayName } from "../../lib/cart/display";
-import { getSkuBoxDurationMonths } from "../../lib/pricing/skuDefaults";
+import { deriveTotalMonths } from "../../lib/shipping";
 import { resolveShipping } from "../../lib/shipping/resolveShipping";
 
 const DEV_MODE =
@@ -69,17 +69,6 @@ export default function CartPage() {
   const defaultPerEye = quantityConfig?.defaultPerEye ?? 1;
   const quantityOptions = quantityConfig?.options ?? [1, 2, 3, 4, 6, 8];
   const durationLabel = quantityConfig?.durationLabel ?? "box";
-
-  const durationMonths = useMemo(() => {
-    if (!sku) return 1;
-
-    try {
-      return getSkuBoxDurationMonths(sku);
-    } catch (e) {
-      console.error("[CartPage] getSkuBoxDurationMonths failed", e);
-      return 1;
-    }
-  }, [sku]);
 
   /* ---------- Qty change ---------- */
 
@@ -244,7 +233,12 @@ export default function CartPage() {
 
   /* ---------- Shipping logic ---------- */
 
-  const totalMonths = totalBoxes && durationMonths ? totalBoxes * durationMonths : 0;
+  const totalMonths = deriveTotalMonths({
+    sku,
+    totalBoxes,
+    left_box_count: leftEye ? effectiveLeft : null,
+    right_box_count: rightEye ? effectiveRight : null,
+  });
   const previewShipping =
     totalBoxes > 0
       ? resolveShipping({
