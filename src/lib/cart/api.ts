@@ -18,9 +18,12 @@ export type ResolveOkFlat = {
   ok: true;
   orderId?: string;
   sku?: string;
+  manufacturer?: string | null;
   right_box_count?: number | null;
   left_box_count?: number | null;
   box_count?: number | null;
+  total_box_count?: number | null;
+  shipping_cents?: number | null;
   total_amount_cents?: number | null;
 };
 

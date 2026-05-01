@@ -4,13 +4,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 import { getPrice } from "../../../../../lib/pricing/getPrice";
+import { deriveTotalBoxes, deriveTotalMonths } from "../../../../../lib/shipping";
+import { resolveShipping } from "../../../../../lib/shipping/resolveShipping";
 
 type OrderRow = {
   id: string;
   user_id: string;
   status: "draft" | "pending" | string;
   sku: string | null;
+  total_box_count: number | null;
   box_count: number | null;
+  left_box_count: number | null;
+  right_box_count: number | null;
   total_amount_cents: number | null;
 };
 
@@ -48,7 +53,10 @@ export async function POST(
       user_id,
       status,
       sku,
+      total_box_count,
       box_count,
+      left_box_count,
+      right_box_count,
       total_amount_cents
     `)
     .eq("id", orderId)
@@ -73,21 +81,7 @@ export async function POST(
   }
 
   /* =========================
-     3) Guard: already priced
-  ========================= */
-
-  if (
-    typeof order.total_amount_cents === "number" &&
-    order.total_amount_cents > 0
-  ) {
-    return NextResponse.json({
-      ok: true,
-      total_amount_cents: order.total_amount_cents,
-    });
-  }
-
-  /* =========================
-     4) Validate pricing inputs
+     3) Validate pricing inputs
   ========================= */
 
   if (!order.sku) {
@@ -97,25 +91,29 @@ export async function POST(
     );
   }
 
-  if (
-    typeof order.box_count !== "number" ||
-    order.box_count <= 0
-  ) {
+  const totalBoxes = deriveTotalBoxes(order);
+
+  if (totalBoxes <= 0) {
     return NextResponse.json(
       { error: "Order missing valid box_count" },
       { status: 400 }
     );
   }
 
+  const totalMonths = deriveTotalMonths({
+    sku: order.sku,
+    totalBoxes,
+  });
+
   /* =========================
-     5) Fallback price resolution
+     4) Price resolution
   ========================= */
 
   let pricing;
   try {
     pricing = getPrice({
       sku: order.sku,
-      box_count: order.box_count,
+      box_count: totalBoxes,
     });
   } catch (err) {
     return NextResponse.json(
@@ -129,14 +127,25 @@ export async function POST(
     );
   }
 
+  const shipping = resolveShipping({
+    manufacturer: pricing.manufacturer,
+    totalMonths,
+    itemCount: totalBoxes,
+    hasMixedSkus: false,
+  });
+
   /* =========================
-     6) Persist fallback pricing
+     5) Persist pricing
   ========================= */
 
   const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
-      total_amount_cents: pricing.total_amount_cents,
+      manufacturer: pricing.manufacturer,
+      box_count: totalBoxes,
+      total_box_count: totalBoxes,
+      shipping_cents: shipping.shippingCents,
+      total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
       price_reason: pricing.price_reason,
     })
     .eq("id", order.id)
@@ -151,6 +160,7 @@ export async function POST(
 
   return NextResponse.json({
     ok: true,
-    total_amount_cents: pricing.total_amount_cents,
+    total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
+    shipping_cents: shipping.shippingCents,
   });
 }
