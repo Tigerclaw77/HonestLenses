@@ -3,7 +3,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { resolveDefaultSku } from "@/lib/pricing/resolveDefaultSku";
 import { getPrice } from "@/lib/pricing/getPrice";
 import { getSkuBoxDurationMonths } from "@/lib/pricing/skuDefaults";
-import { deriveTotalBoxes } from "@/lib/shipping";
+import { deriveTotalBoxes, deriveTotalMonths } from "@/lib/shipping";
 import { resolveShipping } from "@/lib/shipping/resolveShipping";
 
 const MIN_DAYS_FOR_ANNUAL = 150;
@@ -88,7 +88,10 @@ export async function POST(
       left_box_count: null,
       right_box_count: null,
     });
-    const totalMonths = totalBoxes && monthsPerBox ? totalBoxes * monthsPerBox : 0;
+    const totalMonths = deriveTotalMonths({
+      sku,
+      totalBoxes,
+    });
     /* 5️⃣ Pricing */
     const pricing = getPrice({
       sku,

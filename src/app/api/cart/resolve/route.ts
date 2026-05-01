@@ -6,7 +6,7 @@ import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 import { getPrice } from "../../../../lib/pricing/getPrice";
 import { getSkuBoxDurationMonths } from "../../../../lib/pricing/skuDefaults";
 import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
-import { deriveTotalBoxes } from "../../../../lib/shipping";
+import { deriveTotalBoxes, deriveTotalMonths } from "../../../../lib/shipping";
 import { resolveShipping } from "../../../../lib/shipping/resolveShipping";
 
 // import { lenses } from "@/LensCore";
@@ -312,7 +312,12 @@ export async function POST(req: Request) {
     left_box_count: left,
     right_box_count: right,
   });
-  const totalMonths = totalBoxes && monthsPerBox ? totalBoxes * monthsPerBox : 0;
+  const totalMonths = deriveTotalMonths({
+    sku: resolvedSku,
+    totalBoxes,
+    left_box_count: left,
+    right_box_count: right,
+  });
   console.log("RESOLVE SKU", {
     orderId: order.id,
     coreId,

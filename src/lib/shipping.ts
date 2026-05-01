@@ -41,12 +41,26 @@ export function deriveMonthsPerBox(sku?: string | null): number {
 export function deriveTotalMonths({
   sku,
   totalBoxes,
+  left_box_count,
+  right_box_count,
 }: {
   sku?: string | null;
   totalBoxes: number;
+  left_box_count?: number | null;
+  right_box_count?: number | null;
 }): number {
   const monthsPerBox = deriveMonthsPerBox(sku);
-  return totalBoxes && monthsPerBox ? totalBoxes * monthsPerBox : 0;
+  if (!monthsPerBox) return 0;
+
+  const sideCounts = [left_box_count, right_box_count].filter(
+    (count): count is number => typeof count === "number" && count > 0,
+  );
+
+  if (sideCounts.length > 0) {
+    return Math.min(...sideCounts.map((count) => count * monthsPerBox));
+  }
+
+  return totalBoxes ? totalBoxes * monthsPerBox : 0;
 }
 
 export function resolveOrderShipping(
@@ -56,6 +70,8 @@ export function resolveOrderShipping(
   const totalMonths = deriveTotalMonths({
     sku: order.sku,
     totalBoxes,
+    left_box_count: order.left_box_count,
+    right_box_count: order.right_box_count,
   });
 
   return resolveShipping({

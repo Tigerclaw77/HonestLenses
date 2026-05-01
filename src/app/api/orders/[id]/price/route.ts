@@ -103,6 +103,8 @@ export async function POST(
   const totalMonths = deriveTotalMonths({
     sku: order.sku,
     totalBoxes,
+    left_box_count: order.left_box_count,
+    right_box_count: order.right_box_count,
   });
 
   /* =========================
