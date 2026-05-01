@@ -3,6 +3,8 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { resolveDefaultSku } from "@/lib/pricing/resolveDefaultSku";
 import { getPrice } from "@/lib/pricing/getPrice";
 import { getSkuBoxDurationMonths } from "@/lib/pricing/skuDefaults";
+import { deriveTotalBoxes } from "@/lib/shipping";
+import { resolveShipping } from "@/lib/shipping/resolveShipping";
 
 const MIN_DAYS_FOR_ANNUAL = 150;
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
@@ -27,7 +29,9 @@ export async function POST(
     /* 1️⃣ Load order */
     const { data: order, error } = await supabase
       .from("orders")
-      .select("id, coreId, rx, box_count")
+      .select(
+        "id, coreId, rx, box_count, total_box_count, left_box_count, right_box_count"
+      )
       .eq("id", orderId)
       .single();
 
@@ -64,24 +68,37 @@ export async function POST(
       daysRemaining >= MIN_DAYS_FOR_ANNUAL ? 12 : 6;
 
     /* 4️⃣ Box count */
-    const boxDurationMonths = getSkuBoxDurationMonths(sku);
-    if (!boxDurationMonths) {
+    const monthsPerBox = getSkuBoxDurationMonths(sku);
+    if (!monthsPerBox) {
       return NextResponse.json(
         { error: `No duration defined for SKU ${sku}` },
         { status: 500 }
       );
     }
 
-    const defaultBoxCount = Math.ceil(targetMonths / boxDurationMonths);
+    const defaultBoxCount = Math.ceil(targetMonths / monthsPerBox);
     const finalBoxCount =
       order.box_count && order.box_count > 0
         ? Math.min(order.box_count, defaultBoxCount)
         : defaultBoxCount;
-
+    const totalBoxes = deriveTotalBoxes({
+      sku,
+      total_box_count: null,
+      box_count: finalBoxCount,
+      left_box_count: null,
+      right_box_count: null,
+    });
+    const totalMonths = totalBoxes && monthsPerBox ? totalBoxes * monthsPerBox : 0;
     /* 5️⃣ Pricing */
     const pricing = getPrice({
       sku,
-      box_count: finalBoxCount,
+      box_count: totalBoxes,
+    });
+    const shipping = resolveShipping({
+      manufacturer: pricing.manufacturer,
+      totalMonths,
+      itemCount: totalBoxes,
+      hasMixedSkus: false,
     });
 
     /* 6️⃣ Persist */
@@ -89,8 +106,11 @@ export async function POST(
       .from("orders")
       .update({
         sku,
-        box_count: finalBoxCount,
-        total_amount_cents: pricing.total_amount_cents,
+        manufacturer: pricing.manufacturer,
+        box_count: totalBoxes,
+        total_box_count: totalBoxes,
+        shipping_cents: shipping.shippingCents,
+        total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
         status: "draft",
       })
       .eq("id", orderId);
@@ -105,8 +125,10 @@ export async function POST(
     return NextResponse.json({
       ok: true,
       sku,
-      box_count: finalBoxCount,
-      total_amount_cents: pricing.total_amount_cents,
+      box_count: totalBoxes,
+      total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
+      shipping_cents: shipping.shippingCents,
+      totalMonths,
     });
   } catch (err) {
     console.error("Resolve route crash:", err);

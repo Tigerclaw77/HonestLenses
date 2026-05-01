@@ -15,6 +15,7 @@ import type { CartOrder } from "../../lib/cart/types";
 import { fetchCart, resolveCart } from "../../lib/cart/api";
 import { getLensDisplayName } from "../../lib/cart/display";
 import { getSkuBoxDurationMonths } from "../../lib/pricing/skuDefaults";
+import { resolveShipping } from "../../lib/shipping/resolveShipping";
 
 const DEV_MODE =
   process.env.NODE_ENV === "development" && process.env.VERCEL !== "1";
@@ -22,7 +23,6 @@ const DEV_MODE =
 const DEV_ACCESS_TOKEN = "dev-local-token";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
-// const FLAT_SHIPPING_CENTS_UNDER_ANNUAL = 1400;
 
 function safeRemainingDays(expires: string) {
   if (!expires) return 0;
@@ -242,26 +242,21 @@ export default function CartPage() {
   const totalBoxes =
     (rightEye ? effectiveRight : 0) + (leftEye ? effectiveLeft : 0);
 
-  /* ---------- Annual supply logic ---------- */
+  /* ---------- Shipping logic ---------- */
 
-  const rightMonths = rightEye ? effectiveRight * durationMonths : 0;
-  const leftMonths = leftEye ? effectiveLeft * durationMonths : 0;
-
-  const isAnnualPerEye =
-    (!rightEye || rightMonths >= 12) && (!leftEye || leftMonths >= 12);
-
-  let previewShipping = 0;
-
-  if (totalBoxes > 0 && !isAnnualPerEye) {
-    if (totalBoxes === 1 && durationMonths <= 6) {
-      previewShipping = 1400; // worst margin orders
-    } else {
-      previewShipping = 1000; // normal small orders
-    }
-  }
+  const totalMonths = totalBoxes && durationMonths ? totalBoxes * durationMonths : 0;
+  const previewShipping =
+    totalBoxes > 0
+      ? resolveShipping({
+          manufacturer: cart.manufacturer,
+          totalMonths,
+          itemCount: totalBoxes,
+          hasMixedSkus: false,
+        }).shippingCents
+      : 0;
 
   const showAnnualFreeShippingHint =
-    !isAnnualPerEye && totalBoxes > 0 && remainingDays >= 150;
+    totalMonths < 12 && totalBoxes > 0 && remainingDays >= 150;
 
   /* ---------- Price math ---------- */
 

@@ -6,6 +6,8 @@ import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 import { getPrice } from "../../../../lib/pricing/getPrice";
 import { getSkuBoxDurationMonths } from "../../../../lib/pricing/skuDefaults";
 import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
+import { deriveTotalBoxes } from "../../../../lib/shipping";
+import { resolveShipping } from "../../../../lib/shipping/resolveShipping";
 
 // import { lenses } from "@/LensCore";
 // import { resolveXRVariant } from "@/LensCore/helpers/resolveXRVariant";
@@ -196,6 +198,8 @@ export async function POST(req: Request) {
       status,
       rx,
       sku,
+      box_count,
+      total_box_count,
       right_box_count,
       left_box_count,
       brand_confidence,
@@ -294,25 +298,36 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No SKU found." }, { status: 400 });
   }
 
-  const durationMonths = getSkuBoxDurationMonths(resolvedSku);
+  const monthsPerBox = getSkuBoxDurationMonths(resolvedSku);
 
-  const defaultPerEye = Math.ceil(targetMonths / durationMonths);
+  const defaultPerEye = Math.ceil(targetMonths / monthsPerBox);
 
-  const right = rx.right ? defaultPerEye : null;
-  const left = rx.left ? defaultPerEye : null;
+  const right = rx.right ? (body?.right_box_count ?? defaultPerEye) : null;
+  const left = rx.left ? (body?.left_box_count ?? defaultPerEye) : null;
 
-  const totalBoxes = (right ?? 0) + (left ?? 0);
-
+  const totalBoxes = deriveTotalBoxes({
+    sku: resolvedSku,
+    total_box_count: null,
+    box_count: null,
+    left_box_count: left,
+    right_box_count: right,
+  });
+  const totalMonths = totalBoxes && monthsPerBox ? totalBoxes * monthsPerBox : 0;
   console.log("RESOLVE SKU", {
     orderId: order.id,
     coreId,
     resolvedSku,
     totalBoxes,
+    totalMonths,
   });
 
   const pricing = getPrice({ sku: resolvedSku, box_count: totalBoxes });
-
-  const shipping = totalBoxes >= 12 ? 0 : 1000;
+  const shipping = resolveShipping({
+    manufacturer: pricing.manufacturer,
+    totalMonths,
+    itemCount: totalBoxes,
+    hasMixedSkus: false,
+  });
 
   /* =========================
      Persist
@@ -322,11 +337,13 @@ export async function POST(req: Request) {
     .from("orders")
     .update({
       sku: resolvedSku,
+      manufacturer: pricing.manufacturer,
       right_box_count: right,
       left_box_count: left,
       box_count: totalBoxes,
-      shipping_cents: shipping,
-      total_amount_cents: pricing.total_amount_cents + shipping,
+      total_box_count: totalBoxes,
+      shipping_cents: shipping.shippingCents,
+      total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
     })
     .eq("id", order.id);
 

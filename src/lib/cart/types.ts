@@ -10,8 +10,10 @@ export type CartOrder = {
   id: string;
   rx: RxData | null;
   sku: string | null;
+  manufacturer?: string | null;
 
   box_count: number | null;
+  total_box_count?: number | null;
   right_box_count?: number | null;
   left_box_count?: number | null;
 
