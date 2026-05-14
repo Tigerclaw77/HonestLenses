@@ -17,6 +17,7 @@ import { getPopularityRank } from "@/data/lensPopularityTiers";
 
 import { POSTHOG_EVENTS, track } from "@/lib/posthog/client";
 import { getLensAnalyticsProperties } from "@/lib/posthog/lensMetadata";
+import { getLensImagePresentation } from "@/lib/display/lensImagePresentation";
 
 type LensSelection = {
   right?: string;
@@ -48,6 +49,7 @@ function LensImage({
 
   const [index, setIndex] = useState(0);
   const size = LENS_IMAGE_SIZES[variant];
+  const presentation = getLensImagePresentation(coreId);
 
   function handleError() {
     setIndex((prev) => {
@@ -82,6 +84,8 @@ function LensImage({
         objectFit: "contain",
         objectPosition: "center",
         filter: "drop-shadow(0 10px 16px rgba(0,0,0,0.24))",
+        transform: `translateY(${presentation.y ?? 0}px) scale(${presentation.scale})`,
+        transformOrigin: "center",
       }}
     />
   );
