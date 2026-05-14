@@ -4,6 +4,7 @@ import {
   type AnalyticsProperties,
   type PostHogEventName,
 } from "./events";
+import { DEFAULT_POSTHOG_HOST, normalizePostHogHost } from "./config";
 
 type CaptureServerEventInput = {
   event: PostHogEventName;
@@ -13,11 +14,26 @@ type CaptureServerEventInput = {
 };
 
 const SERVER_CAPTURE_TIMEOUT_MS = 1200;
+let missingConfigWarned = false;
+let normalizedHostWarned = false;
 
 function getPostHogHost(): string {
-  return (
-    process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com"
-  ).replace(/\/$/, "");
+  const normalized = normalizePostHogHost(
+    process.env.NEXT_PUBLIC_POSTHOG_HOST,
+  );
+
+  if (
+    normalized.wasNormalized &&
+    process.env.NODE_ENV === "development" &&
+    !normalizedHostWarned
+  ) {
+    normalizedHostWarned = true;
+    console.warn(
+      `[posthog-server] NEXT_PUBLIC_POSTHOG_HOST was normalized to ${DEFAULT_POSTHOG_HOST}. Use the ingestion host, not the dashboard URL.`,
+    );
+  }
+
+  return normalized.host;
 }
 
 function getPostHogKey(): string | null {
@@ -46,7 +62,16 @@ export async function captureServerEvent({
   request,
 }: CaptureServerEventInput): Promise<void> {
   const apiKey = getPostHogKey();
-  if (!apiKey) return;
+  if (!apiKey) {
+    if (process.env.NODE_ENV === "development" && !missingConfigWarned) {
+      missingConfigWarned = true;
+      console.info(
+        "[posthog-server] disabled: POSTHOG_PROJECT_API_KEY or NEXT_PUBLIC_POSTHOG_KEY is not configured.",
+      );
+    }
+
+    return;
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => {
@@ -54,7 +79,7 @@ export async function captureServerEvent({
   }, SERVER_CAPTURE_TIMEOUT_MS);
 
   try {
-    await fetch(`${getPostHogHost()}/capture/`, {
+    const response = await fetch(`${getPostHogHost()}/capture/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -70,6 +95,14 @@ export async function captureServerEvent({
       cache: "no-store",
       signal: controller.signal,
     });
+
+    if (!response.ok && process.env.NODE_ENV === "development") {
+      console.warn("[posthog-server] capture rejected", {
+        event,
+        status: response.status,
+        statusText: response.statusText,
+      });
+    }
   } catch (error) {
     if (process.env.NODE_ENV === "development") {
       console.warn("[posthog-server] capture failed", error);

@@ -12,19 +12,12 @@ import {
   resetPostHogUser,
   captureClientException,
 } from "./client";
+import { getPublicPostHogConfig } from "./config";
 import { isSensitiveAnalyticsKey } from "./events";
 
-const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-const posthogHost =
-  process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com";
-
-function shouldEnableReplay() {
-  return process.env.NEXT_PUBLIC_POSTHOG_SESSION_REPLAY !== "false";
-}
-
-function shouldCaptureExceptions() {
-  return process.env.NEXT_PUBLIC_POSTHOG_CAPTURE_EXCEPTIONS !== "false";
-}
+const posthogConfig = getPublicPostHogConfig();
+const posthogKey = posthogConfig.key;
+let statusLogged = false;
 
 function sanitizePostHogProperties(properties: Properties): Properties {
   const safe: Properties = {};
@@ -36,15 +29,44 @@ function sanitizePostHogProperties(properties: Properties): Properties {
   return safe;
 }
 
+function logPostHogStatus(status: "disabled" | "loaded") {
+  if (!posthogConfig.debugEnabled || statusLogged) return;
+
+  statusLogged = true;
+
+  if (status === "disabled") {
+    console.info(
+      "[posthog] disabled: NEXT_PUBLIC_POSTHOG_KEY is not configured.",
+    );
+    return;
+  }
+
+  if (posthogConfig.hostWasNormalized) {
+    console.warn(
+      `[posthog] NEXT_PUBLIC_POSTHOG_HOST was normalized to ${posthogConfig.host}. Use the ingestion host, not the dashboard URL.`,
+    );
+  }
+
+  console.info("[posthog] initialized", {
+    host: posthogConfig.host,
+    replay_enabled: posthogConfig.replayEnabled,
+    capture_exceptions_enabled: posthogConfig.captureExceptionsEnabled,
+  });
+}
+
+if (typeof window !== "undefined" && !posthogConfig.enabled) {
+  logPostHogStatus("disabled");
+}
+
 if (typeof window !== "undefined" && posthogKey && !posthog.__loaded) {
   posthog.init(posthogKey, {
-    api_host: posthogHost,
+    api_host: posthogConfig.host,
     defaults: "2026-01-30",
     capture_pageview: false,
     capture_pageleave: true,
     capture_dead_clicks: true,
-    capture_exceptions: shouldCaptureExceptions(),
-    disable_session_recording: !shouldEnableReplay(),
+    capture_exceptions: posthogConfig.captureExceptionsEnabled,
+    disable_session_recording: !posthogConfig.replayEnabled,
     mask_all_element_attributes: true,
     mask_personal_data_properties: true,
     custom_personal_data_properties: [
@@ -68,6 +90,7 @@ if (typeof window !== "undefined" && posthogKey && !posthog.__loaded) {
     sanitize_properties: sanitizePostHogProperties,
     loaded: (client) => {
       client.register({ auth_state: "anonymous" });
+      logPostHogStatus("loaded");
     },
   });
 }

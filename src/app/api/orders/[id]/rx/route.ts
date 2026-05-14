@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 import { resolveDefaultSku } from "../../../../../lib/pricing/resolveDefaultSku";
-import { lenses } from "@/LensCore";
+import { lenses, validate as validateLensParams } from "@/LensCore";
 import { getColorOptions } from "../../../../../data/lensColors";
 
 /* =========================
@@ -25,6 +25,7 @@ type EyeRx = {
   axis?: number;
   add?: string;
   base_curve?: number;
+  diameter?: number;
   color?: string;
 };
 
@@ -45,17 +46,54 @@ type RxData = {
    Helpers
 ========================= */
 
-function sanitizeEyeRx(eye: EyeRx | undefined): EyeRx | undefined {
-  if (!eye) return undefined;
+type SanitizedEyeResult = {
+  eye?: EyeRx;
+  errors: string[];
+};
 
-  if (!eye.coreId) return eye;
+function autoResolveSingleGeometry(
+  eye: EyeRx,
+  lens: (typeof lenses)[number],
+): EyeRx {
+  const clean: EyeRx = { ...eye };
+
+  if (
+    clean.base_curve == null &&
+    lens.parameters.baseCurve &&
+    lens.parameters.baseCurve.length === 1
+  ) {
+    clean.base_curve = lens.parameters.baseCurve[0];
+  }
+
+  if (
+    clean.diameter == null &&
+    lens.parameters.diameter &&
+    lens.parameters.diameter.length === 1
+  ) {
+    clean.diameter = lens.parameters.diameter[0];
+  }
+
+  return clean;
+}
+
+function sanitizeAndValidateEyeRx(
+  eye: EyeRx | undefined,
+): SanitizedEyeResult {
+  if (!eye) return { errors: [] };
+
+  if (!eye.coreId) return { eye, errors: [] };
 
   const lens = lenses.find((l) => l.coreId === eye.coreId);
-  if (!lens) return eye;
+  if (!lens) {
+    return {
+      eye,
+      errors: [`Lens not found for coreId ${eye.coreId}.`],
+    };
+  }
 
   const allowedColors = getColorOptions(lens.displayName);
 
-  const clean: EyeRx = { ...eye };
+  const clean = autoResolveSingleGeometry(eye, lens);
 
   if (!allowedColors.length) {
     delete clean.color;
@@ -63,7 +101,19 @@ function sanitizeEyeRx(eye: EyeRx | undefined): EyeRx | undefined {
     delete clean.color;
   }
 
-  return clean;
+  const validation = validateLensParams(lens.coreId, {
+    sphere: clean.sphere,
+    cylinder: clean.cylinder ?? null,
+    axis: clean.axis ?? null,
+    add: clean.add ?? null,
+    baseCurve: clean.base_curve ?? null,
+    diameter: clean.diameter ?? null,
+  });
+
+  return {
+    eye: clean,
+    errors: validation.errors,
+  };
 }
 
 function isVerifiedLike(v: unknown): boolean {
@@ -177,10 +227,21 @@ export async function POST(
      7️⃣ Sanitize RX
   ========================= */
 
+  const rightResult = sanitizeAndValidateEyeRx(rx.right);
+  const leftResult = sanitizeAndValidateEyeRx(rx.left);
+  const validationErrors = [...rightResult.errors, ...leftResult.errors];
+
+  if (validationErrors.length > 0) {
+    return NextResponse.json(
+      { error: "Invalid prescription parameters.", details: validationErrors },
+      { status: 400 },
+    );
+  }
+
   const sanitizedRx = {
     expires: rx.expires,
-    right: sanitizeEyeRx(rx.right),
-    left: sanitizeEyeRx(rx.left),
+    right: rightResult.eye,
+    left: leftResult.eye,
   };
 
   /* =========================

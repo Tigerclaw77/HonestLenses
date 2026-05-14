@@ -387,20 +387,6 @@ export default function CartPage() {
               </div>
             )}
 
-            <div
-              style={{
-                fontSize: 12,
-                color: "#94a3b8",
-                marginTop: 10,
-                textAlign: "right",
-                lineHeight: 1.4,
-              }}
-            >
-              Shipping estimates apply after prescription verification. Some
-              lenses may ship from authorized manufacturer or distributor
-              channels.
-            </div>
-
             <div className="hl-summary-row hl-summary-total">
               <span>Total</span>
               <span>{fmtPrice(previewTotal)}</span>

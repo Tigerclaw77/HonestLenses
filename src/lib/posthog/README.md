@@ -7,13 +7,27 @@ visibility.
 Required Vercel environment variables:
 
 - `NEXT_PUBLIC_POSTHOG_KEY`
-- `NEXT_PUBLIC_POSTHOG_HOST`
+- `NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com`
+
+Use the ingestion host (`us.i.posthog.com`), not the dashboard URL
+(`us.posthog.com`). The app normalizes common dashboard-host mistakes in
+development, but production env vars should still be set explicitly.
 
 Optional environment variables:
 
 - `NEXT_PUBLIC_POSTHOG_SESSION_REPLAY=false` disables replay without code changes.
 - `NEXT_PUBLIC_POSTHOG_CAPTURE_EXCEPTIONS=false` disables client exception capture.
+- `NEXT_PUBLIC_POSTHOG_DEBUG=false` suppresses development-only PostHog status logs.
 - `POSTHOG_PROJECT_API_KEY` can be set server-side; otherwise server events use the public project key.
+
+Local verification:
+
+- In development with `NEXT_PUBLIC_POSTHOG_KEY` set, the browser console should
+  show one `[posthog] initialized` line with host, replay, and exception status.
+- With the key absent, the app should show one `[posthog] disabled` line and all
+  analytics wrappers should no-op.
+- Server-side captures warn only in development when config is missing, the host
+  was normalized, or PostHog rejects a capture request.
 
 Privacy notes:
 
