@@ -1,9 +1,6 @@
 import type { LensCore, RxPayload } from "./types";
 import { isValidSphere } from "./utils";
-import { resolveAddOptions } from "./helpers/resolveAddOptions";
-import { resolveAxisOptions } from "./helpers/resolveAxisOptions";
-import { resolveCylinderOptions } from "./helpers/resolveCylinderOptions";
-import { resolveSphereOptions } from "./helpers/resolveSphereOptions";
+import { resolveLensRxState } from "./resolveRx";
 
 export type ValidationResult = {
   valid: boolean;
@@ -15,27 +12,9 @@ export function validateLensParams(
   rx: RxPayload,
 ): ValidationResult {
   const errors: string[] = [];
-  const sphere =
-    rx.sphere == null || Number.isNaN(rx.sphere)
-      ? null
-      : Number(Number(rx.sphere).toFixed(2));
-  const cylinder =
-    rx.cylinder == null || Number.isNaN(rx.cylinder)
-      ? null
-      : Number(Number(rx.cylinder).toFixed(2));
-  const axis =
-    rx.axis == null || Number.isNaN(rx.axis) ? null : Number(rx.axis);
-  const baseCurve =
-    rx.baseCurve == null || Number.isNaN(rx.baseCurve)
-      ? null
-      : Number(Number(rx.baseCurve).toFixed(1));
-  const diameter =
-    rx.diameter == null || Number.isNaN(rx.diameter)
-      ? null
-      : Number(Number(rx.diameter).toFixed(1));
-  const add = rx.add ?? null;
+  const resolved = resolveLensRxState(lens, rx);
 
-  if (!lens.parameters?.sphere) {
+  if (!lens.parameters?.sphere && !lens.parameters?.sphereByBaseCurve) {
     return {
       valid: false,
       errors: ["Lens configuration incomplete."],
@@ -43,103 +22,70 @@ export function validateLensParams(
   }
 
   // Sphere
-  if (sphere == null) {
+  if (resolved.sphere == null) {
     errors.push("Sphere power is required.");
   } else {
-    const sphereOptions = resolveSphereOptions(
-      lens,
-      baseCurve,
-      cylinder,
-      axis,
-      add,
-    );
-
     if (
-      sphereOptions.length > 0
-        ? !sphereOptions.includes(sphere)
-        : !isValidSphere(sphere, lens.parameters.sphere)
+      resolved.sphereOptions.length > 0
+        ? !resolved.sphereOptions.includes(resolved.sphere)
+        : lens.parameters.sphere
+          ? !isValidSphere(resolved.sphere, lens.parameters.sphere)
+          : true
     ) {
       errors.push("Selected sphere power not manufactured for this lens.");
     }
   }
 
   // Structural
-  if (!lens.type.toric && cylinder != null) {
+  if (!lens.type.toric && resolved.cylinder.rawValue != null) {
     errors.push("Cylinder not supported for this lens.");
   }
 
-  if (!lens.type.toric && axis != null) {
+  if (!lens.type.toric && resolved.axis.rawValue != null) {
     errors.push("Axis not supported for this lens.");
   }
 
-  if (!lens.type.multifocal && add != null) {
+  if (!lens.type.multifocal && resolved.add.rawValue != null) {
     errors.push("ADD not supported for this lens.");
   }
 
   if (lens.type.toric) {
-    if (cylinder == null) {
+    if (resolved.cylinder.required) {
       errors.push("Cylinder is required for this lens.");
-    } else {
-      const cylinderOptions = resolveCylinderOptions(lens, axis, sphere);
-      if (
-        cylinderOptions.length > 0 &&
-        !cylinderOptions.includes(cylinder)
-      ) {
-        errors.push("Selected cylinder not manufactured for this lens.");
-      }
+    } else if (resolved.cylinder.invalid) {
+      errors.push("Selected cylinder not manufactured for this lens.");
     }
 
-    if (axis == null) {
+    if (resolved.axis.required) {
       errors.push("Axis is required for this lens.");
-    } else {
-      const axisOptions = resolveAxisOptions(lens, cylinder, sphere);
-      if (axisOptions.length > 0 && !axisOptions.includes(axis)) {
-        errors.push("Selected axis not manufactured for this lens.");
-      }
+    } else if (resolved.axis.invalid) {
+      errors.push("Selected axis not manufactured for this lens.");
     }
   }
 
   if (lens.type.multifocal) {
-    const addOptions = resolveAddOptions(lens, baseCurve, sphere);
-
-    if (addOptions.length > 0 && !add) {
+    if (resolved.add.required) {
       errors.push("ADD is required for this lens.");
-    } else if (add && addOptions.length > 0 && !addOptions.includes(add)) {
+    } else if (resolved.add.invalid) {
       errors.push("Selected ADD not manufactured for this lens.");
     }
   }
 
   // Base Curve
-  if (
-    lens.parameters.baseCurve &&
-    lens.parameters.baseCurve.length > 1 &&
-    baseCurve == null
-  ) {
+  if (resolved.baseCurve.required) {
     errors.push("Base curve is required for this lens.");
   }
 
-  if (
-    baseCurve != null &&
-    lens.parameters.baseCurve &&
-    !lens.parameters.baseCurve.includes(baseCurve)
-  ) {
+  if (resolved.baseCurve.invalid) {
     errors.push("Invalid base curve for this lens.");
   }
 
   // Diameter
-  if (
-    lens.parameters.diameter &&
-    lens.parameters.diameter.length > 1 &&
-    diameter == null
-  ) {
+  if (resolved.diameter.required) {
     errors.push("Diameter is required for this lens.");
   }
 
-  if (
-    diameter != null &&
-    lens.parameters.diameter &&
-    !lens.parameters.diameter.includes(diameter)
-  ) {
+  if (resolved.diameter.invalid) {
     errors.push("Invalid diameter for this lens.");
   }
 
