@@ -45,6 +45,7 @@ export function track(
   posthog.capture(event, {
     ...sanitizeAnalyticsProperties(properties),
     device_type: getDeviceType(),
+    page_path: window.location.pathname,
   });
 }
 
@@ -80,6 +81,7 @@ export function captureClientException(
     ...properties,
     ...errorToAnalyticsProperties(error),
     device_type: getDeviceType(),
+    page_path: window.location.pathname,
   });
 
   posthog.captureException(error, safeProperties);

@@ -34,6 +34,11 @@ type Order = {
   id: string;
   status: "draft" | "pending" | "authorized" | "captured";
   total_amount_cents: number;
+  manufacturer?: string | null;
+  sku?: string | null;
+  shipping_cents?: number | null;
+  payment_intent_id?: string | null;
+  has_payment_intent: boolean;
 };
 
 type CheckoutPayResponse = {
@@ -121,8 +126,14 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
       markStepStart(`payment_submit:${order.id}`);
       track(POSTHOG_EVENTS.PAYMENT_STARTED, {
         order_id: order.id,
+        order_status: order.status,
         verification_mode: mode,
+        order_value_cents: order.total_amount_cents,
         total_cart_value_cents: order.total_amount_cents,
+        shipping_cents: order.shipping_cents ?? null,
+        manufacturer: order.manufacturer ?? null,
+        sku: order.sku ?? null,
+        has_payment_intent: order.has_payment_intent,
         retry_count: retryCount,
       });
 
@@ -137,9 +148,11 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
       if (result.error) {
         track(POSTHOG_EVENTS.PAYMENT_FAILED, {
           order_id: order.id,
+          order_status: order.status,
           verification_mode: mode,
           stage: "stripe_confirm",
           error_message: result.error.message ?? "Payment failed.",
+          has_payment_intent: order.has_payment_intent,
           payment_duration_ms: consumeStepDurationMs(
             `payment_submit:${order.id}`,
           ),
@@ -157,9 +170,11 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
       if (!session) {
         track(POSTHOG_EVENTS.PAYMENT_FAILED, {
           order_id: order.id,
+          order_status: order.status,
           verification_mode: mode,
           stage: "auth_session",
           error_message: "Session expired.",
+          has_payment_intent: order.has_payment_intent,
           payment_duration_ms: consumeStepDurationMs(
             `payment_submit:${order.id}`,
           ),
@@ -190,9 +205,11 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
       if (!markRes.ok) {
         track(POSTHOG_EVENTS.PAYMENT_FAILED, {
           order_id: order.id,
+          order_status: order.status,
           verification_mode: mode,
           stage: "authorize_order",
           error_message: markBody.error ?? "Authorization update failed.",
+          has_payment_intent: order.has_payment_intent,
           payment_duration_ms: paymentDurationMs,
           retry_count: retryCount,
         });
@@ -207,8 +224,15 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
       onPaymentComplete();
       track(POSTHOG_EVENTS.PAYMENT_SUCCEEDED, {
         order_id: order.id,
+        order_status: order.status,
         verification_mode: mode,
+        order_value_cents: order.total_amount_cents,
         total_cart_value_cents: order.total_amount_cents,
+        shipping_cents: order.shipping_cents ?? null,
+        manufacturer: order.manufacturer ?? null,
+        sku: order.sku ?? null,
+        has_payment_intent: order.has_payment_intent,
+        authorization_confirmed: true,
         next_step: markBody.next ?? null,
         payment_duration_ms: paymentDurationMs,
         checkout_duration_ms: getStepDurationMs(
@@ -227,8 +251,10 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
       });
       track(POSTHOG_EVENTS.PAYMENT_FAILED, {
         order_id: order.id,
+        order_status: order.status,
         verification_mode: mode,
         stage: "unexpected",
+        has_payment_intent: order.has_payment_intent,
         error_message:
           err instanceof Error ? err.message : "Unexpected checkout error.",
         payment_duration_ms: consumeStepDurationMs(
@@ -319,6 +345,7 @@ function CheckoutInner() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const checkoutStartTracked = useRef(false);
+  const clientSecretReady = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -354,6 +381,11 @@ function CheckoutInner() {
           id: orderData.id,
           status: orderData.status,
           total_amount_cents: orderData.total_amount_cents,
+          manufacturer: orderData.manufacturer ?? null,
+          sku: orderData.sku ?? null,
+          shipping_cents: orderData.shipping_cents ?? null,
+          payment_intent_id: orderData.payment_intent_id ?? null,
+          has_payment_intent: Boolean(orderData.payment_intent_id),
         });
 
         setMode(isUploadedVerificationOrder(orderData) ? "uploaded" : "passive");
@@ -376,10 +408,20 @@ function CheckoutInner() {
         }
 
         if (!cancelled) {
+          clientSecretReady.current = true;
+          setOrder((current) =>
+            current ? { ...current, has_payment_intent: true } : current,
+          );
           setClientSecret(body.clientSecret);
           track(POSTHOG_EVENTS.CHECKOUT_STEP_TIMED, {
             step: "payment_intent_ready",
             order_id: orderId,
+            order_value_cents: orderData.total_amount_cents,
+            total_cart_value_cents: orderData.total_amount_cents,
+            manufacturer: orderData.manufacturer ?? null,
+            sku: orderData.sku ?? null,
+            shipping_cents: orderData.shipping_cents ?? null,
+            has_payment_intent: true,
             duration_ms: consumeStepDurationMs(`payment_init:${orderId}`),
           });
           setLoading(false);
@@ -419,8 +461,15 @@ function CheckoutInner() {
 
       track(POSTHOG_EVENTS.ABANDONED_CHECKOUT, {
         order_id: activeOrder.id,
+        order_status: activeOrder.status,
         verification_mode: mode,
+        order_value_cents: activeOrder.total_amount_cents,
         total_cart_value_cents: activeOrder.total_amount_cents,
+        manufacturer: activeOrder.manufacturer ?? null,
+        sku: activeOrder.sku ?? null,
+        has_payment_intent: activeOrder.has_payment_intent,
+        payment_intent_ready: clientSecretReady.current,
+        checkout_stage: "payment_page",
         checkout_duration_ms: getStepDurationMs(
           `checkout_duration:${activeOrder.id}`,
         ),

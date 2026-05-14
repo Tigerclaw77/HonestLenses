@@ -158,8 +158,10 @@ export async function POST(
       properties: {
         order_id: order.id,
         has_email: Boolean(draft.to),
+        order_value_cents: order.total_amount_cents,
         total_amount_cents: order.total_amount_cents,
         primary_reason: classification.primaryReason,
+        had_payment_intent: Boolean(order.payment_intent_id),
       },
     });
 
@@ -204,6 +206,7 @@ export async function POST(
     properties: {
       order_id: order.id,
       admin_action: body.action,
+      order_value_cents: order.total_amount_cents,
       total_amount_cents: order.total_amount_cents,
       primary_reason: classification.primaryReason,
       had_payment_intent: Boolean(order.payment_intent_id),

@@ -327,6 +327,8 @@ export default function VerificationDetailsPage() {
       track(POSTHOG_EVENTS.VALIDATION_ERROR, {
         step: "doctor_verification",
         order_id: order?.id ?? orderId,
+        order_status: order?.status ?? null,
+        order_value_cents: order?.total_amount_cents ?? null,
         reason: v,
       });
       return;
@@ -379,8 +381,12 @@ export default function VerificationDetailsPage() {
 
     track(POSTHOG_EVENTS.DOCTOR_INFO_ENTERED, {
       order_id: order?.id ?? orderId,
+      order_status: order?.status ?? null,
+      order_value_cents: order?.total_amount_cents ?? null,
       verification_mode: "passive",
       has_prescriber_email: Boolean(form.prescriber_email.trim()),
+      has_prescriber_phone: Boolean(form.prescriber_phone.trim()),
+      has_shipping_address: Boolean(order?.shipping_address1),
       allow_lower_price_adjustment: form.allow_lower_price_adjustment,
       passive_deadline_set: Boolean(body.passive_deadline_at),
       duration_ms: order

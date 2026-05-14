@@ -157,6 +157,7 @@ export async function GET() {
           count: abandoned.length,
           threshold_hours: thresholdHours,
           stale_threshold_hours: staleThresholdHours,
+          detection_source: "admin_orders_fetch",
           abandoned_no_payment_intent_count:
             reasonCounts.abandoned_no_payment_intent,
           abandoned_with_payment_intent_count:
