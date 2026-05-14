@@ -15,6 +15,11 @@ export default function VerificationPage() {
             with the FTC Contact Lens Rule.
           </p>
 
+          <p>
+            Verification helps protect patient safety and ensures lenses match
+            the prescription provided by your eye care professional.
+          </p>
+
           <h3 style={{ marginTop: 30 }}>Verification Process</h3>
 
           <ul style={{ marginTop: 10, lineHeight: 1.7 }}>
@@ -25,7 +30,8 @@ export default function VerificationPage() {
               We may contact your prescriber to confirm validity and details.
             </li>
             <li>
-              Passive verification timelines may apply under federal law.
+              Passive verification timelines may apply under federal law when
+              appropriate.
             </li>
           </ul>
 

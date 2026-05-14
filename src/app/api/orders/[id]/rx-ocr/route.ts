@@ -3,6 +3,8 @@ export const runtime = "nodejs";
 import { NextResponse, NextRequest } from "next/server";
 import OpenAI from "openai";
 import { supabaseServer } from "@/lib/supabase-server";
+import { POSTHOG_EVENTS } from "@/lib/posthog/events";
+import { captureServerEvent, captureServerException } from "@/lib/posthog/server";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
@@ -212,8 +214,11 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  let orderIdForTelemetry: string | null = null;
+
   try {
     const { id: orderId } = await context.params;
+    orderIdForTelemetry = orderId;
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
@@ -265,6 +270,20 @@ export async function POST(
       rx,
     });
 
+    if (!usable || !isLikelyRx) {
+      await captureServerEvent({
+        event: POSTHOG_EVENTS.OCR_FAILED,
+        request: req,
+        properties: {
+          order_id: orderId,
+          usable,
+          is_likely_rx: isLikelyRx,
+          confidence: interpretation.confidence ?? null,
+          reason: usable ? "low_confidence_or_not_contact_lens_rx" : "missing_required_rx_fields",
+        },
+      });
+    }
+
     const { error: updateError } = await supabaseServer
       .from("orders")
       .update({
@@ -288,6 +307,15 @@ export async function POST(
     });
   } catch (err) {
     console.error("RX OCR ROUTE ERROR:", err);
+    await captureServerException({
+      event: POSTHOG_EVENTS.OCR_FAILED,
+      error: err,
+      request: req,
+      properties: {
+        order_id: orderIdForTelemetry,
+        reason: "rx_ocr_route_exception",
+      },
+    });
     return new Response("Server error", { status: 500 });
   }
 }

@@ -10,7 +10,7 @@
  * - No quantity logic
  * - No pricing explanations
  *
- * Pricing source: "Bausch + Lomb National List Price" (effective Feb 1, 2026)
+ * Pricing source: "Bausch + Lomb National List Price" (effective Feb 1, 2025)
  */
 
 type PriceEntry = {
@@ -40,29 +40,29 @@ export const BAUSCH_PRICING = {
   // =========================
   ULTRA_6: { price_per_box_cents: 5550 },
   ULTRA_AST_6: { price_per_box_cents: 7850 },
-  ULTRA_MF_6: { price_per_box_cents: 8025 },
-  ULTRA_AST_MF_6: { price_per_box_cents: 10675 },
+  ULTRA_MF_6: { price_per_box_cents: 8999 },
+  ULTRA_AST_MF_6: { price_per_box_cents: 12999 },
 
   // =========================
   // PureVision 2 (Monthly, 6-pack)
   // =========================
-  PUREVISION2_6: { price_per_box_cents: 6675 },
-  PUREVISION2_AST_6: { price_per_box_cents: 6725 }, // PureVision 2 For Astigmatism
-  PUREVISION2_MF_6: { price_per_box_cents: 7550 }, // PureVision 2 For Presbyopia
+  PUREVISION2_6: { price_per_box_cents: 7999 },
+  PUREVISION2_AST_6: { price_per_box_cents: 8499 }, // PureVision 2 For Astigmatism
+  PUREVISION2_MF_6: { price_per_box_cents: 8999 }, // PureVision 2 For Presbyopia
 
   // =========================
   // PureVision (Monthly, 6-pack)
   // =========================
-  PUREVISION_6: { price_per_box_cents: 8075 },
-  PUREVISION_MF_6: { price_per_box_cents: 8750 },
+  PUREVISION_6: { price_per_box_cents: 9499 },
+  PUREVISION_MF_6: { price_per_box_cents: 9999 },
 
   // =========================
   // SofLens
   // =========================
-  SOFLENS_DAILY_90: { price_per_box_cents: 5750 },
-  SOFLENS38_6: { price_per_box_cents: 2825 },
-  SOFLENS_AST_6: { price_per_box_cents: 4375 },
-  SOFLENS_MF_6: { price_per_box_cents: 6675 },
+  SOFLENS_DAILY_90: { price_per_box_cents: 6499 },
+  SOFLENS38_6: { price_per_box_cents: 3499 },
+  SOFLENS_AST_6: { price_per_box_cents: 5499 },
+  SOFLENS_MF_6: { price_per_box_cents: 7999 },
 } as const satisfies Record<string, PriceEntry>;
 
 /**

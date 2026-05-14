@@ -43,7 +43,7 @@ export default async function OrderPage({ params }: PageProps) {
   const isVerified = verificationStatus === "auto_verified";
 
   let headline = "Order Received";
-  let message = "Your order is being processed.";
+  let message = "Your order is being reviewed.";
 
   if (isCaptured && isVerified) {
     headline = "Order Confirmed";
@@ -54,7 +54,7 @@ export default async function OrderPage({ params }: PageProps) {
   if (isAuthorized) {
     headline = "Verification In Progress";
     message =
-      "We are verifying your prescription before shipment. Most verifications complete within 8 business hours.";
+      "We are verifying your prescription before shipment. Timing can depend on prescriber office hours and response time.";
   }
 
   return (
@@ -130,15 +130,18 @@ export default async function OrderPage({ params }: PageProps) {
         {isCaptured && isVerified && (
           <ul>
             <li>Your order is being prepared for shipment</li>
-            <li>You’ll receive tracking once it ships</li>
+            <li>You will receive tracking once it ships</li>
           </ul>
         )}
 
         {isAuthorized && (
           <ul>
             <li>We are verifying your prescription with your doctor</li>
-            <li>Most verifications complete within 8 business hours</li>
-            <li>We’ll notify you once it’s complete</li>
+            <li>
+              The verification window is measured in business hours after our
+              request is received
+            </li>
+            <li>We will notify you once it is complete</li>
           </ul>
         )}
       </div>

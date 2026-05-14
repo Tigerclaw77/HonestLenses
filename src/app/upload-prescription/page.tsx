@@ -6,6 +6,13 @@ import { supabase } from "@/lib/supabase-client";
 import Link from "next/link";
 import Header from "../../components/Header";
 import { Suspense } from "react";
+import {
+  POSTHOG_EVENTS,
+  captureClientException,
+  consumeStepDurationMs,
+  markStepStart,
+  track,
+} from "@/lib/posthog/client";
 
 const LS_ORDER_ID = "rx_upload_order_id";
 
@@ -18,6 +25,13 @@ type CartResponse = {
 
 type CreateOrderResponse = {
   orderId?: string;
+  error?: string;
+};
+
+type OcrResponse = {
+  ok?: boolean;
+  usable?: boolean;
+  confidence?: number;
   error?: string;
 };
 
@@ -60,11 +74,26 @@ function UploadPrescriptionContent() {
 
     if (validation) {
       setError(validation);
+      track(POSTHOG_EVENTS.VALIDATION_ERROR, {
+        step: "rx_upload_file_select",
+        reason: validation,
+        file_type: selected.type || "unknown",
+        file_size_bytes: selected.size,
+      });
       return;
     }
 
     setError(null);
     setFile(selected);
+    markStepStart("rx_upload");
+    track(POSTHOG_EVENTS.RX_METHOD_SELECTED, {
+      verification_mode: "upload",
+      source: "upload_prescription",
+    });
+    track(POSTHOG_EVENTS.RX_UPLOAD_STARTED, {
+      file_type: selected.type || "unknown",
+      file_size_bytes: selected.size,
+    });
   }
 
   function clearFile() {
@@ -134,10 +163,35 @@ function UploadPrescriptionContent() {
         body: formData,
       });
 
+      const ocrBody: OcrResponse = await ocrRes.json().catch(() => ({}));
+      const uploadDurationMs = consumeStepDurationMs("rx_upload");
+
       if (!ocrRes.ok) {
-        const body: { error?: string } = await ocrRes.json();
-        throw new Error(body.error ?? "Upload failed");
+        track(POSTHOG_EVENTS.OCR_FAILED, {
+          order_id: orderId,
+          reason: ocrBody.error ?? "Upload failed",
+          upload_duration_ms: uploadDurationMs,
+        });
+        throw new Error(ocrBody.error ?? "Upload failed");
       }
+
+      if (ocrBody.usable === false) {
+        track(POSTHOG_EVENTS.OCR_FAILED, {
+          order_id: orderId,
+          reason: "ocr_not_usable",
+          confidence: ocrBody.confidence ?? null,
+          upload_duration_ms: uploadDurationMs,
+        });
+      }
+
+      track(POSTHOG_EVENTS.RX_UPLOAD_COMPLETED, {
+        order_id: orderId,
+        file_type: file.type || "unknown",
+        file_size_bytes: file.size,
+        upload_duration_ms: uploadDurationMs,
+        ocr_usable: ocrBody.usable ?? null,
+        confidence: ocrBody.confidence ?? null,
+      });
 
       const params = new URLSearchParams({
         orderId,
@@ -148,6 +202,8 @@ function UploadPrescriptionContent() {
 
       router.push(`/upload-prescription/confirm?${params.toString()}`);
     } catch (err: unknown) {
+      captureClientException(err, { source: "rx_upload_submit" });
+
       if (err instanceof Error) {
         setError(err.message);
       } else {
@@ -168,6 +224,20 @@ function UploadPrescriptionContent() {
             How would you like to provide your prescription?
           </h2>
 
+          <p
+            style={{
+              color: "rgba(255,255,255,0.78)",
+              maxWidth: 760,
+              lineHeight: 1.6,
+              margin: "0 auto 22px",
+              textAlign: "center",
+            }}
+          >
+            A valid, unexpired contact lens prescription is required before
+            lenses can ship. Uploading lets us read the prescription and prefill
+            the next step; you will still review the details before checkout.
+          </p>
+
           <div className="rx-choice-grid">
             {/* Upload Card */}
 
@@ -184,11 +254,12 @@ function UploadPrescriptionContent() {
               <h3>Upload or take a photo</h3>
 
               <p className="rx-upload-subtitle">
-                Upload a photo or PDF of your prescription.
+                Upload a clear photo or PDF of the official prescription.
               </p>
 
               <p className="rx-upload-hint">
-                Drag & drop here, or tap to upload / take a photo
+                OCR helps us read the document. If anything is unclear, we will
+                guide you through review before fulfillment.
               </p>
 
               {file && (
@@ -270,13 +341,19 @@ function UploadPrescriptionContent() {
               </p>
 
               <p className="rx-manual-hint">
-                You can enter your prescription details manually in a short
-                form.
+                You can enter your prescription details manually. If we need to
+                confirm details, we may contact your prescriber before shipping.
               </p>
 
               <Link
                 href={`/enter-prescription?right=${rightLens ?? ""}&left=${leftLens ?? ""}`}
                 className="primary-btn"
+                onClick={() => {
+                  track(POSTHOG_EVENTS.RX_METHOD_SELECTED, {
+                    verification_mode: "manual",
+                    source: "upload_prescription",
+                  });
+                }}
                 style={{
                   display: "flex",
                   justifyContent: "center",
@@ -290,7 +367,8 @@ function UploadPrescriptionContent() {
           </div>
 
           <p className="order-fineprint">
-            Prescriptions are reviewed for accuracy before lenses ship.
+            Prescription information is used to verify and fill your order.
+            Payment and fulfillment only proceed after the required review.
           </p>
         </section>
       </main>

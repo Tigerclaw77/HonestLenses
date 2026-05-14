@@ -5,6 +5,13 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabase-client";
+import {
+  POSTHOG_EVENTS,
+  captureClientException,
+  consumeStepDurationMs,
+  markStepStart,
+  track,
+} from "@/lib/posthog/client";
 
 type DetailsResponse = {
   ok?: boolean;
@@ -266,6 +273,7 @@ export default function VerificationDetailsPage() {
         }
 
         setOrder(typedOrder);
+        markStepStart(`doctor_verification:${typedOrder.id}`);
 
         setForm((prev) => ({
           ...prev,
@@ -316,6 +324,11 @@ export default function VerificationDetailsPage() {
     const v = validate();
     if (v) {
       setError(v);
+      track(POSTHOG_EVENTS.VALIDATION_ERROR, {
+        step: "doctor_verification",
+        order_id: order?.id ?? orderId,
+        reason: v,
+      });
       return;
     }
 
@@ -355,9 +368,25 @@ export default function VerificationDetailsPage() {
 
     if (!res.ok) {
       setError(body?.error || "Submission failed.");
+      captureClientException(new Error(body?.error || "Submission failed."), {
+        source: "doctor_verification_submit",
+        order_id: order?.id ?? orderId,
+        status: res.status,
+      });
       setSubmitting(false);
       return;
     }
+
+    track(POSTHOG_EVENTS.DOCTOR_INFO_ENTERED, {
+      order_id: order?.id ?? orderId,
+      verification_mode: "passive",
+      has_prescriber_email: Boolean(form.prescriber_email.trim()),
+      allow_lower_price_adjustment: form.allow_lower_price_adjustment,
+      passive_deadline_set: Boolean(body.passive_deadline_at),
+      duration_ms: order
+        ? consumeStepDurationMs(`doctor_verification:${order.id}`)
+        : null,
+    });
 
     clearManualRxLocalStorage();
 
@@ -386,11 +415,28 @@ export default function VerificationDetailsPage() {
     <main>
       <section className="content-shell">
         <h1 className="upper content-title">
-          Final Step — Prescription Verification
+          Prescription Verification Details
         </h1>
 
         <div className="hl-card">
           <form onSubmit={handleSubmit}>
+            <div
+              style={{
+                marginBottom: 22,
+                padding: "14px 16px",
+                borderRadius: 14,
+                border: "1px solid rgba(148, 163, 184, 0.2)",
+                color: "#cbd5e1",
+                lineHeight: 1.55,
+                background: "rgba(2, 6, 23, 0.35)",
+              }}
+            >
+              Your payment has been authorized, not captured. We use these
+              details to verify the prescription before fulfillment. If your
+              prescriber does not respond within the applicable verification
+              window, passive verification may apply under federal rules.
+            </div>
+
             {/* Patient */}
             <h2
               style={{
@@ -403,8 +449,8 @@ export default function VerificationDetailsPage() {
               Patient Information
             </h2>
             <p style={{ color: "#cbd5e1", marginTop: -4, marginBottom: 18 }}>
-              Please enter the patient’s name exactly as it appears on the
-              prescription.
+              Enter the patient name and date of birth as they appear on the
+              prescription or at the prescribing office.
             </p>
 
             <div className="hl-grid">
@@ -615,10 +661,11 @@ export default function VerificationDetailsPage() {
               </h3>
 
               <div className="hl-helper">
-                Please supply enough information to help us identify your doctor
-                or their office.
+                Please supply enough information to help us identify and contact
+                your doctor or their office.
                 <br />
                 <strong>At minimum:</strong> doctor name and/or practice name.
+                Phone or email helps avoid delays.
               </div>
 
               <div className="hl-grid" style={{ marginBottom: 0 }}>
@@ -792,7 +839,7 @@ export default function VerificationDetailsPage() {
               <div
                 style={{ fontWeight: 900, color: "#ffffff", marginBottom: 8 }}
               >
-                Optional: Faster & Lower-Cost Approval
+                Optional price adjustment authorization
               </div>
 
               <label
@@ -815,7 +862,7 @@ export default function VerificationDetailsPage() {
                   style={{ marginTop: 3 }}
                 />
                 <span>
-                  If my doctor reduces the quantity or switches to a lower-cost
+                  If my doctor reduces the quantity or confirms a lower-cost
                   equivalent, go ahead and adjust my order and charge the lower
                   amount automatically.
                   <div style={{ marginTop: 6, fontSize: 13, color: "#cbd5e1" }}>
@@ -852,7 +899,7 @@ export default function VerificationDetailsPage() {
                   : "0 14px 42px rgba(37, 99, 235, 0.28)",
               }}
             >
-              {submitting ? "Sending…" : "Send to Doctor"}
+              {submitting ? "Sending..." : "Submit verification details"}
             </button>
           </form>
         </div>

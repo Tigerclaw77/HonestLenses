@@ -8,6 +8,11 @@ import { getSkuBoxDurationMonths } from "../../../../lib/pricing/skuDefaults";
 import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
 import { deriveTotalBoxes, deriveTotalMonths } from "../../../../lib/shipping";
 import { resolveShipping } from "../../../../lib/shipping/resolveShipping";
+import { POSTHOG_EVENTS } from "../../../../lib/posthog/events";
+import {
+  captureServerEvent,
+  captureServerException,
+} from "../../../../lib/posthog/server";
 
 // import { lenses } from "@/LensCore";
 // import { resolveXRVariant } from "@/LensCore/helpers/resolveXRVariant";
@@ -334,6 +339,22 @@ export async function POST(req: Request) {
     hasMixedSkus: false,
   });
 
+  if (totalBoxes > 0 && totalMonths <= 0) {
+    await captureServerEvent({
+      event: POSTHOG_EVENTS.SHIPPING_CALCULATION_ERROR,
+      distinctId: user.id,
+      request: req,
+      properties: {
+        order_id: order.id,
+        sku: resolvedSku,
+        manufacturer: pricing.manufacturer,
+        total_boxes: totalBoxes,
+        total_months: totalMonths,
+        reason: "missing_sku_duration_or_box_count",
+      },
+    });
+  }
+
   /* =========================
      Persist
   ========================= */
@@ -353,6 +374,16 @@ export async function POST(req: Request) {
     .eq("id", order.id);
 
   if (updateError) {
+    await captureServerException({
+      event: POSTHOG_EVENTS.API_ROUTE_FAILED,
+      error: updateError,
+      distinctId: user.id,
+      request: req,
+      properties: {
+        route: "/api/cart/resolve",
+        order_id: order.id,
+      },
+    });
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 

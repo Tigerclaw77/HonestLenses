@@ -15,10 +15,12 @@ export async function POST(req: Request) {
   const now = new Date().toISOString();
 
   // ✅ 2. Then query orders
+  // Current checkout leaves passive orders authorized while awaiting capture.
+  // "pending" remains here for older rows from the previous lifecycle.
   const { data: orders, error } = await supabaseServer
     .from("orders")
     .select("*")
-    .eq("status", "pending")
+    .in("status", ["authorized", "pending"])
     .eq("verification_status", "pending")
     .lte("passive_deadline_at", now);
 

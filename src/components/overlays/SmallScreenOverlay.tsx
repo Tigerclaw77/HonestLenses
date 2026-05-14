@@ -73,12 +73,12 @@ export default function SmallScreenOverlay({
         {!submitted ? (
           <>
             <p>
-              Contact lens ordering requires <br />
-              careful prescription review.
+              Ordering works best on a larger screen because prescription
+              details require careful review.
               <br />
               <br />
-              We’ll send you a quick link so you can <br />
-              return later from a desktop.
+              We can send a reminder link, or you can continue here if you are
+              ready.
             </p>
 
             <form onSubmit={handleSubmit}>
@@ -104,7 +104,10 @@ export default function SmallScreenOverlay({
         ) : (
           <>
             <div className="hl-success">✓ Reminder saved</div>
-            <p>You can revisit Honest Lenses anytime from a larger screen.</p>
+            <p>
+              You can revisit Honest Lenses anytime from a larger screen, or
+              continue here if you are ready.
+            </p>
           </>
         )}
 

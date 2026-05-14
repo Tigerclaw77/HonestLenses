@@ -17,6 +17,11 @@ import type { LensCore } from "@/LensCore";
 import { formatSphere } from "@/LensCore";
 import { resolveSphereOptions } from "@/LensCore/helpers/resolveSphereOptions";
 import { resolveCylinderOptions } from "@/LensCore/helpers/resolveCylinderOptions";
+import {
+  POSTHOG_EVENTS,
+  captureClientException,
+  track,
+} from "@/lib/posthog/client";
 
 import {
   formatBC,
@@ -319,6 +324,17 @@ export default function RxForm({
     if (map.right && Object.values(map.right).some(Boolean)) return true;
     if (map.left && Object.values(map.left).some(Boolean)) return true;
     return false;
+  }
+
+  function getFieldErrorSummary(map: FieldErrorMap) {
+    return {
+      none_entered: Boolean(map.noneEntered),
+      expires_error: Boolean(map.expires),
+      right_error: Boolean(
+        map.right && Object.values(map.right).some(Boolean),
+      ),
+      left_error: Boolean(map.left && Object.values(map.left).some(Boolean)),
+    };
   }
 
   function eyeHasErrors(which: "right" | "left") {
@@ -672,7 +688,14 @@ export default function RxForm({
 
     const map = validateAll();
     setFieldErrors(map);
-    if (hasAnyErrors(map)) return;
+    if (hasAnyErrors(map)) {
+      track(POSTHOG_EVENTS.VALIDATION_ERROR, {
+        step: "rx_entry",
+        verification_mode: mode,
+        ...getFieldErrorSummary(map),
+      });
+      return;
+    }
 
     const rightDraft: EyeRxDraft = {
       coreId: rightcoreId,
@@ -898,9 +921,19 @@ export default function RxForm({
         throw new Error("Cart resolve failed");
       }
 
+      track(POSTHOG_EVENTS.ADDED_TO_CART, {
+        order_id: finalOrderId,
+        verification_mode: mode,
+        right_core_id: rx.right?.coreId ?? null,
+        left_core_id: rx.left?.coreId ?? null,
+        verification_status: verificationStatus,
+        requires_review: requiresReview,
+      });
+
       router.push("/cart");
     } catch (err) {
       console.error("🔴 [RxForm] submitRx error:", err);
+      captureClientException(err, { source: "rx_form_submit" });
       alert(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
@@ -956,6 +989,19 @@ export default function RxForm({
           {mode === "ocr" ? "Confirm Your Prescription" : "Enter Prescription"}
         </h1>
 
+        <div
+          className="order-card"
+          style={{
+            marginBottom: 16,
+            color: "#cbd5e1",
+            lineHeight: 1.55,
+          }}
+        >
+          {mode === "ocr"
+            ? "Review the scanned prescription details before continuing. OCR can save time, but the final order is based on the values you confirm here."
+            : "Enter the contact lens prescription exactly as written. If anything needs clinical or prescriber confirmation, we will verify it before fulfillment."}
+        </div>
+
         {mode === "ocr" && (
           <div
             className="order-card rx-meta-section"
@@ -997,9 +1043,9 @@ export default function RxForm({
                       letterSpacing: "0.25px",
                     }}
                   >
-                    We couldn’t confidently extract prescription values from the
-                    uploaded image. Please enter them manually below. A licensed
-                    optometrist will verify before shipping.
+                    We could not confidently extract prescription values from
+                    the uploaded image. Please enter them manually below; we
+                    will verify the prescription before shipping.
                   </span>
                 </div>
               )}

@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
+import { POSTHOG_EVENTS } from "../../../../lib/posthog/events";
+import { captureServerException } from "../../../../lib/posthog/server";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -45,6 +47,9 @@ async function resolveCartForUser(req: Request, orderId: string) {
 ========================= */
 
 export async function POST(req: Request) {
+  let userId: string | null = null;
+  let orderIdForTelemetry: string | null = null;
+
   try {
     /* =========================
        1️⃣ Auth
@@ -56,6 +61,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    userId = user.id;
     console.log("CHECKOUT USER ID:", user.id);
 
     /* =========================
@@ -72,6 +78,7 @@ export async function POST(req: Request) {
       );
     }
 
+    orderIdForTelemetry = orderId;
     console.log("CHECKOUT ORDER ID:", orderId);
 
     /* =========================
@@ -203,11 +210,12 @@ export async function POST(req: Request) {
        7️⃣ Save PaymentIntent
     ========================= */
 
+    // PaymentIntent creation is not payment authorization; keep status draft
+    // until /api/checkout/authorized confirms Stripe reached requires_capture.
     const { error: updateError } = await supabaseServer
       .from("orders")
       .update({
         payment_intent_id: intent.id,
-        status: "authorized",
       })
       .eq("id", order.id)
       .eq("user_id", user.id)
@@ -226,6 +234,16 @@ export async function POST(req: Request) {
 
   } catch (err) {
     console.error("CHECKOUT ERROR:", err);
+    await captureServerException({
+      event: POSTHOG_EVENTS.API_ROUTE_FAILED,
+      error: err,
+      distinctId: userId,
+      request: req,
+      properties: {
+        route: "/api/checkout/pay",
+        order_id: orderIdForTelemetry,
+      },
+    });
 
     return NextResponse.json(
       { error: "Checkout initialization failed." },

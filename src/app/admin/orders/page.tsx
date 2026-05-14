@@ -61,15 +61,19 @@ type Order = {
   os_box_count?: number;
 
   created_at?: string;
+  updated_at?: string | null;
 
   rx: string | RxData | null;
   rx_ocr_raw?: unknown;
+  rx_source?: string | null;
 
   rx_upload_path?: string | null;
   rx_lens_brand?: string | null;
   rx_expiration_date?: string | null;
 
   prescriber_name?: string | null;
+  prescriber_email?: string | null;
+  prescriber_phone?: string | null;
 
   shipping_first_name?: string | null;
   shipping_last_name?: string | null;
@@ -86,9 +90,40 @@ type Order = {
   patient_full_name?: string | null;
 
   payment_intent_id?: string | null;
+  abandoned_checkout?: AbandonedCheckoutClassification;
 };
 
 type BadgeTone = "good" | "warning" | "blocked";
+
+type AbandonedCheckoutReason =
+  | "abandoned_no_payment_intent"
+  | "abandoned_with_payment_intent"
+  | "stale_checkout"
+  | "incomplete_rx"
+  | "incomplete_doctor_info";
+
+type AbandonedCheckoutClassification = {
+  isAbandoned: boolean;
+  reasons: AbandonedCheckoutReason[];
+  primaryReason: AbandonedCheckoutReason | null;
+  ageHours: number | null;
+  activityAt: string | null;
+  thresholdHours: number;
+  staleThresholdHours: number;
+  rxMode: "uploaded" | "doctor" | "structured_rx" | "none";
+};
+
+type AbandonedAdminAction =
+  | "archive"
+  | "ignore"
+  | "draft_recovery_email";
+
+type RecoveryEmailDraft = {
+  to: string | null;
+  subject: string;
+  text: string;
+  html: string;
+};
 
 /* =========================
    Helpers
@@ -97,6 +132,44 @@ type BadgeTone = "good" | "warning" | "blocked";
 function formatMoney(cents?: number): string {
   if (typeof cents !== "number") return "—";
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return "â€”";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "â€”";
+
+  return date.toLocaleString();
+}
+
+function formatAge(hours?: number | null): string {
+  if (typeof hours !== "number") return "â€”";
+  if (hours < 24) return `${Math.round(hours)}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+function abandonedReasonLabel(reason: AbandonedCheckoutReason): string {
+  const labels: Record<AbandonedCheckoutReason, string> = {
+    abandoned_no_payment_intent: "No payment intent",
+    abandoned_with_payment_intent: "Payment started",
+    stale_checkout: "Stale checkout",
+    incomplete_rx: "Incomplete Rx",
+    incomplete_doctor_info: "Incomplete doctor info",
+  };
+
+  return labels[reason];
+}
+
+function rxModeLabel(mode?: AbandonedCheckoutClassification["rxMode"]): string {
+  const labels: Record<AbandonedCheckoutClassification["rxMode"], string> = {
+    uploaded: "Upload/OCR",
+    doctor: "Doctor verification",
+    structured_rx: "Entered Rx",
+    none: "None",
+  };
+
+  return mode ? labels[mode] : "None";
 }
 
 function shortStatus(status: string): string {
@@ -440,8 +513,12 @@ function RxDetailsPanel({ order }: { order: Order }) {
 
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [abandonedOrders, setAbandonedOrders] = useState<Order[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [rxExpanded, setRxExpanded] = useState<string | null>(null);
+  const [recoveryDrafts, setRecoveryDrafts] = useState<
+    Record<string, RecoveryEmailDraft>
+  >({});
   const knownOrderIds = useRef<Set<string>>(new Set());
   const isInitialLoad = useRef(true);
 
@@ -454,6 +531,7 @@ export default function AdminOrdersPage() {
       ...(json.stalled ?? []),
       ...(json.pipeline ?? []),
     ];
+    const abandoned: Order[] = json.abandoned ?? [];
 
     if (!isInitialLoad.current) {
       const newOrders = combined.filter(
@@ -480,6 +558,7 @@ export default function AdminOrdersPage() {
     isInitialLoad.current = false;
 
     setOrders(combined.sort(compareOperationalPriority));
+    setAbandonedOrders(abandoned);
   }
 
   useEffect(() => {
@@ -538,6 +617,52 @@ export default function AdminOrdersPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ archived: true }),
     });
+
+    await fetchData();
+  }
+
+  async function runAbandonedAction(
+    orderId: string,
+    action: AbandonedAdminAction,
+  ) {
+    if (action === "archive" && !confirm("Archive this abandoned draft?")) {
+      return;
+    }
+
+    if (
+      action === "ignore" &&
+      !confirm("Mark this abandoned draft as ignored?")
+    ) {
+      return;
+    }
+
+    const res = await fetch(`/api/admin/abandoned-checkouts/${orderId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+
+    const json = (await res.json()) as {
+      draft?: RecoveryEmailDraft;
+      error?: string;
+    };
+
+    if (!res.ok) {
+      alert(json.error ?? "Abandoned checkout action failed.");
+      return;
+    }
+
+    if (action === "draft_recovery_email" && json.draft) {
+      const draft = json.draft;
+      setRecoveryDrafts((prev) => ({ ...prev, [orderId]: draft }));
+
+      try {
+        await navigator.clipboard.writeText(draft.text);
+      } catch {
+        // Clipboard access can be blocked by the browser; the draft remains visible.
+      }
+      return;
+    }
 
     await fetchData();
   }
@@ -802,6 +927,144 @@ export default function AdminOrdersPage() {
           );
         })}
       </div>
+
+      <section style={{ marginTop: 36 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>
+          Abandoned / stale drafts
+        </h2>
+        <p style={{ marginTop: 0, opacity: 0.75 }}>
+          Draft checkouts are kept out of the fulfillment queue until payment is
+          authorized.
+        </p>
+
+        {abandonedOrders.length === 0 ? (
+          <div
+            style={{
+              border: "1px solid rgba(148,163,184,0.2)",
+              borderRadius: 12,
+              padding: 14,
+              opacity: 0.75,
+            }}
+          >
+            No abandoned drafts above the configured threshold.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {abandonedOrders.map((o) => {
+              const info = o.abandoned_checkout;
+              const reasons = info?.reasons ?? [];
+              const patientName =
+                o.patient_name ||
+                o.patient_full_name ||
+                `${o.shipping_first_name ?? ""} ${
+                  o.shipping_last_name ?? ""
+                }`.trim() ||
+                "Unknown customer";
+              const draft = recoveryDrafts[o.id];
+
+              return (
+                <div
+                  key={o.id}
+                  style={{
+                    border: "1px solid rgba(251,191,36,0.35)",
+                    borderRadius: 12,
+                    padding: 14,
+                    background: "rgba(120,53,15,0.12)",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1.2fr 1fr 1.1fr",
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 800 }}>{patientName}</div>
+                      <div>Created: {formatDateTime(o.created_at)}</div>
+                      <div>Updated: {formatDateTime(o.updated_at)}</div>
+                      <div>Age: {formatAge(info?.ageHours)}</div>
+                    </div>
+
+                    <div>
+                      <div>Total: {formatMoney(o.total_amount_cents)}</div>
+                      <div>Email: {o.shipping_email ?? "-"}</div>
+                      <div>Rx mode: {rxModeLabel(info?.rxMode)}</div>
+                      <div>
+                        Payment intent: {o.payment_intent_id ? "yes" : "no"}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 6,
+                          flexWrap: "wrap",
+                          marginBottom: 10,
+                        }}
+                      >
+                        {reasons.map((reason) => (
+                          <span key={reason} style={badgeStyle("warning")}>
+                            {abandonedReasonLabel(reason)}
+                          </span>
+                        ))}
+                      </div>
+
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          onClick={() => runAbandonedAction(o.id, "archive")}
+                          style={{ padding: "4px 8px", borderRadius: 4 }}
+                        >
+                          Archive draft
+                        </button>
+                        <button
+                          onClick={() => runAbandonedAction(o.id, "ignore")}
+                          style={{ padding: "4px 8px", borderRadius: 4 }}
+                        >
+                          Mark ignored
+                        </button>
+                        <button
+                          onClick={() =>
+                            runAbandonedAction(o.id, "draft_recovery_email")
+                          }
+                          style={{ padding: "4px 8px", borderRadius: 4 }}
+                        >
+                          Draft recovery email
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {draft && (
+                    <div
+                      style={{
+                        marginTop: 12,
+                        padding: 12,
+                        borderRadius: 8,
+                        border: "1px solid rgba(148,163,184,0.25)",
+                        background: "rgba(15,23,42,0.35)",
+                      }}
+                    >
+                      <div style={{ fontWeight: 700 }}>{draft.subject}</div>
+                      <div style={{ opacity: 0.75 }}>To: {draft.to ?? "-"}</div>
+                      <pre
+                        style={{
+                          whiteSpace: "pre-wrap",
+                          marginBottom: 0,
+                          fontFamily: "monospace",
+                        }}
+                      >
+                        {draft.text}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
     </main>
   );
 }

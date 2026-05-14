@@ -1,0 +1,95 @@
+export const POSTHOG_EVENTS = {
+  VIEWED_PRODUCT: "viewed_product",
+  VIEWED_BRAND: "viewed_brand",
+  SEARCHED_LENS: "searched_lens",
+
+  ADDED_TO_CART: "added_to_cart",
+  REMOVED_FROM_CART: "removed_from_cart",
+  CART_QUANTITY_CHANGED: "cart_quantity_changed",
+
+  CHECKOUT_STARTED: "checkout_started",
+  RX_METHOD_SELECTED: "rx_method_selected",
+  RX_UPLOAD_STARTED: "rx_upload_started",
+  RX_UPLOAD_COMPLETED: "rx_upload_completed",
+  DOCTOR_INFO_ENTERED: "doctor_info_entered",
+  PAYMENT_STARTED: "payment_started",
+  PAYMENT_SUCCEEDED: "payment_succeeded",
+  PAYMENT_FAILED: "payment_failed",
+
+  OCR_FAILED: "OCR_failed",
+  VALIDATION_ERROR: "validation_error",
+  SHIPPING_CALCULATION_ERROR: "shipping_calculation_error",
+  ABANDONED_CHECKOUT: "abandoned_checkout",
+  ABANDONED_CHECKOUT_DETECTED: "abandoned_checkout_detected",
+  ABANDONED_CHECKOUT_ARCHIVED: "abandoned_checkout_archived",
+  RECOVERY_EMAIL_DRAFTED: "recovery_email_drafted",
+
+  API_ROUTE_FAILED: "api_route_failed",
+  CLIENT_ERROR: "client_error",
+  CHECKOUT_STEP_TIMED: "checkout_step_timed",
+} as const;
+
+export type PostHogEventName =
+  (typeof POSTHOG_EVENTS)[keyof typeof POSTHOG_EVENTS];
+
+export type AnalyticsPropertyValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined;
+
+export type AnalyticsProperties = Record<string, AnalyticsPropertyValue>;
+
+const SENSITIVE_KEY_PATTERNS = [
+  /email/i,
+  /phone/i,
+  /address/i,
+  /dob/i,
+  /birth/i,
+  /patient/i,
+  /prescriber/i,
+  /doctor/i,
+  /name/i,
+  /rx_/i,
+  /sphere/i,
+  /cyl/i,
+  /axis/i,
+  /base_curve/i,
+];
+
+export function isSensitiveAnalyticsKey(key: string): boolean {
+  if (key.startsWith("has_")) return false;
+  return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
+}
+
+export function sanitizeAnalyticsProperties(
+  properties: AnalyticsProperties = {},
+): AnalyticsProperties {
+  const safe: AnalyticsProperties = {};
+
+  for (const [key, value] of Object.entries(properties)) {
+    if (isSensitiveAnalyticsKey(key)) {
+      safe[key] = "[redacted]";
+    } else {
+      safe[key] = value;
+    }
+  }
+
+  return safe;
+}
+
+export function errorToAnalyticsProperties(
+  error: unknown,
+): AnalyticsProperties {
+  if (error instanceof Error) {
+    return {
+      error_name: error.name,
+      error_message: error.message,
+    };
+  }
+
+  return {
+    error_message: String(error),
+  };
+}

@@ -6,7 +6,6 @@ import { supabase } from "../../lib/supabase-client";
 
 import Header from "../../components/Header";
 import EyeRow from "../../components/cart/EyeRow";
-import ComingSoonOverlay from "@/components/overlays/ComingSoonOverlay";
 import AuthGate from "@/components/AuthGate";
 
 import { fmtPrice } from "../../lib/cart/formatters";
@@ -16,6 +15,12 @@ import { fetchCart, resolveCart } from "../../lib/cart/api";
 import { getLensDisplayName } from "../../lib/cart/display";
 import { deriveTotalMonths } from "../../lib/shipping";
 import { resolveShipping } from "../../lib/shipping/resolveShipping";
+import {
+  POSTHOG_EVENTS,
+  captureClientException,
+  markStepStart,
+  track,
+} from "@/lib/posthog/client";
 
 const DEV_MODE =
   process.env.NODE_ENV === "development" && process.env.VERCEL !== "1";
@@ -76,6 +81,8 @@ export default function CartPage() {
     async (nextRight: number, nextLeft: number) => {
       if (syncingQty) return;
 
+      const previousTotalBoxes =
+        (cart?.right_box_count ?? 0) + (cart?.left_box_count ?? 0);
       const token = accessToken ?? (DEV_MODE ? DEV_ACCESS_TOKEN : null);
 
       if (!token) {
@@ -93,16 +100,38 @@ export default function CartPage() {
         });
 
         setCart(updated);
+        track(
+          nextRight + nextLeft === 0
+            ? POSTHOG_EVENTS.REMOVED_FROM_CART
+            : POSTHOG_EVENTS.CART_QUANTITY_CHANGED,
+          {
+            order_id: updated.id,
+            manufacturer: updated.manufacturer ?? null,
+            right_box_count: nextRight,
+            left_box_count: nextLeft,
+            previous_total_boxes: previousTotalBoxes,
+            total_boxes: nextRight + nextLeft,
+            total_cart_value_cents: updated.total_amount_cents ?? null,
+            shipping_cents: updated.shipping_cents ?? null,
+            supply_duration_months: deriveTotalMonths({
+              sku: updated.sku,
+              totalBoxes: nextRight + nextLeft,
+              right_box_count: nextRight,
+              left_box_count: nextLeft,
+            }),
+          },
+        );
         setRightQtyOverride(null);
         setLeftQtyOverride(null);
       } catch (e) {
         console.error("[CartPage] qty update failed", e);
+        captureClientException(e, { source: "cart_quantity_change" });
         setError(e instanceof Error ? e.message : "Failed to update quantity.");
       } finally {
         setSyncingQty(false);
       }
     },
-    [accessToken, syncingQty],
+    [accessToken, cart?.left_box_count, cart?.right_box_count, syncingQty],
   );
 
   /* ---------- Initial load ---------- */
@@ -173,14 +202,9 @@ export default function CartPage() {
     };
   }, []);
 
-  /* ---------- CV Block Detection ---------- */
-
   const rx = cart?.rx;
   const rightEye = rx?.right ?? null;
   const leftEye = rx?.left ?? null;
-
-  const hasCVLens =
-    rightEye?.coreId?.startsWith("CV") || leftEye?.coreId?.startsWith("CV");
 
   /* ---------- Guards ---------- */
 
@@ -277,8 +301,7 @@ export default function CartPage() {
 
   const previewTotal = previewSubtotal + previewShipping;
 
-  const canCheckout =
-    !syncingQty && totalBoxes > 0 && previewTotal > 0 && !hasCVLens;
+  const canCheckout = !syncingQty && totalBoxes > 0 && previewTotal > 0;
 
   /* ---------- Render ---------- */
 
@@ -286,6 +309,11 @@ export default function CartPage() {
     <main>
       <section className="content-shell">
         <h1 className="upper content-title">Your Cart</h1>
+        <p style={{ color: "#cbd5e1", lineHeight: 1.6, maxWidth: 760 }}>
+          Choose the number of boxes for each eye. Supply limits are based on
+          your prescription expiration date, and final fulfillment depends on
+          prescription verification.
+        </p>
 
         <div className="order-card hl-cart">
           {error && <p className="order-error">{error}</p>}
@@ -356,6 +384,20 @@ export default function CartPage() {
               </div>
             )}
 
+            <div
+              style={{
+                fontSize: 12,
+                color: "#94a3b8",
+                marginTop: 10,
+                textAlign: "right",
+                lineHeight: 1.4,
+              }}
+            >
+              Shipping estimates apply after prescription verification. Some
+              lenses may ship from authorized manufacturer or distributor
+              channels.
+            </div>
+
             <div className="hl-summary-row hl-summary-total">
               <span>Total</span>
               <span>{fmtPrice(previewTotal)}</span>
@@ -366,6 +408,15 @@ export default function CartPage() {
             className="primary-btn hl-checkout-cta"
             onClick={() => {
               if (syncingQty) return;
+              markStepStart(`checkout_duration:${cart.id}`);
+              track(POSTHOG_EVENTS.CHECKOUT_STARTED, {
+                order_id: cart.id,
+                source: "cart",
+                manufacturer: cart.manufacturer ?? null,
+                total_cart_value_cents: previewTotal,
+                shipping_cents: previewShipping,
+                supply_duration_months: totalMonths,
+              });
               router.push("/shipping");
             }}
             disabled={!canCheckout}
@@ -382,13 +433,6 @@ export default function CartPage() {
       <Header variant="shop" />
 
       {DEV_MODE ? cartUI : <AuthGate>{cartUI}</AuthGate>}
-
-      {hasCVLens && (
-        <ComingSoonOverlay
-          brand="CooperVision"
-          onClose={() => router.push("/")}
-        />
-      )}
     </>
   );
 }

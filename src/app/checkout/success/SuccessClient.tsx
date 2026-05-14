@@ -34,24 +34,24 @@ export default function CheckoutSuccessPage() {
   const isUnknown = mode === "unknown";
 
   let title = "Order Received";
-  let subText = "Your order has been received and is now being processed.";
+  let subText = "Your order has been received and is now being reviewed.";
   let noteText = "You can check your account for the latest order status.";
   let bullets: string[] = [
-    "We’ve received your order",
-    "We’ll email you if any follow-up is needed",
-    "You’ll receive email updates as your order progresses"
+    "We have received your order",
+    "We will email you if any follow-up is needed",
+    "You will receive email updates as your order progresses",
   ];
 
   if (isUploaded) {
     title = "Order Received";
     subText =
-      "Your prescription has been received and verified. Your order is now being processed.";
+      "Your prescription has been received and your order is moving into fulfillment review.";
     noteText =
-      "Your payment has been processed and your order is moving into fulfillment.";
+      "Your payment is handled through Stripe and your order will continue once the required review is complete.";
     bullets = [
-      "Your prescription has been confirmed",
-      "Your order is being prepared for shipment",
-      "You’ll receive tracking once it ships",
+      "Your prescription document has been received",
+      "If anything needs review, we will contact you before fulfillment",
+      "You will receive tracking once it ships",
     ];
   }
 
@@ -63,9 +63,9 @@ export default function CheckoutSuccessPage() {
       "Your payment has been authorized and will be captured once prescription verification is complete.";
     bullets = [
       "Your order is pending prescription verification",
-      "Most verifications are completed within 8 business hours",
-      "We’ll email you once verification is complete",
-      "If clarification is needed, we’ll contact you",
+      "The FTC verification window is measured in business hours after the prescriber receives our request",
+      "We will email you once verification is complete",
+      "If clarification is needed, we will contact you",
     ];
   }
 
@@ -76,8 +76,8 @@ export default function CheckoutSuccessPage() {
     noteText = "Please check your email for the latest order status.";
     bullets = [
       "Your order was received",
-      "We’ll contact you if anything further is needed",
-      "You’ll receive email updates as your order progresses.",
+      "We will contact you if anything further is needed",
+      "You will receive email updates as your order progresses.",
     ];
   }
 
@@ -206,6 +206,13 @@ export default function CheckoutSuccessPage() {
               <strong style={{ color: "#e2e8f0" }}>
                 {deadlineDate.toLocaleString()}
               </strong>
+            </p>
+          )}
+
+          {isPassive && (
+            <p className="hl-note" style={{ marginTop: 6 }}>
+              Timing can vary with prescriber office hours and response time.
+              Shipment begins only after the prescription is verified.
             </p>
           )}
 
