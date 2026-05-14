@@ -19,6 +19,14 @@ function getString(o: UnknownRecord, key: string): string | null {
   return typeof v === "string" ? v : null;
 }
 
+async function safeJson(req: Request): Promise<unknown> {
+  try {
+    return await req.json();
+  } catch {
+    return null;
+  }
+}
+
 /* =========================
    MAIN HANDLER
 ========================= */
@@ -38,24 +46,40 @@ export async function POST(req: Request) {
      2️⃣ Load Draft Order
   ========================= */
 
-  const { data: orderRaw, error } = await supabaseServer
+  // Normal path is draft; authorized is accepted for rows created before
+  // /api/checkout/pay was corrected to stop advancing status early.
+  const rawBody = await safeJson(req);
+  const requestedOrderId = isRecord(rawBody)
+    ? getString(rawBody, "orderId")
+    : null;
+
+  const baseQuery = supabaseServer
     .from("orders")
     .select("*")
     .eq("user_id", user.id)
-    .eq("status", "draft")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .in("status", ["draft", "authorized"]);
+
+  const { data: orderRaw, error } = requestedOrderId
+    ? await baseQuery.eq("id", requestedOrderId).maybeSingle()
+    : await baseQuery
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   if (!orderRaw || !isRecord(orderRaw)) {
-    return NextResponse.json({ error: "No draft order" }, { status: 400 });
+    return NextResponse.json(
+      { error: "No checkout order awaiting authorization" },
+      { status: 400 },
+    );
   }
 
   const orderId = getString(orderRaw, "id");
+  const orderStatus = getString(orderRaw, "status");
+  const verificationStatus = getString(orderRaw, "verification_status");
   const paymentIntentId = getString(orderRaw, "payment_intent_id");
 
   if (!orderId) {
@@ -100,6 +124,15 @@ export async function POST(req: Request) {
 
   const isUploaded = !!orderRaw.rx_upload_path;
 
+  if (orderStatus === "authorized" && verificationStatus === "pending") {
+    return NextResponse.json({
+      ok: true,
+      orderId,
+      next: "verification-details",
+      mode: "passive",
+    });
+  }
+
   console.log("UPLOAD CHECK", {
     orderId,
     rx_upload_path: orderRaw.rx_upload_path,
@@ -143,7 +176,7 @@ export async function POST(req: Request) {
     .update(updatePayload)
     .eq("id", orderId)
     .eq("user_id", user.id)
-    .eq("status", "draft")
+    .in("status", ["draft", "authorized"])
     .select("id");
 
   if (updateError) {

@@ -1,6 +1,7 @@
 import { lenses } from "@/LensCore/data/lenses";
 import { slugifyLens } from "@/lib/seo/slugifyLens";
 import { notFound } from "next/navigation";
+import ProductTelemetry from "@/components/analytics/ProductTelemetry";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -38,6 +39,13 @@ export default async function LensPage({ params }: Props) {
 
   return (
     <div style={{ padding: 40, maxWidth: 900, lineHeight: 1.6 }}>
+      <ProductTelemetry
+        coreId={lens.coreId}
+        manufacturer={lens.manufacturer}
+        displayName={lens.displayName}
+        source="product_page"
+      />
+
       {/* Title */}
       <h1>{lens.displayName} Contact Lenses</h1>
 

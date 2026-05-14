@@ -4,6 +4,13 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase-client";
 import AuthGate from "@/components/AuthGate";
+import {
+  POSTHOG_EVENTS,
+  captureClientException,
+  consumeStepDurationMs,
+  markStepStart,
+  track,
+} from "@/lib/posthog/client";
 
 type DraftOrder = {
   id: string;
@@ -118,6 +125,7 @@ export default function ShippingPage() {
       }
 
       setOrder(data);
+      markStepStart(`shipping:${data.id}`);
       setLoading(false);
     }
 
@@ -151,6 +159,11 @@ export default function ShippingPage() {
     const v = validate();
     if (v) {
       setError(v);
+      track(POSTHOG_EVENTS.VALIDATION_ERROR, {
+        step: "shipping",
+        reason: v,
+        order_id: order.id,
+      });
       return;
     }
 
@@ -167,9 +180,20 @@ export default function ShippingPage() {
 
     if (!res.ok) {
       setError("Failed to save shipping.");
+      captureClientException(new Error("Failed to save shipping."), {
+        source: "shipping_submit",
+        order_id: order.id,
+        status: res.status,
+      });
       setSubmitting(false);
       return;
     }
+
+    track(POSTHOG_EVENTS.CHECKOUT_STEP_TIMED, {
+      step: "shipping",
+      order_id: order.id,
+      duration_ms: consumeStepDurationMs(`shipping:${order.id}`),
+    });
 
     router.push(`/checkout?orderId=${order.id}`);
   }
@@ -180,6 +204,12 @@ export default function ShippingPage() {
     <AuthGate>
       <main className="content-shell">
         <h1 className="upper content-title">Shipping Information</h1>
+        <p style={{ color: "#cbd5e1", lineHeight: 1.6, maxWidth: 760 }}>
+          Enter the address where your lenses should be delivered. Shipping
+          timing begins after prescription verification is complete; some
+          products may ship through authorized manufacturer or distributor
+          channels. We will email tracking when the order ships.
+        </p>
 
         <form onSubmit={handleSubmit} className="shipping-grid">
           <div className="col-6">
@@ -215,7 +245,7 @@ export default function ShippingPage() {
           </div>
 
           <div className="col-6">
-            <label>Email</label>
+            <label>Email for order updates</label>
             <input
               type="email"
               value={form.shipping_email}
@@ -224,7 +254,7 @@ export default function ShippingPage() {
           </div>
 
           <div className="col-6">
-            <label>Phone</label>
+            <label>Phone (optional)</label>
             <input
               value={form.shipping_phone}
               onChange={(e) => setField("shipping_phone", e.target.value)}
@@ -265,6 +295,11 @@ export default function ShippingPage() {
           <button type="submit" disabled={submitting} className="submit-btn">
             {submitting ? "Saving..." : "Continue to Payment"}
           </button>
+
+          <p className="shipping-note col-12">
+            You will review payment on the next step. Lenses are not shipped
+            until prescription verification is complete.
+          </p>
         </form>
 
         <style>{`
@@ -317,6 +352,14 @@ export default function ShippingPage() {
           .submit-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
+          }
+
+          .shipping-note {
+            margin: 0;
+            color: #94a3b8;
+            font-size: 13px;
+            line-height: 1.5;
+            text-align: center;
           }
         `}</style>
       </main>

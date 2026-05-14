@@ -2,6 +2,7 @@ import { VISTAKON_PRICING } from "./vistakon";
 import { BAUSCH_PRICING } from "./bausch";
 import { COOPERVISION_PRICING } from "./coopervision";
 import { ALCON_PRICING } from "./alcon";
+import { CORE_TO_SKUS } from "./resolveDefaultSku";
 import type { LensCore } from "@/LensCore/types";
 
 const ALL_PRICING = {
@@ -12,8 +13,7 @@ const ALL_PRICING = {
 };
 
 export function getLensSkus(lens: LensCore): string[] {
-  return Object.keys(ALL_PRICING).filter((sku) => {
-    const family = sku.replace(/_\d+$/, "");
-    return family === lens.coreId;
-  });
+  const configuredSkus = CORE_TO_SKUS[lens.coreId] ?? [];
+
+  return configuredSkus.filter((sku) => sku in ALL_PRICING);
 }

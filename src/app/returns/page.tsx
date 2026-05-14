@@ -110,8 +110,7 @@ type PolicySectionProps = {
 function PolicySection({ number, title, children }: PolicySectionProps) {
   return (
     <section className="mb-16">
-      <div className="bg-red-500 p-40">
-        
+      <div className="rounded-xl border border-neutral-800 bg-neutral-950/70 p-8">
         <h2 className="text-2xl font-semibold text-white tracking-tight mb-8">
           <span className="text-neutral-500 mr-3">{number}.</span>
           {title}
@@ -120,7 +119,6 @@ function PolicySection({ number, title, children }: PolicySectionProps) {
         <div className="text-[15px] leading-7 text-neutral-300 space-y-6">
           {children}
         </div>
-
       </div>
     </section>
   );

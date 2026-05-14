@@ -9,6 +9,8 @@
  * - No RX logic
  * - No quantity logic
  * - No pricing explanations
+ *
+ * Cost basis: Acuvue direct price list, effective Dec 30, 2024.
  */
 
 type PriceEntry = {
@@ -21,9 +23,9 @@ export const VISTAKON_PRICING = {
   // =========================
   OASYS_MAX_1D_30: { price_per_box_cents: 4699 },
   OASYS_MAX_1D_90: { price_per_box_cents: 10399 },
-  OASYS_MAX_1D_AST_30: { price_per_box_cents: 5199 },
-  OASYS_MAX_1D_MF_30: { price_per_box_cents: 5899 },
-  OASYS_MAX_1D_MF_90: { price_per_box_cents: 12999 },
+  OASYS_MAX_1D_AST_30: { price_per_box_cents: 5699 },
+  OASYS_MAX_1D_MF_30: { price_per_box_cents: 6499 },
+  OASYS_MAX_1D_MF_90: { price_per_box_cents: 13999 },
   OASYS_MAX_1D_AST_MF_30: { price_per_box_cents: 6499 },
 
   // =========================
@@ -31,7 +33,7 @@ export const VISTAKON_PRICING = {
   // =========================
   OASYS_1D_90: { price_per_box_cents: 9299 },
   OASYS_1D_AST_30: { price_per_box_cents: 5299 },
-  OASYS_1D_AST_90: { price_per_box_cents: 10899 },
+  OASYS_1D_AST_90: { price_per_box_cents: 11499 },
 
   // =========================
   // Acuvue Oasys (Bi-weekly)

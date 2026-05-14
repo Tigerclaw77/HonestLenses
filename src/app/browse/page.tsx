@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "../../components/Header";
 import Footer from "../../components/Footer";
@@ -15,14 +15,30 @@ import { getPrice } from "@/lib/pricing/getPrice";
 import { getLowestPrice } from "@/lib/pricing/getLowestPrice";
 import { getPopularityRank } from "@/data/lensPopularityTiers";
 
-import ComingSoonOverlay from "@/components/overlays/ComingSoonOverlay";
+import { POSTHOG_EVENTS, track } from "@/lib/posthog/client";
 
 type LensSelection = {
   right?: string;
   left?: string;
 };
 
-function LensImage({ coreId }: { coreId: string }) {
+type LensImageVariant = "card" | "modal";
+
+const LENS_IMAGE_SIZES: Record<
+  LensImageVariant,
+  { width: number; height: number }
+> = {
+  card: { width: 176, height: 116 },
+  modal: { width: 280, height: 176 },
+};
+
+function LensImage({
+  coreId,
+  variant = "card",
+}: {
+  coreId: string;
+  variant?: LensImageVariant;
+}) {
   const sources = [
     `/lens-images/${coreId}.webp`,
     `/lens-images/${coreId}.png`,
@@ -30,6 +46,7 @@ function LensImage({ coreId }: { coreId: string }) {
   ];
 
   const [index, setIndex] = useState(0);
+  const size = LENS_IMAGE_SIZES[variant];
 
   function handleError() {
     setIndex((prev) => (prev < sources.length - 1 ? prev + 1 : prev));
@@ -40,18 +57,30 @@ function LensImage({ coreId }: { coreId: string }) {
       src={sources[index]}
       onError={handleError}
       alt=""
-      loading="lazy"
+      loading={variant === "modal" ? "eager" : "lazy"}
       decoding="async"
-      fetchPriority="low"
-      width={140}
-      height={90}
+      fetchPriority={variant === "modal" ? "high" : "low"}
+      width={size.width}
+      height={size.height}
       style={{
-        maxWidth: "100%",
-        maxHeight: "100%",
+        width: "100%",
+        height: "100%",
+        maxWidth: size.width,
+        maxHeight: size.height,
         objectFit: "contain",
+        objectPosition: "center",
+        filter: "drop-shadow(0 10px 16px rgba(0,0,0,0.24))",
       }}
     />
   );
+}
+
+function replacementLabel(code: string): string {
+  if (code === "DD") return "Daily disposable";
+  if (code === "1W") return "Weekly replacement";
+  if (code === "2W") return "Two-week replacement";
+  if (code === "1M") return "Monthly replacement";
+  return `${code} replacement`;
 }
 
 export default function BrowsePage() {
@@ -65,8 +94,6 @@ export default function BrowsePage() {
   const [manufacturerFilter, setManufacturerFilter] = useState("all");
 
   const [selection, setSelection] = useState<LensSelection>({});
-
-  const [comingSoonBrand, setComingSoonBrand] = useState<string | null>(null);
 
   const manufacturerLabels = {
     VISTAKON: "Vistakon",
@@ -115,6 +142,31 @@ export default function BrowsePage() {
       return a.displayName.localeCompare(b.displayName);
     });
 
+  useEffect(() => {
+    const query = search.trim();
+    if (!query) return;
+
+    const timeout = window.setTimeout(() => {
+      track(POSTHOG_EVENTS.SEARCHED_LENS, {
+        query,
+        result_count: filtered.length,
+        manufacturer_filter: manufacturerFilter,
+      });
+    }, 500);
+
+    return () => window.clearTimeout(timeout);
+  }, [search, filtered.length, manufacturerFilter]);
+
+  useEffect(() => {
+    if (manufacturerFilter === "all") return;
+
+    track(POSTHOG_EVENTS.VIEWED_BRAND, {
+      manufacturer: manufacturerFilter,
+      source: "browse_filter",
+      result_count: filtered.length,
+    });
+  }, [manufacturerFilter, filtered.length]);
+
   return (
     <>
       <Header variant="shop" />
@@ -133,8 +185,9 @@ export default function BrowsePage() {
             className="browse-helper"
             style={{ color: "rgba(255,255,255,0.85)", maxWidth: 720 }}
           >
-            Compare contact lens pricing before ordering. When you’re ready,
-            we’ll collect or upload your prescription during checkout.
+            Compare contact lens pricing and pack sizes before ordering. When
+            you are ready, we will collect or upload your valid prescription and
+            verify it before fulfillment.
           </p>
         </section>
 
@@ -213,11 +266,15 @@ export default function BrowsePage() {
                 <div
                   key={lens.coreId}
                   onClick={() => {
-                    if (lens.manufacturer === "COOPERVISION") {
-                      setComingSoonBrand("CooperVision");
-                    } else {
-                      setSelectedLens(lens);
-                    }
+                    track(POSTHOG_EVENTS.VIEWED_PRODUCT, {
+                      core_id: lens.coreId,
+                      manufacturer: lens.manufacturer,
+                      lens_name: lens.displayName,
+                      source: "browse_grid",
+                      lowest_price_cents: lowest ?? null,
+                    });
+
+                    setSelectedLens(lens);
                   }}
                   style={{
                     position: "relative",
@@ -233,12 +290,18 @@ export default function BrowsePage() {
                 >
                   <div
                     style={{
-                      width: 140,
-                      height: 90,
+                      width: 172,
+                      height: 116,
+                      padding: 8,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
                       flexShrink: 0,
+                      borderRadius: 10,
+                      border: "1px solid rgba(255,255,255,0.06)",
+                      background:
+                        "linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018))",
+                      overflow: "hidden",
                     }}
                   >
                     <LensImage coreId={lens.coreId} />
@@ -250,12 +313,10 @@ export default function BrowsePage() {
                     <div style={{ fontSize: ".9rem", opacity: 0.75 }}>
                       {lowest ? `from $${(lowest / 100).toFixed(2)} / box` : ""}
                     </div>
-                    {lens.manufacturer === "COOPERVISION" && (
-                      <>
-                        <div className="cv-ribbon">Coming Soon</div>
-                        <div className="cv-ribbon cv-ribbon-2">Notify me</div>
-                      </>
-                    )}
+
+                    <div style={{ fontSize: ".82rem", opacity: 0.65 }}>
+                      {replacementLabel(lens.replacement)}
+                    </div>
                   </div>
                 </div>
               );
@@ -268,13 +329,6 @@ export default function BrowsePage() {
             lens={selectedLens}
             onClose={() => setSelectedLens(null)}
             onSelect={assignLens}
-          />
-        )}
-
-        {comingSoonBrand && (
-          <ComingSoonOverlay
-            brand={comingSoonBrand}
-            onClose={() => setComingSoonBrand(null)}
           />
         )}
 
@@ -356,8 +410,6 @@ function LensModal({
   const skus = getLensSkus(lens);
   const [selectedSku, setSelectedSku] = useState(skus[0]);
 
-  const isCooperVision = lens.manufacturer === "COOPERVISION";
-
   return (
     <div
       style={{
@@ -386,27 +438,30 @@ function LensModal({
             "0 25px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)",
         }}
       >
-        {isCooperVision && (
-          <ComingSoonOverlay brand="CooperVision" inline onClose={onClose} />
-        )}
         {/* IMAGE */}
         <div
           style={{
-            height: 120,
+            height: 190,
+            padding: "1rem",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            marginBottom: "1rem",
+            marginBottom: "1.25rem",
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,0.06)",
+            background:
+              "linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018))",
+            overflow: "hidden",
           }}
         >
-          <LensImage coreId={lens.coreId} />
+          <LensImage coreId={lens.coreId} variant="modal" />
         </div>
 
         {/* TITLE */}
         <h2 style={{ marginBottom: ".5rem" }}>{lens.displayName}</h2>
 
         <p style={{ opacity: 0.7, marginBottom: "1rem" }}>
-          {lens.manufacturer}
+          {lens.manufacturer} - {replacementLabel(lens.replacement)}
         </p>
 
         {/* PACK SIZE */}
@@ -462,6 +517,12 @@ function LensModal({
           )}
         </div>
 
+        <p style={{ opacity: 0.72, fontSize: ".85rem", marginTop: ".75rem" }}>
+          Pack size affects how long each box lasts. Your cart will calculate
+          quantity and annual-supply options after your prescription expiration
+          date is reviewed.
+        </p>
+
         {/* DIVIDER */}
         <div
           style={{
@@ -473,7 +534,6 @@ function LensModal({
 
         {/* PRIMARY CTA */}
         <button
-          disabled={isCooperVision}
           className="primary-btn"
           style={{
             width: "100%",
@@ -497,7 +557,6 @@ function LensModal({
           }}
         >
           <button
-            disabled={isCooperVision}
             className="primary-btn"
             style={{
               padding: ".45rem .6rem",
@@ -511,7 +570,6 @@ function LensModal({
           </button>
 
           <button
-            disabled={isCooperVision}
             className="primary-btn"
             style={{
               padding: ".45rem .6rem",

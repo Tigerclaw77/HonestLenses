@@ -7,6 +7,8 @@
  * - No RX logic
  * - No quantity logic
  * - No pricing explanations
+ *
+ * Cost basis: Alcon Contact Lens Product Pricing, effective Jan 1, 2026.
  */
 
 type PriceEntry = {
@@ -18,11 +20,11 @@ export const ALCON_PRICING = {
   // DAILIES TOTAL1
   // =========================
   DT1_30: { price_per_box_cents: 4199 },
-  DT1_90: { price_per_box_cents: 9999 },
+  DT1_90: { price_per_box_cents: 10499 },
   DT1_AST_30: { price_per_box_cents: 4899 },
-  DT1_AST_90: { price_per_box_cents: 11899 },
+  DT1_AST_90: { price_per_box_cents: 12499 },
   DT1_MF_30: { price_per_box_cents: 5599 },
-  DT1_MF_90: { price_per_box_cents: 12899 },
+  DT1_MF_90: { price_per_box_cents: 13499 },
 
   // =========================
   // TOTAL30 (Monthly, 6-pack)
@@ -35,7 +37,7 @@ export const ALCON_PRICING = {
   // =========================
   // Precision1
   // =========================
-  PRECISION1_30: { price_per_box_cents: 3099 },
+  PRECISION1_30: { price_per_box_cents: 3299 },
   PRECISION1_90: { price_per_box_cents: 6999 },
   PRECISION1_AST_30: { price_per_box_cents: 3999 },
   PRECISION1_AST_90: { price_per_box_cents: 8999 },
@@ -53,10 +55,10 @@ export const ALCON_PRICING = {
   // =========================
   AO_HG_6: { price_per_box_cents: 5999 },
   AO_HG_AST_6: { price_per_box_cents: 7699 },
-  AO_HG_MF_6: { price_per_box_cents: 9999 },
+  AO_HG_MF_6: { price_per_box_cents: 10999 },
   AO_ND_6: { price_per_box_cents: 10399 },
   AO_COL_2: { price_per_box_cents: 4599 },
-  AO_COL_6: { price_per_box_cents: 10899 },
+  AO_COL_6: { price_per_box_cents: 11999 },
 
   // =========================
   // Dailies AquaComfort Plus
@@ -72,7 +74,7 @@ export const ALCON_PRICING = {
   // Dailies Colors
   // =========================
   DAILIES_COL_30: { price_per_box_cents: 3799 },
-  DAILIES_COL_90: { price_per_box_cents: 7799 },
+  DAILIES_COL_90: { price_per_box_cents: 8499 },
 } as const satisfies Record<string, PriceEntry>;
 
 /**

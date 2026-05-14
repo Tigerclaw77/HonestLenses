@@ -3,6 +3,8 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
+import { POSTHOG_EVENTS } from "../../../../lib/posthog/events";
+import { captureServerException } from "../../../../lib/posthog/server";
 
 type Body = {
   patient_first_name: string;
@@ -32,6 +34,9 @@ function isNonEmpty(s: unknown): s is string {
 }
 
 export async function POST(req: Request) {
+  let userId: string | null = null;
+  let orderIdForTelemetry: string | null = null;
+
   try {
     /* =========================
        1️⃣ Auth
@@ -40,6 +45,8 @@ export async function POST(req: Request) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    userId = user.id;
 
     /* =========================
        2️⃣ Parse body
@@ -122,6 +129,7 @@ export async function POST(req: Request) {
       );
     }
 
+    orderIdForTelemetry = order.id;
     const nowIso = new Date().toISOString();
 
     /* =========================
@@ -181,6 +189,18 @@ export async function POST(req: Request) {
     const sendBody = await sendRes.json().catch(() => ({}));
 
     if (!sendRes.ok) {
+      await captureServerException({
+        event: POSTHOG_EVENTS.API_ROUTE_FAILED,
+        error: new Error(sendBody?.error || "Verification send failed"),
+        distinctId: user.id,
+        request: req,
+        properties: {
+          route: "/api/verification/details",
+          downstream_route: "/api/verification/send",
+          order_id: order.id,
+        },
+      });
+
       return NextResponse.json(
         { error: sendBody?.error || "Verification send failed" },
         { status: 500 },
@@ -192,6 +212,17 @@ export async function POST(req: Request) {
       passive_deadline_at: sendBody?.passive_deadline_at,
     });
   } catch (err: unknown) {
+    await captureServerException({
+      event: POSTHOG_EVENTS.API_ROUTE_FAILED,
+      error: err,
+      distinctId: userId,
+      request: req,
+      properties: {
+        route: "/api/verification/details",
+        order_id: orderIdForTelemetry,
+      },
+    });
+
     return NextResponse.json(
       {
         error: err instanceof Error ? err.message : "Unexpected server error",

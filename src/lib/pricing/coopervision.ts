@@ -8,6 +8,10 @@
  * - No quantity logic
  * - No pricing explanations
  * - MiSight intentionally excluded (specialty / myopia control)
+ *
+ * Cost basis: Nassau OOGP Advantage SCL price list, effective Apr 1, 2026.
+ * Honest Lenses does not currently have direct CooperVision account pricing,
+ * so these retail prices must stay above Nassau acquisition cost.
  */
 
 type PriceEntry = {
@@ -18,60 +22,60 @@ export const COOPERVISION_PRICING = {
   // =========================
   // Clariti 1 Day
   // =========================
-  CLARITI_1D_30: { price_per_box_cents: 2275 },
-  CLARITI_1D_90: { price_per_box_cents: 4775 },
-  CLARITI_1D_MF_30: { price_per_box_cents: 3300 },
-  CLARITI_1D_MF_90: { price_per_box_cents: 7375 },
-  CLARITI_1D_AST_30: { price_per_box_cents: 3025 },
-  CLARITI_1D_AST_90: { price_per_box_cents: 6700 },
+  CLARITI_1D_30: { price_per_box_cents: 3999 },
+  CLARITI_1D_90: { price_per_box_cents: 7999 },
+  CLARITI_1D_MF_30: { price_per_box_cents: 6999 },
+  CLARITI_1D_MF_90: { price_per_box_cents: 13999 },
+  CLARITI_1D_AST_30: { price_per_box_cents: 5499 },
+  CLARITI_1D_AST_90: { price_per_box_cents: 10999 },
 
   // =========================
   // MyDay
   // =========================
-  MYDAY_90: { price_per_box_cents: 6275 },
-  MYDAY_180: { price_per_box_cents: 11300 },
-  MYDAY_ENG_90: { price_per_box_cents: 7200 },
-  MYDAY_AST_90: { price_per_box_cents: 8175 },
-  MYDAY_MF_90: { price_per_box_cents: 9500 },
+  MYDAY_90: { price_per_box_cents: 10499 },
+  MYDAY_180: { price_per_box_cents: 18499 },
+  MYDAY_ENG_90: { price_per_box_cents: 12499 },
+  MYDAY_AST_90: { price_per_box_cents: 13999 },
+  MYDAY_MF_90: { price_per_box_cents: 15999 },
 
   // =========================
   // Proclear Daily
   // =========================
-  PROCLEAR_1D_90: { price_per_box_cents: 5575 },
-  PROCLEAR_1D_MF_90: { price_per_box_cents: 7925 },
+  PROCLEAR_1D_90: { price_per_box_cents: 9999 },
+  PROCLEAR_1D_MF_90: { price_per_box_cents: 13999 },
 
   // =========================
   // Avaira Vitality
   // =========================
-  AVAIRA_VIT_6: { price_per_box_cents: 2625 },
-  AVAIRA_VIT_AST_6: { price_per_box_cents: 3075 },
+  AVAIRA_VIT_6: { price_per_box_cents: 4699 },
+  AVAIRA_VIT_AST_6: { price_per_box_cents: 5499 },
 
   // =========================
   // Biofinity
   // =========================
-  BIOFINITY_6: { price_per_box_cents: 3600 },
-  BIOFINITY_ENG_6: { price_per_box_cents: 3750 },
-  BIOFINITY_XR_6: { price_per_box_cents: 3600 },
-  BIOFINITY_AST_6: { price_per_box_cents: 4725 },
-  BIOFINITY_XR_AST_6: { price_per_box_cents: 8950 },
-  BIOFINITY_MF_6: { price_per_box_cents: 6350 },
-  BIOFINITY_AST_MF_6: { price_per_box_cents: 9650 },
+  BIOFINITY_6: { price_per_box_cents: 5999 },
+  BIOFINITY_ENG_6: { price_per_box_cents: 6499 },
+  BIOFINITY_XR_6: { price_per_box_cents: 6499 },
+  BIOFINITY_AST_6: { price_per_box_cents: 7999 },
+  BIOFINITY_XR_AST_6: { price_per_box_cents: 14499 },
+  BIOFINITY_MF_6: { price_per_box_cents: 10499 },
+  BIOFINITY_AST_MF_6: { price_per_box_cents: 14999 },
 
   // =========================
   // Biomedics
   // =========================
-  BIOMEDICS_6: { price_per_box_cents: 3075 },
-  BIOMEDICS_AST_6: { price_per_box_cents: 3575 },
+  BIOMEDICS_6: { price_per_box_cents: 5999 },
+  BIOMEDICS_AST_6: { price_per_box_cents: 6999 },
 
   // =========================
   // Proclear Monthly
   // =========================
-  PROCLEAR_6: { price_per_box_cents: 4450 },
-  PROCLEAR_AST_6: { price_per_box_cents: 5550 },
-  PROCLEAR_XR_AST_6: { price_per_box_cents: 10100 },
-  PROCLEAR_MF_6: { price_per_box_cents: 6450 },
-  PROCLEAR_XR_MF_6: { price_per_box_cents: 10275 },
-  PROCLEAR_AST_MF_6: { price_per_box_cents: 12200 },
+  PROCLEAR_6: { price_per_box_cents: 7999 },
+  PROCLEAR_AST_6: { price_per_box_cents: 9999 },
+  PROCLEAR_XR_AST_6: { price_per_box_cents: 16999 },
+  PROCLEAR_MF_6: { price_per_box_cents: 11499 },
+  PROCLEAR_XR_MF_6: { price_per_box_cents: 17499 },
+  PROCLEAR_AST_MF_6: { price_per_box_cents: 19999 },
 } as const satisfies Record<string, PriceEntry>;
 
 /**
