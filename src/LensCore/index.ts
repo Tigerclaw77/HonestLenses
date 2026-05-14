@@ -13,6 +13,8 @@ import type { RxPayload, LensCore } from "./types";
 ========================= */
 
 export type { RxPayload, LensCore };
+export { resolveParameterOption } from "./helpers/resolveParameterOption";
+export { resolveLensRxState } from "./resolveRx";
 
 /* =========================
    Public Data (Read-Only)

@@ -4,7 +4,12 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 import { resolveDefaultSku } from "../../../../../lib/pricing/resolveDefaultSku";
-import { lenses, validate as validateLensParams } from "@/LensCore";
+import {
+  lenses,
+  resolveLensRxState,
+  resolveParameterOption,
+  validate as validateLensParams,
+} from "@/LensCore";
 import { getColorOptions } from "../../../../../data/lensColors";
 
 /* =========================
@@ -51,26 +56,30 @@ type SanitizedEyeResult = {
   errors: string[];
 };
 
-function autoResolveSingleGeometry(
+function applyResolvedParameters(
   eye: EyeRx,
   lens: (typeof lenses)[number],
 ): EyeRx {
   const clean: EyeRx = { ...eye };
+  const resolved = resolveLensRxState(lens, {
+    sphere: clean.sphere,
+    cylinder: clean.cylinder ?? null,
+    axis: clean.axis ?? null,
+    add: clean.add ?? null,
+    baseCurve: clean.base_curve ?? null,
+    diameter: clean.diameter ?? null,
+  });
 
-  if (
-    clean.base_curve == null &&
-    lens.parameters.baseCurve &&
-    lens.parameters.baseCurve.length === 1
-  ) {
-    clean.base_curve = lens.parameters.baseCurve[0];
+  if (resolved.baseCurve.value != null) clean.base_curve = resolved.baseCurve.value;
+  if (resolved.diameter.value != null) clean.diameter = resolved.diameter.value;
+
+  if (lens.type.toric) {
+    if (resolved.cylinder.value != null) clean.cylinder = resolved.cylinder.value;
+    if (resolved.axis.value != null) clean.axis = resolved.axis.value;
   }
 
-  if (
-    clean.diameter == null &&
-    lens.parameters.diameter &&
-    lens.parameters.diameter.length === 1
-  ) {
-    clean.diameter = lens.parameters.diameter[0];
+  if (lens.type.multifocal && resolved.add.value != null) {
+    clean.add = resolved.add.value;
   }
 
   return clean;
@@ -92,13 +101,18 @@ function sanitizeAndValidateEyeRx(
   }
 
   const allowedColors = getColorOptions(lens.displayName);
-
-  const clean = autoResolveSingleGeometry(eye, lens);
+  const clean = applyResolvedParameters(eye, lens);
+  const errors: string[] = [];
+  const colorState = resolveParameterOption(clean.color ?? null, allowedColors);
 
   if (!allowedColors.length) {
     delete clean.color;
-  } else if (clean.color && !allowedColors.includes(clean.color)) {
-    delete clean.color;
+  } else if (colorState.required) {
+    errors.push("Color is required for this lens.");
+  } else if (colorState.invalid) {
+    errors.push("Invalid color for this lens.");
+  } else if (colorState.value != null) {
+    clean.color = colorState.value;
   }
 
   const validation = validateLensParams(lens.coreId, {
@@ -112,7 +126,7 @@ function sanitizeAndValidateEyeRx(
 
   return {
     eye: clean,
-    errors: validation.errors,
+    errors: [...validation.errors, ...errors],
   };
 }
 
