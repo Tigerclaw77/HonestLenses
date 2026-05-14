@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { POSTHOG_EVENTS, track } from "@/lib/posthog/client";
 
 type SuccessMode = "uploaded" | "passive" | "unknown";
 
@@ -21,13 +22,21 @@ export default function CheckoutSuccessPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
+  const mode = parseMode(searchParams.get("mode"));
+  const deadlineRaw = searchParams.get("deadline");
+  const deadlineDate = parseDeadline(deadlineRaw);
+  const orderId = searchParams.get("orderId");
+
   useEffect(() => {
     localStorage.removeItem("rx_upload_order_id");
-  }, []);
 
-  const mode = parseMode(searchParams.get("mode"));
-  const deadlineDate = parseDeadline(searchParams.get("deadline"));
-  const orderId = searchParams.get("orderId");
+    track(POSTHOG_EVENTS.ORDER_SUCCESS_VIEWED, {
+      order_id: orderId,
+      verification_mode: mode,
+      has_passive_deadline: Boolean(deadlineRaw),
+      source: "checkout_success_page",
+    });
+  }, [deadlineRaw, mode, orderId]);
 
   const isUploaded = mode === "uploaded";
   const isPassive = mode === "passive";

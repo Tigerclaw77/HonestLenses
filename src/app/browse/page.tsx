@@ -16,6 +16,7 @@ import { getLowestPrice } from "@/lib/pricing/getLowestPrice";
 import { getPopularityRank } from "@/data/lensPopularityTiers";
 
 import { POSTHOG_EVENTS, track } from "@/lib/posthog/client";
+import { getLensAnalyticsProperties } from "@/lib/posthog/lensMetadata";
 
 type LensSelection = {
   right?: string;
@@ -49,7 +50,18 @@ function LensImage({
   const size = LENS_IMAGE_SIZES[variant];
 
   function handleError() {
-    setIndex((prev) => (prev < sources.length - 1 ? prev + 1 : prev));
+    setIndex((prev) => {
+      const next = prev < sources.length - 1 ? prev + 1 : prev;
+
+      if (next === sources.length - 1 && prev !== next) {
+        track(POSTHOG_EVENTS.PRODUCT_IMAGE_MISSING, {
+          core_id: coreId,
+          source: `browse_${variant}`,
+        });
+      }
+
+      return next;
+    });
   }
 
   return (
@@ -151,6 +163,9 @@ export default function BrowsePage() {
         query,
         result_count: filtered.length,
         manufacturer_filter: manufacturerFilter,
+        source: "browse_search",
+        query_length: query.length,
+        has_results: filtered.length > 0,
       });
     }, 500);
 
@@ -266,13 +281,14 @@ export default function BrowsePage() {
                 <div
                   key={lens.coreId}
                   onClick={() => {
-                    track(POSTHOG_EVENTS.VIEWED_PRODUCT, {
-                      core_id: lens.coreId,
-                      manufacturer: lens.manufacturer,
-                      lens_name: lens.displayName,
-                      source: "browse_grid",
-                      lowest_price_cents: lowest ?? null,
-                    });
+                    track(
+                      POSTHOG_EVENTS.PRODUCT_MODAL_OPENED,
+                      getLensAnalyticsProperties(lens, {
+                        source: "browse_grid",
+                        lowestPriceCents: lowest ?? null,
+                        skus,
+                      }),
+                    );
 
                     setSelectedLens(lens);
                   }}

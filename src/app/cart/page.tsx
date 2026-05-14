@@ -21,6 +21,7 @@ import {
   markStepStart,
   track,
 } from "@/lib/posthog/client";
+import { getCartLensAnalyticsProperties } from "@/lib/posthog/lensMetadata";
 
 const DEV_MODE =
   process.env.NODE_ENV === "development" && process.env.VERCEL !== "1";
@@ -105,12 +106,14 @@ export default function CartPage() {
             ? POSTHOG_EVENTS.REMOVED_FROM_CART
             : POSTHOG_EVENTS.CART_QUANTITY_CHANGED,
           {
+            ...getCartLensAnalyticsProperties(updated),
             order_id: updated.id,
-            manufacturer: updated.manufacturer ?? null,
+            source: "cart_quantity_control",
             right_box_count: nextRight,
             left_box_count: nextLeft,
             previous_total_boxes: previousTotalBoxes,
             total_boxes: nextRight + nextLeft,
+            cart_value_cents: updated.total_amount_cents ?? null,
             total_cart_value_cents: updated.total_amount_cents ?? null,
             shipping_cents: updated.shipping_cents ?? null,
             supply_duration_months: deriveTotalMonths({
@@ -410,12 +413,14 @@ export default function CartPage() {
               if (syncingQty) return;
               markStepStart(`checkout_duration:${cart.id}`);
               track(POSTHOG_EVENTS.CHECKOUT_STARTED, {
+                ...getCartLensAnalyticsProperties(cart),
                 order_id: cart.id,
                 source: "cart",
-                manufacturer: cart.manufacturer ?? null,
+                cart_value_cents: previewTotal,
                 total_cart_value_cents: previewTotal,
                 shipping_cents: previewShipping,
                 supply_duration_months: totalMonths,
+                estimated_annual_supply: totalMonths >= 12,
               });
               router.push("/shipping");
             }}

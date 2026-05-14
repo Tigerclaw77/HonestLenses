@@ -1,5 +1,7 @@
 export const POSTHOG_EVENTS = {
   VIEWED_PRODUCT: "viewed_product",
+  PRODUCT_MODAL_OPENED: "product_modal_opened",
+  PRODUCT_IMAGE_MISSING: "product_image_missing",
   VIEWED_BRAND: "viewed_brand",
   SEARCHED_LENS: "searched_lens",
 
@@ -13,8 +15,10 @@ export const POSTHOG_EVENTS = {
   RX_UPLOAD_COMPLETED: "rx_upload_completed",
   DOCTOR_INFO_ENTERED: "doctor_info_entered",
   PAYMENT_STARTED: "payment_started",
+  PAYMENT_AUTHORIZED: "payment_authorized",
   PAYMENT_SUCCEEDED: "payment_succeeded",
   PAYMENT_FAILED: "payment_failed",
+  ORDER_SUCCESS_VIEWED: "order_success_viewed",
 
   OCR_FAILED: "OCR_failed",
   VALIDATION_ERROR: "validation_error",
@@ -58,7 +62,15 @@ const SENSITIVE_KEY_PATTERNS = [
   /base_curve/i,
 ];
 
+const NON_SENSITIVE_KEY_ALLOWLIST = new Set([
+  "lens_name",
+  "product_name",
+  "display_name",
+  "manufacturer_name",
+]);
+
 export function isSensitiveAnalyticsKey(key: string): boolean {
+  if (NON_SENSITIVE_KEY_ALLOWLIST.has(key)) return false;
   if (key.startsWith("has_")) return false;
   return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
 }

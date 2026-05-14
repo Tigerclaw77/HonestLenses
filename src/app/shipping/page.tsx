@@ -163,6 +163,7 @@ export default function ShippingPage() {
         step: "shipping",
         reason: v,
         order_id: order.id,
+        order_status: order.status,
       });
       return;
     }
@@ -192,6 +193,8 @@ export default function ShippingPage() {
     track(POSTHOG_EVENTS.CHECKOUT_STEP_TIMED, {
       step: "shipping",
       order_id: order.id,
+      order_status: order.status,
+      has_shipping_phone: Boolean(form.shipping_phone.trim()),
       duration_ms: consumeStepDurationMs(`shipping:${order.id}`),
     });
 

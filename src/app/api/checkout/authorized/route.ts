@@ -5,6 +5,8 @@ import Stripe from "stripe";
 import { sendEmail } from "../../../../lib/email";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
+import { POSTHOG_EVENTS } from "@/lib/posthog/events";
+import { captureServerEvent } from "@/lib/posthog/server";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -185,6 +187,31 @@ export async function POST(req: Request) {
 
   /* =========================
      7️⃣ Email Admin
+  ========================= */
+
+  await captureServerEvent({
+    event: POSTHOG_EVENTS.PAYMENT_AUTHORIZED,
+    distinctId: user.id,
+    request: req,
+    properties: {
+      order_id: orderId,
+      order_status_before: orderStatus,
+      order_status_after: isUploaded ? "captured" : "authorized",
+      verification_mode: isUploaded ? "uploaded" : "passive",
+      order_value_cents:
+        typeof orderRaw.total_amount_cents === "number"
+          ? orderRaw.total_amount_cents
+          : null,
+      has_uploaded_rx: isUploaded,
+      has_payment_intent: true,
+      stripe_intent_status: intent.status,
+      captured_immediately: isUploaded,
+      next_step: isUploaded ? "success" : "verification-details",
+    },
+  });
+
+  /* =========================
+     Email Admin
   ========================= */
 
   try {

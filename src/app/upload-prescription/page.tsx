@@ -13,6 +13,7 @@ import {
   markStepStart,
   track,
 } from "@/lib/posthog/client";
+import { getLensAnalyticsPropertiesByCoreId } from "@/lib/posthog/lensMetadata";
 
 const LS_ORDER_ID = "rx_upload_order_id";
 
@@ -47,6 +48,17 @@ function UploadPrescriptionContent() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function selectedLensAnalytics(source: string) {
+    return {
+      ...getLensAnalyticsPropertiesByCoreId(rightLens ?? leftLens, { source }),
+      right_core_id: rightLens,
+      left_core_id: leftLens,
+      has_mixed_lenses: Boolean(
+        rightLens && leftLens && rightLens !== leftLens,
+      ),
+    };
+  }
 
   function validateFile(selected: File): string | null {
     const allowedTypes = [
@@ -87,10 +99,11 @@ function UploadPrescriptionContent() {
     setFile(selected);
     markStepStart("rx_upload");
     track(POSTHOG_EVENTS.RX_METHOD_SELECTED, {
+      ...selectedLensAnalytics("upload_prescription"),
       verification_mode: "upload",
-      source: "upload_prescription",
     });
     track(POSTHOG_EVENTS.RX_UPLOAD_STARTED, {
+      ...selectedLensAnalytics("upload_prescription"),
       file_type: selected.type || "unknown",
       file_size_bytes: selected.size,
     });
@@ -168,6 +181,7 @@ function UploadPrescriptionContent() {
 
       if (!ocrRes.ok) {
         track(POSTHOG_EVENTS.OCR_FAILED, {
+          ...selectedLensAnalytics("rx_ocr"),
           order_id: orderId,
           reason: ocrBody.error ?? "Upload failed",
           upload_duration_ms: uploadDurationMs,
@@ -177,6 +191,7 @@ function UploadPrescriptionContent() {
 
       if (ocrBody.usable === false) {
         track(POSTHOG_EVENTS.OCR_FAILED, {
+          ...selectedLensAnalytics("rx_ocr"),
           order_id: orderId,
           reason: "ocr_not_usable",
           confidence: ocrBody.confidence ?? null,
@@ -185,6 +200,7 @@ function UploadPrescriptionContent() {
       }
 
       track(POSTHOG_EVENTS.RX_UPLOAD_COMPLETED, {
+        ...selectedLensAnalytics("rx_upload_completed"),
         order_id: orderId,
         file_type: file.type || "unknown",
         file_size_bytes: file.size,
@@ -350,8 +366,8 @@ function UploadPrescriptionContent() {
                 className="primary-btn"
                 onClick={() => {
                   track(POSTHOG_EVENTS.RX_METHOD_SELECTED, {
+                    ...selectedLensAnalytics("upload_prescription"),
                     verification_mode: "manual",
-                    source: "upload_prescription",
                   });
                 }}
                 style={{

@@ -41,8 +41,6 @@ export default async function LensPage({ params }: Props) {
     <div style={{ padding: 40, maxWidth: 900, lineHeight: 1.6 }}>
       <ProductTelemetry
         coreId={lens.coreId}
-        manufacturer={lens.manufacturer}
-        displayName={lens.displayName}
         source="product_page"
       />
 

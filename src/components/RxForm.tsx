@@ -22,6 +22,7 @@ import {
   captureClientException,
   track,
 } from "@/lib/posthog/client";
+import { getLensAnalyticsPropertiesByCoreId } from "@/lib/posthog/lensMetadata";
 
 import {
   formatBC,
@@ -922,10 +923,20 @@ export default function RxForm({
       }
 
       track(POSTHOG_EVENTS.ADDED_TO_CART, {
+        ...getLensAnalyticsPropertiesByCoreId(
+          rx.right?.coreId ?? rx.left?.coreId,
+          { source: "rx_form_submit" },
+        ),
         order_id: finalOrderId,
         verification_mode: mode,
         right_core_id: rx.right?.coreId ?? null,
         left_core_id: rx.left?.coreId ?? null,
+        has_mixed_lenses: Boolean(
+          rx.right?.coreId &&
+            rx.left?.coreId &&
+            rx.right.coreId !== rx.left.coreId,
+        ),
+        has_unlisted_lens: requiresReview,
         verification_status: verificationStatus,
         requires_review: requiresReview,
       });

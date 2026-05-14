@@ -21,3 +21,20 @@ Privacy notes:
 - Sensitive analytics keys such as email, phone, address, DOB, patient,
   prescriber, doctor, and Rx fields are redacted before capture.
 - User stitching identifies by Supabase user ID and email domain only.
+- Product/catalog metadata such as lens name, coreId, manufacturer, replacement
+  schedule, and modality flags is intentionally allowed because it is not PHI
+  and is needed for operational funnel reporting.
+
+Operational dashboard foundations:
+
+- Browse interest: `viewed_product`, `product_modal_opened`,
+  `searched_lens`, `viewed_brand`.
+- Cart funnel: `added_to_cart`, `cart_quantity_changed`,
+  `removed_from_cart`, `checkout_started`.
+- Checkout funnel: `checkout_step_timed`, `payment_started`,
+  `payment_authorized`, `payment_succeeded`, `payment_failed`,
+  `order_success_viewed`.
+- Verification funnel: `rx_method_selected`, `rx_upload_started`,
+  `rx_upload_completed`, `doctor_info_entered`, `OCR_failed`.
+- Recovery operations: `abandoned_checkout`, `abandoned_checkout_detected`,
+  `abandoned_checkout_archived`, `recovery_email_drafted`.
