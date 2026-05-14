@@ -8,19 +8,35 @@ import {
   type AnalyticsProperties,
   type PostHogEventName,
 } from "./events";
+import { getPublicPostHogConfig } from "./config";
 
 export { POSTHOG_EVENTS };
 export type { AnalyticsProperties, PostHogEventName };
 
 const TIMING_PREFIX = "hl_timing:";
 const RETRY_PREFIX = "hl_retry:";
+const posthogConfig = getPublicPostHogConfig();
 
 function isBrowser() {
   return typeof window !== "undefined";
 }
 
 export function isPostHogConfigured(): boolean {
-  return Boolean(process.env.NEXT_PUBLIC_POSTHOG_KEY);
+  return posthogConfig.enabled;
+}
+
+export function isPostHogReady(): boolean {
+  return isBrowser() && posthogConfig.enabled && posthog.__loaded;
+}
+
+export function getPostHogClientStatus() {
+  return {
+    configured: posthogConfig.enabled,
+    loaded: isBrowser() ? posthog.__loaded : false,
+    host: posthogConfig.host,
+    replay_enabled: posthogConfig.replayEnabled,
+    capture_exceptions_enabled: posthogConfig.captureExceptionsEnabled,
+  };
 }
 
 export function getDeviceType():
@@ -40,7 +56,7 @@ export function track(
   event: PostHogEventName,
   properties: AnalyticsProperties = {},
 ) {
-  if (!isBrowser() || !isPostHogConfigured() || !posthog.__loaded) return;
+  if (!isPostHogReady()) return;
 
   posthog.capture(event, {
     ...sanitizeAnalyticsProperties(properties),
@@ -53,7 +69,7 @@ export function identifyPostHogUser(user: {
   id: string;
   email?: string | null;
 }) {
-  if (!isBrowser() || !isPostHogConfigured() || !posthog.__loaded) return;
+  if (!isPostHogReady()) return;
 
   const emailDomain = user.email?.split("@")[1]?.toLowerCase() ?? null;
 
@@ -65,7 +81,7 @@ export function identifyPostHogUser(user: {
 }
 
 export function resetPostHogUser() {
-  if (!isBrowser() || !isPostHogConfigured() || !posthog.__loaded) return;
+  if (!isPostHogReady()) return;
 
   posthog.reset();
   posthog.register({ auth_state: "anonymous" });
@@ -75,7 +91,7 @@ export function captureClientException(
   error: unknown,
   properties: AnalyticsProperties = {},
 ) {
-  if (!isBrowser() || !isPostHogConfigured() || !posthog.__loaded) return;
+  if (!isPostHogReady()) return;
 
   const safeProperties = sanitizeAnalyticsProperties({
     ...properties,

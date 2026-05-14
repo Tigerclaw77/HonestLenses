@@ -8,6 +8,7 @@ import { getSkuBoxDurationMonths } from "../../../../lib/pricing/skuDefaults";
 import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
 import { deriveTotalBoxes, deriveTotalMonths } from "../../../../lib/shipping";
 import { resolveShipping } from "../../../../lib/shipping/resolveShipping";
+import { validate as validateLensParams } from "@/LensCore";
 import { POSTHOG_EVENTS } from "../../../../lib/posthog/events";
 import {
   captureServerEvent,
@@ -54,6 +55,9 @@ type EyeRx = {
   sphere?: number;
   cylinder?: number | null;
   axis?: number | null;
+  add?: string | null;
+  base_curve?: number | null;
+  diameter?: number | null;
 };
 
 type RxData = {
@@ -121,6 +125,21 @@ function isResolveBody(value: unknown): value is ResolveBody {
     return false;
 
   return true;
+}
+
+function validateResolvedEyeRx(eye: EyeRx | undefined): string[] {
+  if (!eye) return [];
+
+  const result = validateLensParams(eye.coreId, {
+    sphere: typeof eye.sphere === "number" ? eye.sphere : Number.NaN,
+    cylinder: eye.cylinder ?? null,
+    axis: eye.axis ?? null,
+    add: eye.add ?? null,
+    baseCurve: eye.base_curve ?? null,
+    diameter: eye.diameter ?? null,
+  });
+
+  return result.errors;
 }
 
 /* =========================
@@ -249,6 +268,20 @@ export async function POST(req: Request) {
   }
 
   const rx = order.rx;
+  const rxValidationErrors = [
+    ...validateResolvedEyeRx(rx.right),
+    ...validateResolvedEyeRx(rx.left),
+  ];
+
+  if (rxValidationErrors.length > 0) {
+    return NextResponse.json(
+      {
+        error: "Invalid prescription parameters.",
+        details: rxValidationErrors,
+      },
+      { status: 400 },
+    );
+  }
 
   /* =========================
    AUTO VERIFICATION GATE

@@ -560,8 +560,8 @@ function CheckoutInner() {
             </p>
 
             <p style={{ marginTop: 8, fontSize: 13, color: "#475569" }}>
-              Shipping timing begins after verification. Some lenses may ship
-              from authorized manufacturer or distributor channels.
+              Shipping follows the cart estimate: annual supplies ship free;
+              smaller supplies ship for $14.
             </p>
           </div>
 

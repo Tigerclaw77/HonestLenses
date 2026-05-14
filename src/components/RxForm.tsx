@@ -101,6 +101,18 @@ type Props = {
 const LS_RX_DRAFT = "hl_rx_draft_v1";
 const NOT_LISTED_VALUE = "__NOT_LISTED__";
 
+function parseRxNumber(value: string): number | null {
+  if (!value) return null;
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function includesOption(options: readonly number[], value: string): boolean {
+  const parsed = parseRxNumber(value);
+  return parsed !== null && options.includes(parsed);
+}
+
 function validateEye(
   d: EyeRxDraft,
   lensObj: LensCore | undefined,
@@ -128,24 +140,59 @@ function validateEye(
   if (!d.coreId || !lensObj) e.lens = true;
   if (!d.sph) e.sph = true;
 
+  const sphere = parseRxNumber(d.sph);
+  const cylinder = parseRxNumber(d.cyl);
+  const axis = parseRxNumber(d.axis);
+  const baseCurve = parseRxNumber(d.bc);
+
+  if (d.sph && lensObj) {
+    const sphereOptions = resolveSphereOptions(
+      lensObj,
+      baseCurve,
+      cylinder,
+      axis,
+      d.add || null,
+    );
+
+    if (sphere === null || !sphereOptions.includes(sphere)) {
+      e.sph = true;
+    }
+  }
+
   if (lensObj?.type.toric) {
     if (!d.cyl) e.cyl = true;
     if (!d.axis) e.axis = true;
+
+    const cylinderOptions = resolveCylinderOptions(lensObj, axis, sphere);
+    if (d.cyl && !includesOption(cylinderOptions, d.cyl)) e.cyl = true;
+
+    const axisOptions = resolveAxisOptions(lensObj, cylinder, sphere);
+    if (d.axis && !includesOption(axisOptions, d.axis)) e.axis = true;
+  } else {
+    if (d.cyl) e.cyl = true;
+    if (d.axis) e.axis = true;
   }
 
   if (lensObj?.type.multifocal) {
     const opts = resolveAddOptions(
       lensObj,
-      d.bc ? Number(d.bc) : null,
-      d.sph ? Number(d.sph) : null,
+      baseCurve,
+      sphere,
     );
 
     if (opts.length > 0 && !d.add) e.add = true;
+    if (d.add && !opts.includes(d.add)) e.add = true;
+  } else if (d.add) {
+    e.add = true;
   }
 
   const bcList = lensObj?.parameters.baseCurve;
 
   if (bcList && bcList.length > 1 && !d.bc) {
+    e.bc = true;
+  }
+
+  if (bcList && d.bc && !includesOption(bcList, d.bc)) {
     e.bc = true;
   }
 
@@ -347,6 +394,22 @@ export default function RxForm({
     return isErr ? `${base} rx-error` : base;
   }
 
+  function clearRightLensDependentFields() {
+    setRightCyl("");
+    setRightAxis("");
+    setRightAdd("");
+    setRightBC("");
+    setRightColor("");
+  }
+
+  function clearLeftLensDependentFields() {
+    setLeftCyl("");
+    setLeftAxis("");
+    setLeftAdd("");
+    setLeftBC("");
+    setLeftColor("");
+  }
+
   /* =========================
      Draft application helper
   ========================= */
@@ -378,6 +441,12 @@ export default function RxForm({
   ========================= */
 
   const restoreDraftFromLocalStorage = useCallback(() => {
+    if (initialDraft) {
+      applyDraft(initialDraft);
+      setHydrated(true);
+      return;
+    }
+
     const raw = localStorage.getItem(LS_RX_DRAFT);
 
     if (!raw) {
@@ -402,7 +471,7 @@ export default function RxForm({
     } finally {
       setHydrated(true);
     }
-  }, [applyDraft, initialRightLens, initialLeftLens]);
+  }, [applyDraft, initialDraft, initialRightLens, initialLeftLens]);
 
   useEffect(() => {
     if (mode === "ocr") {
@@ -1151,7 +1220,10 @@ export default function RxForm({
                     if (val === NOT_LISTED_VALUE) {
                       setRightcoreId("");
                       setRightLensNotListed(true);
+                      setRightBC("");
+                      setRightColor("");
                     } else {
+                      if (val !== rightcoreId) clearRightLensDependentFields();
                       setRightcoreId(val);
                       setRightLensNotListed(false);
                     }
@@ -1493,7 +1565,10 @@ export default function RxForm({
                     if (val === NOT_LISTED_VALUE) {
                       setLeftcoreId("");
                       setLeftLensNotListed(true);
+                      setLeftBC("");
+                      setLeftColor("");
                     } else {
+                      if (val !== leftcoreId) clearLeftLensDependentFields();
                       setLeftcoreId(val);
                       setLeftLensNotListed(false);
                     }

@@ -4,10 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npm run check:lenses && next build",
+    "build": "npm run check:lenses && npm run check:validation && next build",
     "start": "next start",
     "lint": "eslint",
-    "check:lenses": "tsx src/LensCore/dev/checkCoreSkuCoverage.ts"
+    "check:lenses": "tsx src/LensCore/dev/checkCoreSkuCoverage.ts",
+    "check:validation": "tsx src/LensCore/dev/checkValidationInvariants.ts"
   },
   "dependencies": {
     "@stripe/react-stripe-js": "^5.6.0",

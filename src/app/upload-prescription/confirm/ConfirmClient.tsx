@@ -142,7 +142,7 @@ export default function ConfirmClient() {
           }
 
           return {
-            coreId: result?.lensId ?? "",
+            coreId,
             sph: toFixedSafe(eye?.sphere),
             cyl: toFixedSafe(eye?.cylinder),
             axis: toStringSafe(eye?.axis),
