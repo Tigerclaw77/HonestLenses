@@ -7,6 +7,9 @@ import { HonestPostHogProvider } from "@/lib/posthog/PostHogProvider";
 export const metadata = {
   title: "Honest Lenses",
   description: "Order contact lenses online. Prescription required.",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+  },
 };
 
 export default function RootLayout({
