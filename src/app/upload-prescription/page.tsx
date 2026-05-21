@@ -40,8 +40,17 @@ function UploadPrescriptionContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const rightLens = searchParams.get("right");
-  const leftLens = searchParams.get("left");
+  const rightLens = searchParams.get("right")?.trim() || null;
+  const leftLens = searchParams.get("left")?.trim() || null;
+  const manualEntryHref = (() => {
+    const params = new URLSearchParams();
+
+    if (rightLens) params.set("right", rightLens);
+    if (leftLens) params.set("left", leftLens);
+
+    const query = params.toString();
+    return query ? `/enter-prescription?${query}` : "/enter-prescription";
+  })();
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -362,7 +371,7 @@ function UploadPrescriptionContent() {
               </p>
 
               <Link
-                href={`/enter-prescription?right=${rightLens ?? ""}&left=${leftLens ?? ""}`}
+                href={manualEntryHref}
                 className="primary-btn"
                 onClick={() => {
                   track(POSTHOG_EVENTS.RX_METHOD_SELECTED, {
