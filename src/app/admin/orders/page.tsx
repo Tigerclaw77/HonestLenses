@@ -828,6 +828,7 @@ export default function AdminOrdersPage() {
 
     return {
       "Content-Type": "application/json",
+      Accept: "application/json",
       ...(session?.access_token
         ? { Authorization: `Bearer ${session.access_token}` }
         : {}),
@@ -999,21 +1000,30 @@ export default function AdminOrdersPage() {
     const res = await fetch("/admin/orders/image-url", {
       method: "POST",
       headers: await authHeaders(),
+      credentials: "same-origin",
       body: JSON.stringify({ path: order.rx_upload_path }),
     });
 
-    const json = (await res.json().catch(() => ({}))) as {
+    const contentType = res.headers.get("content-type") ?? "";
+    const json = (contentType.includes("application/json")
+      ? await res.json().catch(() => ({}))
+      : {
+          error: await res.text().catch(() => ""),
+          code: "non_json_response",
+        }) as {
       url?: string;
       error?: string;
+      code?: string;
     };
 
     if (!res.ok || !json.url) {
+      const reason = [json.error, json.code].filter(Boolean).join(" ");
       setRxImageModal((current) =>
         current?.orderId === order.id
           ? {
               ...current,
               loading: false,
-              error: json.error ?? "Failed to load Rx image.",
+              error: reason || "Failed to load Rx image.",
             }
           : current,
       );
