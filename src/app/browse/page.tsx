@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "../../components/Header";
 import Footer from "../../components/Footer";
@@ -26,6 +26,8 @@ type LensSelection = {
 
 type LensImageVariant = "card" | "modal";
 
+const FALLBACK_LENS_IMAGE_SRC = "/lens-images/placeholder.png";
+
 const LENS_IMAGE_SIZES: Record<
   LensImageVariant,
   { width: number; height: number }
@@ -41,34 +43,56 @@ function LensImage({
   coreId: string;
   variant?: LensImageVariant;
 }) {
-  const sources = [
-    `/lens-images/${coreId}.webp`,
-    `/lens-images/${coreId}.png`,
-    `/lens-images/placeholder.png`,
-  ];
+  const safeCoreId = coreId.trim();
+  const encodedCoreId = encodeURIComponent(safeCoreId);
+  const sources = safeCoreId
+    ? [
+        `/lens-images/${encodedCoreId}.webp`,
+        `/lens-images/${encodedCoreId}.png`,
+        FALLBACK_LENS_IMAGE_SRC,
+      ]
+    : [FALLBACK_LENS_IMAGE_SRC];
 
-  const [index, setIndex] = useState(0);
+  const [fallbackState, setFallbackState] = useState({
+    coreId: safeCoreId,
+    variant,
+    index: 0,
+  });
+  const reportedMissingRef = useRef<Set<string>>(new Set());
+  const stateMatches =
+    fallbackState.coreId === safeCoreId && fallbackState.variant === variant;
+  const activeIndex = stateMatches
+    ? Math.min(fallbackState.index, sources.length - 1)
+    : 0;
   const size = LENS_IMAGE_SIZES[variant];
-  const presentation = getLensImagePresentation(coreId);
+  const presentation = getLensImagePresentation(safeCoreId);
 
   function handleError() {
-    setIndex((prev) => {
-      const next = prev < sources.length - 1 ? prev + 1 : prev;
+    const next =
+      activeIndex < sources.length - 1 ? activeIndex + 1 : activeIndex;
+    const reportKey = `${safeCoreId}:${variant}`;
 
-      if (next === sources.length - 1 && prev !== next) {
-        track(POSTHOG_EVENTS.PRODUCT_IMAGE_MISSING, {
-          core_id: coreId,
-          source: `browse_${variant}`,
-        });
-      }
+    if (
+      safeCoreId &&
+      next === sources.length - 1 &&
+      activeIndex !== next &&
+      !reportedMissingRef.current.has(reportKey)
+    ) {
+      reportedMissingRef.current.add(reportKey);
+      track(POSTHOG_EVENTS.PRODUCT_IMAGE_MISSING, {
+        core_id: safeCoreId,
+        source: `browse_${variant}`,
+      });
+    }
 
-      return next;
-    });
+    if (next !== activeIndex) {
+      setFallbackState({ coreId: safeCoreId, variant, index: next });
+    }
   }
 
   return (
     <img
-      src={sources[index]}
+      src={sources[activeIndex]}
       onError={handleError}
       alt=""
       loading={variant === "modal" ? "eager" : "lazy"}
@@ -97,6 +121,17 @@ function replacementLabel(code: string): string {
   if (code === "2W") return "Two-week replacement";
   if (code === "1M") return "Monthly replacement";
   return `${code} replacement`;
+}
+
+function getPricePerBoxCents(sku: string): number | null {
+  try {
+    return getPrice({
+      sku,
+      box_count: 1,
+    }).price_per_box_cents;
+  } catch {
+    return null;
+  }
 }
 
 export default function BrowsePage() {
@@ -271,9 +306,7 @@ export default function BrowsePage() {
             style={{
               display: "grid",
               gridTemplateColumns:
-                typeof window !== "undefined" && window.innerWidth < 768
-                  ? "1fr"
-                  : "repeat(2, minmax(0, 1fr))",
+                "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
               gap: "1.5rem",
             }}
           >
@@ -428,7 +461,10 @@ function LensModal({
   onSelect: (lensId: string, eye: "right" | "left" | "both") => void;
 }) {
   const skus = getLensSkus(lens);
-  const [selectedSku, setSelectedSku] = useState(skus[0]);
+  const [selectedSku, setSelectedSku] = useState("");
+  const selectedSkuValue = selectedSku && skus.includes(selectedSku)
+    ? selectedSku
+    : (skus[0] ?? "");
 
   return (
     <div
@@ -486,15 +522,24 @@ function LensModal({
 
         {/* PACK SIZE */}
         <div>
-          {skus.length === 1 ? (
+          {skus.length === 0 ? (
+            <div
+              style={{
+                marginTop: ".5rem",
+                padding: ".6rem .75rem",
+                background: "rgba(255,255,255,0.04)",
+                borderRadius: 6,
+                border: "1px solid rgba(255,255,255,0.08)",
+                color: "rgba(255,255,255,0.72)",
+              }}
+            >
+              Pricing unavailable
+            </div>
+          ) : skus.length === 1 ? (
             (() => {
               const sku = skus[0];
-              const size = getPackSizeFromSku(sku);
-
-              const price = getPrice({
-                sku,
-                box_count: 1,
-              }).price_per_box_cents;
+              const size = getPackSizeFromSku(sku) ?? "?";
+              const price = getPricePerBoxCents(sku);
 
               return (
                 <div
@@ -506,13 +551,16 @@ function LensModal({
                     border: "1px solid rgba(255,255,255,0.08)",
                   }}
                 >
-                  {size} pack — ${(price / 100).toFixed(2)}
+                  {size} pack
+                  {price === null
+                    ? " - pricing unavailable"
+                    : ` - $${(price / 100).toFixed(2)}`}
                 </div>
               );
             })()
           ) : (
             <select
-              value={selectedSku}
+              value={selectedSkuValue}
               onChange={(e) => setSelectedSku(e.target.value)}
               style={{
                 width: "100%",
@@ -520,16 +568,15 @@ function LensModal({
               }}
             >
               {skus.map((sku) => {
-                const size = getPackSizeFromSku(sku);
-
-                const price = getPrice({
-                  sku,
-                  box_count: 1,
-                }).price_per_box_cents;
+                const size = getPackSizeFromSku(sku) ?? "?";
+                const price = getPricePerBoxCents(sku);
 
                 return (
                   <option key={sku} value={sku}>
-                    {size} pack — ${(price / 100).toFixed(2)}
+                    {size} pack
+                    {price === null
+                      ? " - pricing unavailable"
+                      : ` - $${(price / 100).toFixed(2)}`}
                   </option>
                 );
               })}

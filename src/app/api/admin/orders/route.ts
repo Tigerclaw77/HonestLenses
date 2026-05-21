@@ -8,6 +8,13 @@ import {
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { captureServerEvent } from "@/lib/posthog/server";
 import { supabaseServer } from "@/lib/supabase-server";
+import Stripe from "stripe";
+
+export const runtime = "nodejs";
+
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY)
+  : null;
 
 /* =========================
    Types (minimal, strict)
@@ -44,11 +51,23 @@ type OrderRow = {
   total_amount_cents?: number | null;
   archived?: boolean | null;
   payment_intent_id?: string | null;
+  payment_status?: PaymentStatus | null;
+  stripe_payment_intent_status?: string | null;
+  payment_status_source?: "stripe" | "order_fallback" | "missing_intent" | null;
+  fulfillment_status?: string | null;
+  admin_notes?: string | null;
+  needs_review?: boolean | null;
+  verified?: boolean | null;
+  passive_verified?: boolean | null;
+  doctor_confirmed?: boolean | null;
+  blocked?: boolean | null;
 };
 
 type AbandonedOrderRow = OrderRow & {
   abandoned_checkout: AbandonedCheckoutClassification;
 };
+
+type PaymentStatus = "authorized" | "captured" | "refunded" | "failed";
 
 /* =========================
    Helpers
@@ -100,6 +119,75 @@ function isActionableOrder(o: OrderRow): boolean {
   return true;
 }
 
+function fallbackPaymentStatus(order: OrderRow): PaymentStatus {
+  if (order.status === "captured" || order.status === "paid") return "captured";
+  if (order.status === "refunded") return "refunded";
+  if (order.status === "cancelled" || order.status === "failed") return "failed";
+  return order.payment_intent_id ? "authorized" : "failed";
+}
+
+function statusFromStripeIntent(intent: Stripe.PaymentIntent): PaymentStatus {
+  const latestCharge = intent.latest_charge;
+  const charge =
+    latestCharge && typeof latestCharge !== "string" ? latestCharge : null;
+  const amountRefunded = charge?.amount_refunded ?? 0;
+
+  if (charge?.refunded || amountRefunded > 0) {
+    return "refunded";
+  }
+
+  if (intent.status === "succeeded") return "captured";
+  if (intent.status === "requires_capture") return "authorized";
+
+  return "failed";
+}
+
+async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
+  if (!order.payment_intent_id) {
+    return {
+      ...order,
+      payment_status: fallbackPaymentStatus(order),
+      stripe_payment_intent_status: null,
+      payment_status_source: "missing_intent",
+    };
+  }
+
+  if (!stripe) {
+    return {
+      ...order,
+      payment_status: fallbackPaymentStatus(order),
+      stripe_payment_intent_status: null,
+      payment_status_source: "order_fallback",
+    };
+  }
+
+  try {
+    const intent = await stripe.paymentIntents.retrieve(order.payment_intent_id, {
+      expand: ["latest_charge"],
+    });
+
+    return {
+      ...order,
+      payment_status: statusFromStripeIntent(intent),
+      stripe_payment_intent_status: intent.status,
+      payment_status_source: "stripe",
+    };
+  } catch (err) {
+    console.error("Admin payment status fetch failed:", {
+      orderId: order.id,
+      paymentIntentId: order.payment_intent_id,
+      error: err,
+    });
+
+    return {
+      ...order,
+      payment_status: fallbackPaymentStatus(order),
+      stripe_payment_intent_status: null,
+      payment_status_source: "order_fallback",
+    };
+  }
+}
+
 /* =========================
    Route
 ========================= */
@@ -120,12 +208,14 @@ export async function GET() {
       return new Response("Failed to fetch orders", { status: 500 });
     }
 
-    const orders: OrderRow[] = (data ?? [])
+    const baseOrders: OrderRow[] = (data ?? [])
       .filter((o): o is OrderRow => !!o && !!o.id && !!o.created_at)
       .map((o) => ({
         ...o,
         rx: normalizeRx(o.rx ?? null),
       }));
+
+    const orders = await Promise.all(baseOrders.map(withPaymentStatus));
 
     const thresholdHours = getAbandonedCheckoutThresholdHours(
       process.env.ABANDONED_CHECKOUT_THRESHOLD_HOURS,

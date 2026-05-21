@@ -1,13 +1,25 @@
-"use client";
-
 import Header from "../../components/Header";
 import RxForm, { type RxDraft } from "../../components/RxForm";
-import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { lenses } from "@/LensCore";
+import { redirect } from "next/navigation";
 
-/* =========================
-   Helper
-========================= */
+type PageProps = {
+  searchParams: Promise<{
+    right?: string | string[];
+    left?: string | string[];
+  }>;
+};
+
+const KNOWN_LENS_IDS = new Set(lenses.map((lens) => lens.coreId));
+
+function firstParam(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
+}
+
+function normalizeLensParam(value: string | string[] | undefined): string {
+  const normalized = firstParam(value).trim();
+  return normalized && KNOWN_LENS_IDS.has(normalized) ? normalized : "";
+}
 
 function emptyEye(): RxDraft["left"] {
   return {
@@ -21,17 +33,25 @@ function emptyEye(): RxDraft["left"] {
   };
 }
 
-/* =========================
-   Content
-========================= */
+export default async function EnterPrescriptionPage({
+  searchParams,
+}: PageProps) {
+  const params = await searchParams;
+  const hasLensParams = "right" in params || "left" in params;
+  const rawRightLens = firstParam(params.right).trim();
+  const rawLeftLens = firstParam(params.left).trim();
 
-function EnterPrescriptionContent() {
-  const searchParams = useSearchParams();
+  if (hasLensParams && !rawRightLens && !rawLeftLens) {
+    redirect("/upload-prescription");
+  }
 
-  const rightLens = searchParams.get("right") ?? "";
-  const leftLens = searchParams.get("left") ?? "";
+  const rightLens = normalizeLensParam(params.right);
+  const leftLens = normalizeLensParam(params.left);
+  const hasPrefill = Boolean(rightLens || leftLens);
 
-  const hasPrefill = rightLens || leftLens;
+  if (hasLensParams && (rawRightLens || rawLeftLens) && !hasPrefill) {
+    redirect("/upload-prescription");
+  }
 
   const initialDraft: RxDraft | undefined = hasPrefill
     ? {
@@ -52,17 +72,5 @@ function EnterPrescriptionContent() {
       <Header variant="shop" />
       <RxForm initialDraft={initialDraft} />
     </>
-  );
-}
-
-/* =========================
-   Page Wrapper
-========================= */
-
-export default function EnterPrescriptionPage() {
-  return (
-    <Suspense fallback={null}>
-      <EnterPrescriptionContent />
-    </Suspense>
   );
 }

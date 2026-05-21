@@ -4,36 +4,50 @@ import { useEffect, useState } from "react";
 
 type DeviceMode = "private" | "public" | null;
 
-export default function DeviceModeGate() {
-  // Lazy init avoids effect-triggered state update warning
-  const [showPrompt, setShowPrompt] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return !localStorage.getItem("hl_device_mode");
-  });
-
-  function wipeSensitiveStorage() {
+function wipeSensitiveStorage() {
+  try {
     Object.keys(localStorage).forEach((k) => {
       if (k.startsWith("hl_")) {
         localStorage.removeItem(k);
       }
     });
     sessionStorage.clear();
+  } catch {
+    // Storage can be unavailable in privacy-restricted browser contexts.
   }
+}
+
+export default function DeviceModeGate() {
+  const [showPrompt, setShowPrompt] = useState(false);
 
   useEffect(() => {
-    const mode = localStorage.getItem("hl_device_mode");
+    let mode: string | null = null;
+
+    try {
+      mode = localStorage.getItem("hl_device_mode");
+    } catch {
+      return;
+    }
 
     if (mode === "public") {
       wipeSensitiveStorage();
     }
+
+    queueMicrotask(() => setShowPrompt(!mode));
   }, []);
 
   function choose(mode: DeviceMode) {
-    localStorage.setItem("hl_device_mode", mode || "private");
+    const nextMode = mode || "private";
 
-    document.cookie = `hl_device=${mode}; path=/; max-age=31536000`;
+    try {
+      localStorage.setItem("hl_device_mode", nextMode);
+    } catch {
+      // Continue without persistence if storage is blocked.
+    }
 
-    if (mode === "public") wipeSensitiveStorage();
+    document.cookie = `hl_device=${nextMode}; path=/; max-age=31536000`;
+
+    if (nextMode === "public") wipeSensitiveStorage();
 
     setShowPrompt(false);
   }

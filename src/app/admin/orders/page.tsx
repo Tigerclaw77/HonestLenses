@@ -52,6 +52,16 @@ type Order = {
   verification_status: string;
   rx_status?: string | null;
   archived?: boolean;
+  fulfillment_status?: FulfillmentStatus | null;
+  payment_status?: PaymentStatus | null;
+  stripe_payment_intent_status?: string | null;
+  payment_status_source?: string | null;
+  admin_notes?: string | null;
+  needs_review?: boolean | null;
+  verified?: boolean | null;
+  passive_verified?: boolean | null;
+  doctor_confirmed?: boolean | null;
+  blocked?: boolean | null;
 
   total_amount_cents?: number;
   sku?: string;
@@ -93,7 +103,48 @@ type Order = {
   abandoned_checkout?: AbandonedCheckoutClassification;
 };
 
-type BadgeTone = "good" | "warning" | "blocked";
+type PaymentStatus = "authorized" | "captured" | "refunded" | "failed";
+
+type FulfillmentStatus =
+  | "review"
+  | "ready_to_order"
+  | "ordered"
+  | "shipped"
+  | "completed"
+  | "hold"
+  | "cancelled";
+
+type VerificationFlag =
+  | "needs_review"
+  | "verified"
+  | "passive_verified"
+  | "doctor_confirmed"
+  | "blocked";
+
+type BadgeTone =
+  | "good"
+  | "warning"
+  | "blocked"
+  | "neutral"
+  | "info"
+  | "capture"
+  | "refund";
+
+type NotesModalState = {
+  orderId: string;
+  patientName: string;
+  notes: string;
+};
+
+type RxImageModalState = {
+  orderId: string;
+  patientName: string;
+  path: string;
+  url: string | null;
+  loading: boolean;
+  error: string | null;
+  previewFailed: boolean;
+};
 
 type AbandonedCheckoutReason =
   | "abandoned_no_payment_intent"
@@ -124,6 +175,24 @@ type RecoveryEmailDraft = {
   text: string;
   html: string;
 };
+
+const FULFILLMENT_STATUSES: FulfillmentStatus[] = [
+  "review",
+  "ready_to_order",
+  "ordered",
+  "shipped",
+  "completed",
+  "hold",
+  "cancelled",
+];
+
+const VERIFICATION_FLAGS: { key: VerificationFlag; label: string }[] = [
+  { key: "needs_review", label: "Needs review" },
+  { key: "verified", label: "Verified" },
+  { key: "passive_verified", label: "Passive verified" },
+  { key: "doctor_confirmed", label: "Doctor confirmed" },
+  { key: "blocked", label: "Blocked" },
+];
 
 /* =========================
    Helpers
@@ -172,25 +241,86 @@ function rxModeLabel(mode?: AbandonedCheckoutClassification["rxMode"]): string {
   return mode ? labels[mode] : "None";
 }
 
-function shortStatus(status: string): string {
-  if (status === "authorized") return "AUTH";
-  if (status === "captured") return "PROC";
-  return status.toUpperCase();
+function labelizeStatus(status: string): string {
+  return status.replace(/_/g, " ").toUpperCase();
 }
 
 function isVerified(status?: string | null): boolean {
-  return ["verified", "auto_verified", "manual_verified"].includes(
-    status ?? "",
+  return [
+    "verified",
+    "auto_verified",
+    "manual_verified",
+    "ocr_verified",
+    "upload_verified",
+    "passive_verified",
+    "doctor_confirmed",
+  ].includes(status ?? "");
+}
+
+function isFulfillmentStatus(value: unknown): value is FulfillmentStatus {
+  return FULFILLMENT_STATUSES.includes(value as FulfillmentStatus);
+}
+
+function normalizedFulfillmentStatus(order: Order): FulfillmentStatus {
+  if (isFulfillmentStatus(order.fulfillment_status)) {
+    return order.fulfillment_status;
+  }
+
+  if (order.status === "shipped") return "shipped";
+  if (order.status === "cancelled") return "cancelled";
+  return "review";
+}
+
+function normalizedPaymentStatus(order: Order): PaymentStatus {
+  if (
+    order.payment_status === "authorized" ||
+    order.payment_status === "captured" ||
+    order.payment_status === "refunded" ||
+    order.payment_status === "failed"
+  ) {
+    return order.payment_status;
+  }
+
+  if (order.status === "captured" || order.status === "paid") {
+    return "captured";
+  }
+
+  if (order.status === "refunded") return "refunded";
+  if (order.status === "cancelled" || order.status === "failed") {
+    return "failed";
+  }
+
+  return order.payment_intent_id ? "authorized" : "failed";
+}
+
+function orderVerificationComplete(order: Order): boolean {
+  return Boolean(
+    order.verified ||
+      order.passive_verified ||
+      order.doctor_confirmed ||
+      isVerified(order.verification_status),
+  );
+}
+
+function orderVerificationBlocked(order: Order): boolean {
+  return Boolean(
+    order.blocked ||
+      order.verification_status === "blocked" ||
+      order.verification_status === "rejected",
   );
 }
 
 function compareOperationalPriority(a: Order, b: Order): number {
-  const aNeedsVerification = !isVerified(a.verification_status);
-  const bNeedsVerification = !isVerified(b.verification_status);
+  const aNeedsVerification = !orderVerificationComplete(a);
+  const bNeedsVerification = !orderVerificationComplete(b);
 
   if (aNeedsVerification !== bNeedsVerification) {
     return aNeedsVerification ? -1 : 1;
   }
+
+  const aReady = deriveOperationalReadiness(a).ready;
+  const bReady = deriveOperationalReadiness(b).ready;
+  if (aReady !== bReady) return aReady ? -1 : 1;
 
   const aTime = Date.parse(a.created_at ?? "") || 0;
   const bTime = Date.parse(b.created_at ?? "") || 0;
@@ -218,18 +348,114 @@ function verificationPath(order: Order): { label: string; tone: BadgeTone } {
 }
 
 function paymentStatus(order: Order): { label: string; tone: BadgeTone } {
-  if (order.payment_intent_id) return { label: "AUTHORIZED", tone: "good" };
-  return { label: "MISSING PI", tone: "blocked" };
+  const status = normalizedPaymentStatus(order);
+
+  const tones: Record<PaymentStatus, BadgeTone> = {
+    authorized: "warning",
+    captured: "capture",
+    refunded: "refund",
+    failed: "blocked",
+  };
+
+  return { label: labelizeStatus(status), tone: tones[status] };
 }
 
 function rxTone(order: Order): BadgeTone {
   return normalizedRxStatus(order) === "none" ? "warning" : "good";
 }
 
-function verificationTone(status?: string | null): BadgeTone {
-  if (isVerified(status)) return "good";
-  if (status === "pending") return "warning";
-  return "blocked";
+function verificationSummary(order: Order): { label: string; tone: BadgeTone } {
+  if (orderVerificationBlocked(order)) return { label: "BLOCKED", tone: "blocked" };
+  if (order.verified) return { label: "VERIFIED", tone: "good" };
+  if (order.passive_verified)
+    return { label: "PASSIVE VERIFIED", tone: "good" };
+  if (order.doctor_confirmed)
+    return { label: "DOCTOR CONFIRMED", tone: "good" };
+  if (order.needs_review || order.verification_status === "requires_review") {
+    return { label: "NEEDS REVIEW", tone: "warning" };
+  }
+  if (isVerified(order.verification_status)) {
+    return {
+      label: labelizeStatus(order.verification_status ?? "verified"),
+      tone: "good",
+    };
+  }
+  if (!order.verification_status || order.verification_status === "pending") {
+    return { label: "PENDING", tone: "warning" };
+  }
+  return { label: labelizeStatus(order.verification_status), tone: "blocked" };
+}
+
+function fulfillmentTone(status: FulfillmentStatus): BadgeTone {
+  if (status === "completed" || status === "shipped") return "good";
+  if (status === "ordered" || status === "ready_to_order") return "info";
+  if (status === "hold") return "warning";
+  if (status === "cancelled") return "blocked";
+  return "neutral";
+}
+
+function deriveOperationalReadiness(order: Order): {
+  ready: boolean;
+  label: string;
+  tone: BadgeTone;
+  reasons: string[];
+} {
+  const reasons: string[] = [];
+  const payment = normalizedPaymentStatus(order);
+  const fulfillment = normalizedFulfillmentStatus(order);
+
+  if (payment !== "captured") {
+    reasons.push(payment === "authorized" ? "payment authorized only" : `payment ${payment}`);
+  }
+
+  if (!orderVerificationComplete(order)) reasons.push("verification incomplete");
+  if (order.needs_review) reasons.push("needs review");
+  if (orderVerificationBlocked(order)) reasons.push("verification blocked");
+  if (!orderHasRx(order)) reasons.push("rx missing");
+
+  if (fulfillment === "hold") reasons.push("on hold");
+  if (fulfillment === "cancelled") reasons.push("cancelled");
+  if (fulfillment === "ordered") reasons.push("already ordered");
+  if (fulfillment === "shipped") reasons.push("already shipped");
+  if (fulfillment === "completed") reasons.push("completed");
+
+  const ready =
+    reasons.length === 0 &&
+    (fulfillment === "review" || fulfillment === "ready_to_order");
+
+  if (ready) {
+    return {
+      ready,
+      label:
+        fulfillment === "ready_to_order"
+          ? "READY TO ORDER"
+          : "READY - SET FULFILLMENT",
+      tone: "good",
+      reasons,
+    };
+  }
+
+  return {
+    ready,
+    label: reasons[0] ? `WAITING: ${reasons[0].toUpperCase()}` : "IN REVIEW",
+    tone: reasons.some((reason) => reason.includes("blocked") || reason === "cancelled")
+      ? "blocked"
+      : "warning",
+    reasons,
+  };
+}
+
+function compactTimeline(order: Order): { label: string; tone: BadgeTone }[] {
+  const payment = normalizedPaymentStatus(order);
+  const verification = verificationSummary(order);
+  const fulfillment = normalizedFulfillmentStatus(order);
+
+  return [
+    { label: `Payment ${payment}`, tone: paymentStatus(order).tone },
+    { label: orderHasRx(order) ? "Rx ready" : "Rx missing", tone: rxTone(order) },
+    { label: `Verification ${verification.label.toLowerCase()}`, tone: verification.tone },
+    { label: `Fulfillment ${fulfillment.replace(/_/g, " ")}`, tone: fulfillmentTone(fulfillment) },
+  ];
 }
 
 function badgeStyle(tone: BadgeTone): CSSProperties {
@@ -237,6 +463,10 @@ function badgeStyle(tone: BadgeTone): CSSProperties {
     good: { background: "#dcfce7", color: "#166534", border: "#86efac" },
     warning: { background: "#fef9c3", color: "#854d0e", border: "#fde68a" },
     blocked: { background: "#fee2e2", color: "#991b1b", border: "#fecaca" },
+    neutral: { background: "#e2e8f0", color: "#334155", border: "#cbd5e1" },
+    info: { background: "#dbeafe", color: "#1e40af", border: "#93c5fd" },
+    capture: { background: "#ccfbf1", color: "#115e59", border: "#5eead4" },
+    refund: { background: "#fce7f3", color: "#9d174d", border: "#f9a8d4" },
   }[tone];
 
   return {
@@ -252,6 +482,58 @@ function badgeStyle(tone: BadgeTone): CSSProperties {
     padding: "5px 7px",
     whiteSpace: "nowrap",
   };
+}
+
+function mutedPanelStyle(): CSSProperties {
+  return {
+    border: "1px solid rgba(148,163,184,0.25)",
+    borderRadius: 8,
+    background: "rgba(15,23,42,0.35)",
+    padding: 12,
+  };
+}
+
+function buttonStyle(extra?: CSSProperties): CSSProperties {
+  return {
+    padding: "4px 8px",
+    borderRadius: 4,
+    border: "1px solid rgba(148,163,184,0.45)",
+    background: "rgba(15,23,42,0.65)",
+    color: "inherit",
+    cursor: "pointer",
+    ...extra,
+  };
+}
+
+function isPdfPath(path: string): boolean {
+  return /\.pdf($|\?)/i.test(path);
+}
+
+function previewKind(path: string): "pdf" | "image" {
+  return isPdfPath(path) ? "pdf" : "image";
+}
+
+function formatRxNumber(value: unknown, decimals: number): string {
+  if (!hasValue(value)) return "-";
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value.toFixed(decimals) : "-";
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return "-";
+    const numeric = Number(trimmed);
+    return Number.isFinite(numeric) ? numeric.toFixed(decimals) : trimmed;
+  }
+
+  return String(value);
+}
+
+function rxValueText(value: unknown, kind: "power" | "curve" | "plain"): string {
+  if (kind === "power") return formatRxNumber(value, 2);
+  if (kind === "curve") return formatRxNumber(value, 1);
+  return valueText(value);
 }
 
 function hasValue(value: unknown): boolean {
@@ -291,18 +573,23 @@ function rawRxText(value: unknown): string | null {
 function eyeValue(
   eye: RxEye | null | undefined,
   keys: (keyof RxEye)[],
+  kind: "power" | "curve" | "plain" = "plain",
 ): string {
   const value = keys
     .map((key) => eye?.[key])
     .find((v) => v !== null && v !== undefined && v !== "");
-  return valueText(value);
+  return rxValueText(value, kind);
 }
 
-function rootValue(rx: RxData | null, keys: (keyof RxData)[]): string {
+function rootValue(
+  rx: RxData | null,
+  keys: (keyof RxData)[],
+  kind: "power" | "curve" | "plain" = "plain",
+): string {
   const value = keys
     .map((key) => rx?.[key])
     .find((v) => v !== null && v !== undefined && v !== "");
-  return valueText(value);
+  return rxValueText(value, kind);
 }
 
 function eyeValueWithRootFallback(
@@ -310,10 +597,11 @@ function eyeValueWithRootFallback(
   eyeKeys: (keyof RxEye)[],
   rx: RxData | null,
   rootKeys: (keyof RxData)[],
+  kind: "power" | "curve" | "plain" = "plain",
 ): string {
-  const eyeVal = eyeValue(eye, eyeKeys);
+  const eyeVal = eyeValue(eye, eyeKeys, kind);
   if (eyeVal !== "-") return eyeVal;
-  return rootValue(rx, rootKeys);
+  return rootValue(rx, rootKeys, kind);
 }
 
 function hasEyeDetails(eye: RxEye | null | undefined): boolean {
@@ -381,15 +669,19 @@ function parseRx(rxRaw: string | RxData | null): {
 
     const formatEye = (eye?: RxEye | null) => {
       if (!eye) return "—";
-      const parts = [eye.coreId ?? "", `SPH ${eye.sphere ?? ""}`];
-      if (hasValue(eye.cylinder)) parts.push(`CYL ${eye.cylinder}`);
-      if (hasValue(eye.cyl)) parts.push(`CYL ${eye.cyl}`);
+      const parts = [eye.coreId ?? "", `SPH ${formatRxNumber(eye.sphere, 2)}`];
+      if (hasValue(eye.cylinder))
+        parts.push(`CYL ${formatRxNumber(eye.cylinder, 2)}`);
+      if (hasValue(eye.cyl)) parts.push(`CYL ${formatRxNumber(eye.cyl, 2)}`);
       if (hasValue(eye.axis)) parts.push(`AX ${eye.axis}`);
-      if (hasValue(eye.add)) parts.push(`ADD ${eye.add}`);
-      if (hasValue(eye.base_curve)) parts.push(`BC ${eye.base_curve}`);
-      if (hasValue(eye.baseCurve)) parts.push(`BC ${eye.baseCurve}`);
-      if (hasValue(eye.diameter)) parts.push(`DIA ${eye.diameter}`);
-      if (hasValue(eye.dia)) parts.push(`DIA ${eye.dia}`);
+      if (hasValue(eye.add)) parts.push(`ADD ${formatRxNumber(eye.add, 2)}`);
+      if (hasValue(eye.base_curve))
+        parts.push(`BC ${formatRxNumber(eye.base_curve, 1)}`);
+      if (hasValue(eye.baseCurve))
+        parts.push(`BC ${formatRxNumber(eye.baseCurve, 1)}`);
+      if (hasValue(eye.diameter))
+        parts.push(`DIA ${formatRxNumber(eye.diameter, 1)}`);
+      if (hasValue(eye.dia)) parts.push(`DIA ${formatRxNumber(eye.dia, 1)}`);
       if (eye.color) parts.push(`Color: ${eye.color}`);
       return parts.filter(Boolean).join(" | ");
     };
@@ -451,18 +743,19 @@ function RxDetailsPanel({ order }: { order: Order }) {
               {rows.map(({ label, eye }) => (
                 <tr key={label}>
                   <td style={cellStyle}>{label}</td>
-                  <td style={cellStyle}>{eyeValue(eye, ["sphere"])}</td>
+                  <td style={cellStyle}>{eyeValue(eye, ["sphere"], "power")}</td>
                   <td style={cellStyle}>
-                    {eyeValue(eye, ["cylinder", "cyl"])}
+                    {eyeValue(eye, ["cylinder", "cyl"], "power")}
                   </td>
                   <td style={cellStyle}>{eyeValue(eye, ["axis"])}</td>
-                  <td style={cellStyle}>{eyeValue(eye, ["add"])}</td>
+                  <td style={cellStyle}>{eyeValue(eye, ["add"], "power")}</td>
                   <td style={cellStyle}>
                     {eyeValueWithRootFallback(
                       eye,
                       ["base_curve", "baseCurve"],
                       details.rx,
                       ["base_curve", "baseCurve"],
+                      "curve",
                     )}
                   </td>
                   <td style={cellStyle}>
@@ -471,6 +764,7 @@ function RxDetailsPanel({ order }: { order: Order }) {
                       ["diameter", "dia"],
                       details.rx,
                       ["diameter", "dia"],
+                      "curve",
                     )}
                   </td>
                   <td style={cellStyle}>
@@ -519,8 +813,26 @@ export default function AdminOrdersPage() {
   const [recoveryDrafts, setRecoveryDrafts] = useState<
     Record<string, RecoveryEmailDraft>
   >({});
+  const [notesModal, setNotesModal] = useState<NotesModalState | null>(null);
+  const [rxImageModal, setRxImageModal] = useState<RxImageModalState | null>(
+    null,
+  );
+  const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
   const knownOrderIds = useRef<Set<string>>(new Set());
   const isInitialLoad = useRef(true);
+
+  async function authHeaders(): Promise<HeadersInit> {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    return {
+      "Content-Type": "application/json",
+      ...(session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {}),
+    };
+  }
 
   async function fetchData() {
     const res = await fetch("/api/admin/orders");
@@ -599,14 +911,120 @@ export default function AdminOrdersPage() {
     }
   }
 
-  async function updateOrderStatus(orderId: string, newStatus: string) {
-    await fetch(`/api/orders/${orderId}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: newStatus }),
+  async function updateAdminOrder(
+    orderId: string,
+    patch: Partial<
+      Pick<
+        Order,
+        | "fulfillment_status"
+        | "admin_notes"
+        | "needs_review"
+        | "verified"
+        | "passive_verified"
+        | "doctor_confirmed"
+        | "blocked"
+      >
+    >,
+  ): Promise<boolean> {
+    setSavingOrderId(orderId);
+
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}`, {
+        method: "PATCH",
+        headers: await authHeaders(),
+        body: JSON.stringify(patch),
+      });
+
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+
+      if (!res.ok) {
+        alert(json.error ?? "Order update failed.");
+        return false;
+      }
+
+      await fetchData();
+      return true;
+    } finally {
+      setSavingOrderId(null);
+    }
+  }
+
+  async function updateFulfillmentStatus(
+    orderId: string,
+    newStatus: FulfillmentStatus,
+  ) {
+    await updateAdminOrder(orderId, { fulfillment_status: newStatus });
+  }
+
+  async function updateVerificationFlag(
+    orderId: string,
+    key: VerificationFlag,
+    value: boolean,
+  ) {
+    await updateAdminOrder(orderId, {
+      [key]: value,
+    } as Partial<Pick<Order, VerificationFlag>>);
+  }
+
+  function openNotes(order: Order, patientName: string) {
+    setNotesModal({
+      orderId: order.id,
+      patientName,
+      notes: order.admin_notes ?? "",
+    });
+  }
+
+  async function saveNotes() {
+    if (!notesModal) return;
+
+    const ok = await updateAdminOrder(notesModal.orderId, {
+      admin_notes: notesModal.notes,
+    });
+    if (ok) setNotesModal(null);
+  }
+
+  async function openRxImage(order: Order, patientName: string) {
+    if (!order.rx_upload_path) return;
+
+    setRxImageModal({
+      orderId: order.id,
+      patientName,
+      path: order.rx_upload_path,
+      url: null,
+      loading: true,
+      error: null,
+      previewFailed: false,
     });
 
-    await fetchData();
+    const res = await fetch("/admin/orders/image-url", {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ path: order.rx_upload_path }),
+    });
+
+    const json = (await res.json().catch(() => ({}))) as {
+      url?: string;
+      error?: string;
+    };
+
+    if (!res.ok || !json.url) {
+      setRxImageModal((current) =>
+        current?.orderId === order.id
+          ? {
+              ...current,
+              loading: false,
+              error: json.error ?? "Failed to load Rx image.",
+            }
+          : current,
+      );
+      return;
+    }
+
+    setRxImageModal((current) =>
+      current?.orderId === order.id
+        ? { ...current, url: json.url ?? null, loading: false }
+        : current,
+    );
   }
 
   async function softDeleteOrder(orderId: string) {
@@ -614,7 +1032,7 @@ export default function AdminOrdersPage() {
 
     await fetch(`/api/orders/${orderId}/archive`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await authHeaders(),
       body: JSON.stringify({ archived: true }),
     });
 
@@ -638,7 +1056,7 @@ export default function AdminOrdersPage() {
 
     const res = await fetch(`/api/admin/abandoned-checkouts/${orderId}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await authHeaders(),
       body: JSON.stringify({ action }),
     });
 
@@ -676,7 +1094,9 @@ export default function AdminOrdersPage() {
     const text = [
       `Order: ${order.id}`,
       `Customer: ${patientName}`,
-      `Status: ${order.status} | Verify: ${order.verification_status}`,
+      `Payment: ${normalizedPaymentStatus(order)}`,
+      `Fulfillment: ${normalizedFulfillmentStatus(order)}`,
+      `Verify: ${verificationSummary(order).label}`,
       `Amount: ${formatMoney(order.total_amount_cents)}`,
       `SKU: ${order.sku ?? "—"}`,
       `Boxes: OD ${order.od_box_count ?? order.box_count ?? "—"} | OS ${
@@ -710,6 +1130,8 @@ export default function AdminOrdersPage() {
           const rx = parseRx(o.rx);
           const rxStatus = normalizedRxStatus(o);
           const payment = paymentStatus(o);
+          const verification = verificationSummary(o);
+          const fulfillment = normalizedFulfillmentStatus(o);
           const path = verificationPath(o);
 
           const patientName =
@@ -734,18 +1156,13 @@ export default function AdminOrdersPage() {
           const flags: string[] = [];
 
           if (!sameName) flags.push("⚠ NAME");
-          if (!o.prescriber_name && o.status === "authorized")
+          if (!o.prescriber_name && normalizedPaymentStatus(o) === "authorized")
             flags.push("⚠ NO DR");
           if (!o.rx_upload_path && !o.prescriber_name)
             flags.push("🚨 NO VERIFY");
 
           const isOpen = expanded === o.id;
           const isRxOpen = rxExpanded === o.id;
-
-          const readyToOrder =
-            Boolean(o.payment_intent_id) &&
-            isVerified(o.verification_status) &&
-            orderHasRx(o);
 
           const odBoxes = o.od_box_count ?? o.box_count ?? "—";
           const osBoxes = o.os_box_count ?? o.box_count ?? "—";
@@ -812,23 +1229,18 @@ export default function AdminOrdersPage() {
                       <span style={badgeStyle(path.tone)}>
                         Path: {path.label}
                       </span>
-                      <span
-                        style={badgeStyle(
-                          verificationTone(o.verification_status),
-                        )}
-                      >
-                        Verification: {o.verification_status ?? "pending"}
+                      <span style={badgeStyle(verification.tone)}>
+                        Verification: {verification.label}
+                      </span>
+                      <span style={badgeStyle(fulfillmentTone(fulfillment))}>
+                        Fulfillment: {labelizeStatus(fulfillment)}
                       </span>
                     </div>
 
-                    {readyToOrder && (
-                      <div style={{ color: "#22c55e", fontWeight: 700 }}>
-                        READY TO ORDER
-                      </div>
-                    )}
+                    <OperationalTimeline order={o} />
 
                     <div>
-                      Order: {shortStatus(o.status)}{" "}
+                      Backend: {labelizeStatus(o.status)}{" "}
                       {flags.length > 0 && "| " + flags.join(" ")}
                     </div>
 
@@ -836,23 +1248,36 @@ export default function AdminOrdersPage() {
                       {o.sku ?? "—"} • {boxDisplay}
                     </div>
 
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setRxExpanded(isRxOpen ? null : o.id);
-                      }}
+                    <div
                       style={{
+                        display: "flex",
+                        gap: 8,
+                        flexWrap: "wrap",
                         marginTop: 8,
-                        padding: "4px 8px",
-                        borderRadius: 4,
-                        border: "1px solid rgba(148,163,184,0.45)",
-                        background: "transparent",
-                        color: "inherit",
-                        cursor: "pointer",
                       }}
                     >
-                      {isRxOpen ? "Hide Rx" : "View Rx"}
-                    </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRxExpanded(isRxOpen ? null : o.id);
+                        }}
+                        style={buttonStyle()}
+                      >
+                        {isRxOpen ? "Hide Rx" : "View Rx"}
+                      </button>
+
+                      {o.rx_upload_path && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openRxImage(o, patientName || "Unknown customer");
+                          }}
+                          style={buttonStyle()}
+                        >
+                          View Rx Image
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -875,25 +1300,80 @@ export default function AdminOrdersPage() {
                     {o.payment_intent_id && (
                       <div>PI: {o.payment_intent_id}</div>
                     )}
+                    {o.stripe_payment_intent_status && (
+                      <div>Stripe: {o.stripe_payment_intent_status}</div>
+                    )}
+                    {o.admin_notes && (
+                      <div style={{ marginTop: 6 }}>
+                        Notes: {o.admin_notes.slice(0, 140)}
+                        {o.admin_notes.length > 140 ? "..." : ""}
+                      </div>
+                    )}
                   </div>
 
-                  <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                    <select
-                      value={o.status}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        updateOrderStatus(o.id, e.target.value);
+                  <div
+                    style={{
+                      ...mutedPanelStyle(),
+                      display: "grid",
+                      gap: 10,
+                      marginBottom: 12,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        alignItems: "center",
+                        flexWrap: "wrap",
                       }}
-                      onClick={(e) => e.stopPropagation()}
-                      style={{ padding: "4px 8px", borderRadius: 4 }}
                     >
-                      <option value="draft">draft</option>
-                      <option value="authorized">authorized</option>
-                      <option value="pending">pending</option>
-                      <option value="shipped">shipped</option>
-                      <option value="captured">captured</option>
-                      <option value="cancelled">cancelled</option>
-                    </select>
+                      <label style={{ fontWeight: 700 }}>
+                        Fulfillment
+                        <select
+                          value={fulfillment}
+                          disabled={savingOrderId === o.id}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            const next = e.target.value;
+                            if (isFulfillmentStatus(next)) {
+                              updateFulfillmentStatus(o.id, next);
+                            }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            marginLeft: 8,
+                            padding: "4px 8px",
+                            borderRadius: 4,
+                          }}
+                        >
+                          {FULFILLMENT_STATUSES.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      {savingOrderId === o.id && <span>Saving...</span>}
+                    </div>
+
+                    <VerificationControls
+                      order={o}
+                      onToggle={updateVerificationFlag}
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openNotes(o, patientName || "Unknown customer");
+                      }}
+                      onClickCapture={(e) => e.stopPropagation()}
+                      style={buttonStyle()}
+                    >
+                      Notes
+                    </button>
 
                     <button
                       onClick={(e) => {
@@ -901,7 +1381,7 @@ export default function AdminOrdersPage() {
                         copyOrderText(o, rx);
                       }}
                       onClickCapture={(e) => e.stopPropagation()}
-                      style={{ padding: "4px 8px", borderRadius: 4 }}
+                      style={buttonStyle()}
                     >
                       Copy Order
                     </button>
@@ -912,11 +1392,7 @@ export default function AdminOrdersPage() {
                         softDeleteOrder(o.id);
                       }}
                       onClickCapture={(e) => e.stopPropagation()}
-                      style={{
-                        padding: "4px 8px",
-                        borderRadius: 4,
-                        color: "#ef4444",
-                      }}
+                      style={buttonStyle({ color: "#ef4444" })}
                     >
                       Delete
                     </button>
@@ -1065,6 +1541,260 @@ export default function AdminOrdersPage() {
           </div>
         )}
       </section>
+
+      {notesModal && (
+        <div
+          onClick={() => setNotesModal(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            background: "rgba(2,6,23,0.78)",
+            display: "grid",
+            placeItems: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(720px, 100%)",
+              ...mutedPanelStyle(),
+              background: "#0f172a",
+            }}
+          >
+            <div style={{ fontWeight: 800, marginBottom: 8 }}>
+              Notes: {notesModal.patientName}
+            </div>
+            <textarea
+              value={notesModal.notes}
+              onChange={(e) =>
+                setNotesModal((current) =>
+                  current ? { ...current, notes: e.target.value } : current,
+                )
+              }
+              rows={8}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                borderRadius: 6,
+                border: "1px solid rgba(148,163,184,0.35)",
+                background: "rgba(2,6,23,0.75)",
+                color: "inherit",
+                padding: 10,
+                resize: "vertical",
+              }}
+            />
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+                marginTop: 12,
+              }}
+            >
+              <button style={buttonStyle()} onClick={() => setNotesModal(null)}>
+                Cancel
+              </button>
+              <button
+                style={buttonStyle({ background: "rgba(20,184,166,0.25)" })}
+                onClick={saveNotes}
+                disabled={savingOrderId === notesModal.orderId}
+              >
+                {savingOrderId === notesModal.orderId ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rxImageModal && (
+        <div
+          onClick={() => setRxImageModal(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 60,
+            background: "rgba(2,6,23,0.84)",
+            display: "grid",
+            placeItems: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(960px, 100%)",
+              maxHeight: "92vh",
+              ...mutedPanelStyle(),
+              background: "#0f172a",
+              overflow: "auto",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                alignItems: "center",
+                marginBottom: 10,
+              }}
+            >
+              <div style={{ fontWeight: 800 }}>
+                Rx Image: {rxImageModal.patientName}
+              </div>
+              <button
+                style={buttonStyle()}
+                onClick={() => setRxImageModal(null)}
+              >
+                Close
+              </button>
+            </div>
+
+            {rxImageModal.loading && <div>Loading...</div>}
+            {rxImageModal.error && (
+              <div style={{ color: "#fca5a5" }}>{rxImageModal.error}</div>
+            )}
+            {rxImageModal.url && !rxImageModal.previewFailed && (
+              previewKind(rxImageModal.path) === "pdf" ? (
+                <iframe
+                  src={rxImageModal.url}
+                  title="Rx PDF preview"
+                  style={{
+                    width: "100%",
+                    height: "76vh",
+                    border: "1px solid rgba(148,163,184,0.25)",
+                    borderRadius: 6,
+                    background: "#020617",
+                  }}
+                />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element -- signed Supabase URLs are short-lived.
+                <img
+                  src={rxImageModal.url}
+                  alt="Uploaded prescription"
+                  onError={() =>
+                    setRxImageModal((current) =>
+                      current ? { ...current, previewFailed: true } : current,
+                    )
+                  }
+                  style={{
+                    display: "block",
+                    maxWidth: "100%",
+                    maxHeight: "76vh",
+                    margin: "0 auto",
+                    borderRadius: 6,
+                  }}
+                />
+              )
+            )}
+
+            {rxImageModal.url && rxImageModal.previewFailed && (
+                <div style={{ marginTop: 12 }}>
+                  <a
+                    href={rxImageModal.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: "#67e8f9", fontWeight: 700 }}
+                  >
+                    Open signed preview
+                  </a>
+                </div>
+              )}
+          </div>
+        </div>
+      )}
     </main>
+  );
+}
+
+function OperationalTimeline({ order }: { order: Order }) {
+  const readiness = deriveOperationalReadiness(order);
+  const timeline = compactTimeline(order);
+
+  return (
+    <div style={{ ...mutedPanelStyle(), marginTop: 10 }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 6,
+          flexWrap: "wrap",
+          marginBottom: 8,
+        }}
+      >
+        <span style={badgeStyle(readiness.tone)}>{readiness.label}</span>
+        {readiness.reasons.slice(1, 4).map((reason) => (
+          <span key={reason} style={badgeStyle("neutral")}>
+            {reason.toUpperCase()}
+          </span>
+        ))}
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+          gap: 8,
+        }}
+      >
+        {timeline.map((step) => (
+          <div
+            key={step.label}
+            style={{
+              borderTop: `3px solid ${
+                step.tone === "blocked"
+                  ? "#ef4444"
+                  : step.tone === "warning"
+                    ? "#f59e0b"
+                    : step.tone === "capture"
+                      ? "#14b8a6"
+                      : "#22c55e"
+              }`,
+              paddingTop: 6,
+              color: "rgba(226,232,240,0.9)",
+              fontSize: 12,
+              minWidth: 0,
+            }}
+          >
+            {step.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function VerificationControls({
+  order,
+  onToggle,
+}: {
+  order: Order;
+  onToggle: (orderId: string, key: VerificationFlag, value: boolean) => void;
+}) {
+  return (
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+      {VERIFICATION_FLAGS.map((flag) => (
+        <label
+          key={flag.key}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 8px",
+            border: "1px solid rgba(148,163,184,0.25)",
+            borderRadius: 6,
+            background: "rgba(15,23,42,0.4)",
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={Boolean(order[flag.key])}
+            onChange={(e) => onToggle(order.id, flag.key, e.target.checked)}
+          />
+          {flag.label}
+        </label>
+      ))}
+    </div>
   );
 }

@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 
+const COPYRIGHT_YEAR = 2026;
+
 export default function Footer() {
   return (
     <footer className="site-footer">
       <div className="footer-left">
-        © {new Date().getFullYear()} Honest Lenses
+        © {COPYRIGHT_YEAR} Honest Lenses
       </div>
 
       <nav className="footer-right" aria-label="Footer navigation">
