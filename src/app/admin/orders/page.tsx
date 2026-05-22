@@ -64,6 +64,8 @@ type Order = {
   blocked?: boolean | null;
 
   total_amount_cents?: number;
+  shipping_cents?: number | null;
+  shipping_method?: "standard" | "express" | null;
   sku?: string;
   box_count?: number;
   total_box_count?: number;
@@ -1108,6 +1110,9 @@ export default function AdminOrdersPage() {
       `Fulfillment: ${normalizedFulfillmentStatus(order)}`,
       `Verify: ${verificationSummary(order).label}`,
       `Amount: ${formatMoney(order.total_amount_cents)}`,
+      `Shipping: ${order.shipping_method ?? "standard"} | ${formatMoney(
+        order.shipping_cents ?? 0,
+      )}`,
       `SKU: ${order.sku ?? "—"}`,
       `Boxes: OD ${order.od_box_count ?? order.box_count ?? "—"} | OS ${
         order.os_box_count ?? order.box_count ?? "—"
@@ -1222,6 +1227,13 @@ export default function AdminOrdersPage() {
                   <div>
                     <div style={{ fontWeight: 700 }}>
                       {formatMoney(o.total_amount_cents)}
+                    </div>
+                    <div style={{ fontSize: 12, opacity: 0.78 }}>
+                      Shipping:{" "}
+                      {o.shipping_method === "express"
+                        ? "Express"
+                        : "Standard"}{" "}
+                      ({formatMoney(o.shipping_cents ?? 0)})
                     </div>
 
                     <div

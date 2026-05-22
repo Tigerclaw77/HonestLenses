@@ -5,7 +5,11 @@ import { supabaseServer } from "../../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 import { getPrice } from "../../../../../lib/pricing/getPrice";
 import { deriveTotalBoxes, deriveTotalMonths } from "../../../../../lib/shipping";
-import { resolveShipping } from "../../../../../lib/shipping/resolveShipping";
+import {
+  normalizeShippingMethod,
+  resolveShipping,
+  type ShippingMethod,
+} from "../../../../../lib/shipping/resolveShipping";
 
 type OrderRow = {
   id: string;
@@ -16,6 +20,7 @@ type OrderRow = {
   box_count: number | null;
   left_box_count: number | null;
   right_box_count: number | null;
+  shipping_method: ShippingMethod | null;
   total_amount_cents: number | null;
 };
 
@@ -57,6 +62,7 @@ export async function POST(
       box_count,
       left_box_count,
       right_box_count,
+      shipping_method,
       total_amount_cents
     `)
     .eq("id", orderId)
@@ -134,6 +140,7 @@ export async function POST(
     totalMonths,
     itemCount: totalBoxes,
     hasMixedSkus: false,
+    shippingMethod: normalizeShippingMethod(order.shipping_method),
   });
 
   /* =========================
@@ -146,6 +153,7 @@ export async function POST(
       manufacturer: pricing.manufacturer,
       box_count: totalBoxes,
       total_box_count: totalBoxes,
+      shipping_method: shipping.shippingMethod,
       shipping_cents: shipping.shippingCents,
       total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
       price_reason: pricing.price_reason,
@@ -164,5 +172,6 @@ export async function POST(
     ok: true,
     total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
     shipping_cents: shipping.shippingCents,
+    shipping_method: shipping.shippingMethod,
   });
 }

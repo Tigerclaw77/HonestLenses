@@ -1,4 +1,5 @@
 import type { EyeRx } from "../../components/cart/RxBlock";
+import type { ShippingMethod } from "../shipping";
 
 export type RxData = {
   expires: string;
@@ -19,6 +20,7 @@ export type CartOrder = {
 
   total_amount_cents: number | null;
 
+  shipping_method?: ShippingMethod | null;
   shipping_cents?: number | null;
 };
 

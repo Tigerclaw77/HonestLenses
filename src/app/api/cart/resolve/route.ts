@@ -7,7 +7,11 @@ import { getPrice } from "../../../../lib/pricing/getPrice";
 import { getSkuBoxDurationMonths } from "../../../../lib/pricing/skuDefaults";
 import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
 import { deriveTotalBoxes, deriveTotalMonths } from "../../../../lib/shipping";
-import { resolveShipping } from "../../../../lib/shipping/resolveShipping";
+import {
+  isShippingMethod,
+  normalizeShippingMethod,
+  resolveShipping,
+} from "../../../../lib/shipping/resolveShipping";
 import { validate as validateLensParams } from "@/LensCore";
 import { POSTHOG_EVENTS } from "../../../../lib/posthog/events";
 import {
@@ -70,6 +74,7 @@ type ResolveBody = {
   order_id?: string;
   right_box_count?: number;
   left_box_count?: number;
+  shipping_method?: string;
 };
 
 /* =========================
@@ -121,6 +126,13 @@ function isResolveBody(value: unknown): value is ResolveBody {
     value.left_box_count !== undefined &&
     value.left_box_count !== null &&
     !isFiniteNonNegativeInt(value.left_box_count)
+  )
+    return false;
+
+  if (
+    value.shipping_method !== undefined &&
+    value.shipping_method !== null &&
+    !isShippingMethod(value.shipping_method)
   )
     return false;
 
@@ -226,6 +238,7 @@ export async function POST(req: Request) {
       total_box_count,
       right_box_count,
       left_box_count,
+      shipping_method,
       brand_confidence,
       verification_status,
       created_at
@@ -365,11 +378,15 @@ export async function POST(req: Request) {
   });
 
   const pricing = getPrice({ sku: resolvedSku, box_count: totalBoxes });
+  const shippingMethod = normalizeShippingMethod(
+    body?.shipping_method ?? order.shipping_method ?? null,
+  );
   const shipping = resolveShipping({
     manufacturer: pricing.manufacturer,
     totalMonths,
     itemCount: totalBoxes,
     hasMixedSkus: false,
+    shippingMethod,
   });
 
   if (totalBoxes > 0 && totalMonths <= 0) {
@@ -401,6 +418,7 @@ export async function POST(req: Request) {
       left_box_count: left,
       box_count: totalBoxes,
       total_box_count: totalBoxes,
+      shipping_method: shipping.shippingMethod,
       shipping_cents: shipping.shippingCents,
       total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
     })

@@ -2,10 +2,12 @@ import { getSkuBoxDurationMonths } from "./pricing/skuDefaults";
 import {
   resolveShipping,
   type ShippingResolution,
+  type ShippingMethod,
 } from "./shipping/resolveShipping";
 
 export type {
   ResolveShippingInput,
+  ShippingMethod,
   ShippingResolution,
   ShippingTier,
 } from "./shipping/resolveShipping";
@@ -18,6 +20,7 @@ export type ShippingOrderInput = {
   box_count?: number | null;
   left_box_count?: number | null;
   right_box_count?: number | null;
+  shipping_method?: ShippingMethod | null;
 };
 
 export function deriveTotalBoxes(order: ShippingOrderInput): number {
@@ -79,5 +82,6 @@ export function resolveOrderShipping(
     totalMonths,
     itemCount: totalBoxes,
     hasMixedSkus: false,
+    shippingMethod: order.shipping_method,
   });
 }
