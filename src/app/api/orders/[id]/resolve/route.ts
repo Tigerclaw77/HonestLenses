@@ -4,7 +4,10 @@ import { resolveDefaultSku } from "@/lib/pricing/resolveDefaultSku";
 import { getPrice } from "@/lib/pricing/getPrice";
 import { getSkuBoxDurationMonths } from "@/lib/pricing/skuDefaults";
 import { deriveTotalBoxes, deriveTotalMonths } from "@/lib/shipping";
-import { resolveShipping } from "@/lib/shipping/resolveShipping";
+import {
+  normalizeShippingMethod,
+  resolveShipping,
+} from "@/lib/shipping/resolveShipping";
 
 const MIN_DAYS_FOR_ANNUAL = 150;
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
@@ -30,7 +33,7 @@ export async function POST(
     const { data: order, error } = await supabase
       .from("orders")
       .select(
-        "id, coreId, rx, box_count, total_box_count, left_box_count, right_box_count"
+        "id, coreId, rx, box_count, total_box_count, left_box_count, right_box_count, shipping_method"
       )
       .eq("id", orderId)
       .single();
@@ -102,6 +105,7 @@ export async function POST(
       totalMonths,
       itemCount: totalBoxes,
       hasMixedSkus: false,
+      shippingMethod: normalizeShippingMethod(order.shipping_method),
     });
 
     /* 6️⃣ Persist */
@@ -112,6 +116,7 @@ export async function POST(
         manufacturer: pricing.manufacturer,
         box_count: totalBoxes,
         total_box_count: totalBoxes,
+        shipping_method: shipping.shippingMethod,
         shipping_cents: shipping.shippingCents,
         total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
         status: "draft",

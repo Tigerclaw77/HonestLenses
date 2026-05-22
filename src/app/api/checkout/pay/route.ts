@@ -98,6 +98,8 @@ export async function POST(req: Request) {
         user_id,
         status,
         total_amount_cents,
+        shipping_cents,
+        shipping_method,
         payment_intent_id
       `)
       .eq("id", orderId)
@@ -161,6 +163,12 @@ export async function POST(req: Request) {
               order.payment_intent_id,
               {
                 amount: order.total_amount_cents,
+                metadata: {
+                  order_id: order.id,
+                  user_id: user.id,
+                  shipping_method: order.shipping_method ?? "standard",
+                  shipping_cents: String(order.shipping_cents ?? 0),
+                },
               }
             );
 
@@ -196,6 +204,8 @@ export async function POST(req: Request) {
       metadata: {
         order_id: order.id,
         user_id: user.id,
+        shipping_method: order.shipping_method ?? "standard",
+        shipping_cents: String(order.shipping_cents ?? 0),
       },
     });
 

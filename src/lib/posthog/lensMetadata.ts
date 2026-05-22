@@ -19,6 +19,7 @@ type CartLensInput = {
   sku?: string | null;
   manufacturer?: string | null;
   total_amount_cents?: number | null;
+  shipping_method?: string | null;
   shipping_cents?: number | null;
   box_count?: number | null;
   total_box_count?: number | null;
@@ -147,6 +148,7 @@ export function getCartLensAnalyticsProperties(
     left_box_count: cart.left_box_count ?? null,
     cart_value_cents: cart.total_amount_cents ?? null,
     total_cart_value_cents: cart.total_amount_cents ?? null,
+    shipping_method: cart.shipping_method ?? null,
     shipping_cents: cart.shipping_cents ?? null,
     months_per_box: monthsPerBox,
     supply_duration_months: supplyDurationMonths,

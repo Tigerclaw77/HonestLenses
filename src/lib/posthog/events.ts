@@ -8,6 +8,9 @@ export const POSTHOG_EVENTS = {
   ADDED_TO_CART: "added_to_cart",
   REMOVED_FROM_CART: "removed_from_cart",
   CART_QUANTITY_CHANGED: "cart_quantity_changed",
+  SHIPPING_METHOD_SELECTED: "shipping_method_selected",
+  EXPRESS_SHIPPING_SELECTED: "express_shipping_selected",
+  CHECKOUT_SHIPPING_UPDATED: "checkout_shipping_updated",
 
   CHECKOUT_STARTED: "checkout_started",
   RX_METHOD_SELECTED: "rx_method_selected",

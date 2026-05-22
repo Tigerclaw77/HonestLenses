@@ -1,4 +1,5 @@
 import type { CartOrder } from "./types";
+import type { ShippingMethod } from "../shipping";
 
 /* =========================
    Types
@@ -23,6 +24,7 @@ export type ResolveOkFlat = {
   left_box_count?: number | null;
   box_count?: number | null;
   total_box_count?: number | null;
+  shipping_method?: ShippingMethod | null;
   shipping_cents?: number | null;
   total_amount_cents?: number | null;
 };
@@ -100,6 +102,7 @@ export async function resolveCart(
   body?: {
     right_box_count?: number;
     left_box_count?: number;
+    shipping_method?: ShippingMethod;
   },
 ): Promise<CartOrder> {
   const res = await fetch("/api/cart/resolve", {

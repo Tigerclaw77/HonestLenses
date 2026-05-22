@@ -13,7 +13,7 @@ import { buildQuantityConfig } from "../../lib/cart/quantityConfig";
 import type { CartOrder } from "../../lib/cart/types";
 import { fetchCart, resolveCart } from "../../lib/cart/api";
 import { getLensDisplayName } from "../../lib/cart/display";
-import { deriveTotalMonths } from "../../lib/shipping";
+import { deriveTotalMonths, type ShippingMethod } from "../../lib/shipping";
 import { resolveShipping } from "../../lib/shipping/resolveShipping";
 import {
   POSTHOG_EVENTS,
@@ -137,6 +137,93 @@ export default function CartPage() {
     [accessToken, cart?.left_box_count, cart?.right_box_count, syncingQty],
   );
 
+  const handleShippingMethodChange = useCallback(
+    async (nextMethod: ShippingMethod) => {
+      if (syncingQty || !cart) return;
+
+      const token = accessToken ?? (DEV_MODE ? DEV_ACCESS_TOKEN : null);
+
+      if (!token) {
+        setError("Session missing. Please log in again.");
+        return;
+      }
+
+      const previousMethod = cart.shipping_method ?? "standard";
+      if (previousMethod === nextMethod) return;
+
+      const rightCount = cart.rx?.right
+        ? (cart.right_box_count ?? defaultPerEye)
+        : 0;
+      const leftCount = cart.rx?.left
+        ? (cart.left_box_count ?? defaultPerEye)
+        : 0;
+      const selectedTotalBoxes = rightCount + leftCount;
+      const selectedTotalMonths = deriveTotalMonths({
+        sku: cart.sku,
+        totalBoxes: selectedTotalBoxes,
+        left_box_count: cart.rx?.left ? leftCount : null,
+        right_box_count: cart.rx?.right ? rightCount : null,
+      });
+      const selectedShipping = resolveShipping({
+        manufacturer: cart.manufacturer,
+        totalMonths: selectedTotalMonths,
+        itemCount: selectedTotalBoxes,
+        hasMixedSkus: false,
+        shippingMethod: nextMethod,
+      }).shippingCents;
+      const subtotal = Math.max(
+        0,
+        (cart.total_amount_cents ?? 0) - (cart.shipping_cents ?? 0),
+      );
+
+      track(POSTHOG_EVENTS.SHIPPING_METHOD_SELECTED, {
+        order_id: cart.id,
+        shipping_method: nextMethod,
+        previous_shipping_method: previousMethod,
+        subtotal,
+        shipping_cents: selectedShipping,
+      });
+
+      if (nextMethod === "express") {
+        track(POSTHOG_EVENTS.EXPRESS_SHIPPING_SELECTED, {
+          order_id: cart.id,
+          shipping_method: nextMethod,
+          subtotal,
+          shipping_cents: selectedShipping,
+        });
+      }
+
+      setSyncingQty(true);
+      setError(null);
+
+      try {
+        const updated = await resolveCart(token, {
+          shipping_method: nextMethod,
+        });
+
+        setCart(updated);
+        track(POSTHOG_EVENTS.CHECKOUT_SHIPPING_UPDATED, {
+          order_id: updated.id,
+          shipping_method: updated.shipping_method ?? "standard",
+          subtotal: Math.max(
+            0,
+            (updated.total_amount_cents ?? 0) - (updated.shipping_cents ?? 0),
+          ),
+          shipping_cents: updated.shipping_cents ?? null,
+        });
+      } catch (e) {
+        console.error("[CartPage] shipping method update failed", e);
+        captureClientException(e, { source: "cart_shipping_method_change" });
+        setError(
+          e instanceof Error ? e.message : "Failed to update shipping.",
+        );
+      } finally {
+        setSyncingQty(false);
+      }
+    },
+    [accessToken, cart, defaultPerEye, syncingQty],
+  );
+
   /* ---------- Initial load ---------- */
 
   useEffect(() => {
@@ -257,6 +344,7 @@ export default function CartPage() {
 
   const totalBoxes =
     (rightEye ? effectiveRight : 0) + (leftEye ? effectiveLeft : 0);
+  const shippingMethod: ShippingMethod = cart.shipping_method ?? "standard";
 
   /* ---------- Shipping logic ---------- */
 
@@ -273,6 +361,7 @@ export default function CartPage() {
           totalMonths,
           itemCount: totalBoxes,
           hasMixedSkus: false,
+          shippingMethod,
         }).shippingCents
       : 0;
 
@@ -367,6 +456,71 @@ export default function CartPage() {
               <span>{fmtPrice(previewSubtotal)}</span>
             </div>
 
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 10,
+                margin: "16px 0",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => void handleShippingMethodChange("standard")}
+                disabled={syncingQty}
+                style={{
+                  textAlign: "left",
+                  padding: 14,
+                  borderRadius: 10,
+                  border:
+                    shippingMethod === "standard"
+                      ? "1px solid #93c5fd"
+                      : "1px solid rgba(148,163,184,0.28)",
+                  background:
+                    shippingMethod === "standard"
+                      ? "rgba(37,99,235,0.16)"
+                      : "rgba(15,23,42,0.45)",
+                  color: "#e2e8f0",
+                  cursor: syncingQty ? "not-allowed" : "pointer",
+                }}
+              >
+                <div style={{ fontWeight: 800 }}>Standard Shipping</div>
+                <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.45 }}>
+                  Most orders arrive within 7-10 business days.
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void handleShippingMethodChange("express")}
+                disabled={syncingQty}
+                style={{
+                  textAlign: "left",
+                  padding: 14,
+                  borderRadius: 10,
+                  border:
+                    shippingMethod === "express"
+                      ? "1px solid #a78bfa"
+                      : "1px solid rgba(148,163,184,0.28)",
+                  background:
+                    shippingMethod === "express"
+                      ? "rgba(124,58,237,0.18)"
+                      : "rgba(15,23,42,0.45)",
+                  color: "#e2e8f0",
+                  cursor: syncingQty ? "not-allowed" : "pointer",
+                }}
+              >
+                <div style={{ fontWeight: 800 }}>Express Shipping</div>
+                <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.45 }}>
+                  Priority processing and expedited shipping where available.
+                </div>
+                <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.45 }}>
+                  Delivery timing may vary based on manufacturer fulfillment and
+                  prescription verification.
+                </div>
+              </button>
+            </div>
+
             <div className="hl-summary-row">
               <span>Shipping</span>
               <span>
@@ -405,6 +559,7 @@ export default function CartPage() {
                 cart_value_cents: previewTotal,
                 total_cart_value_cents: previewTotal,
                 shipping_cents: previewShipping,
+                shipping_method: shippingMethod,
                 supply_duration_months: totalMonths,
                 estimated_annual_supply: totalMonths >= 12,
               });

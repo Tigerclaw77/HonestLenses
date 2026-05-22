@@ -36,6 +36,7 @@ type Order = {
   total_amount_cents: number;
   manufacturer?: string | null;
   sku?: string | null;
+  shipping_method?: "standard" | "express" | null;
   shipping_cents?: number | null;
   payment_intent_id?: string | null;
   has_payment_intent: boolean;
@@ -131,6 +132,7 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
         order_value_cents: order.total_amount_cents,
         total_cart_value_cents: order.total_amount_cents,
         shipping_cents: order.shipping_cents ?? null,
+        shipping_method: order.shipping_method ?? "standard",
         manufacturer: order.manufacturer ?? null,
         sku: order.sku ?? null,
         has_payment_intent: order.has_payment_intent,
@@ -229,6 +231,7 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
         order_value_cents: order.total_amount_cents,
         total_cart_value_cents: order.total_amount_cents,
         shipping_cents: order.shipping_cents ?? null,
+        shipping_method: order.shipping_method ?? "standard",
         manufacturer: order.manufacturer ?? null,
         sku: order.sku ?? null,
         has_payment_intent: order.has_payment_intent,
@@ -384,6 +387,7 @@ function CheckoutInner() {
           manufacturer: orderData.manufacturer ?? null,
           sku: orderData.sku ?? null,
           shipping_cents: orderData.shipping_cents ?? null,
+          shipping_method: orderData.shipping_method ?? "standard",
           payment_intent_id: orderData.payment_intent_id ?? null,
           has_payment_intent: Boolean(orderData.payment_intent_id),
         });
@@ -421,6 +425,7 @@ function CheckoutInner() {
             manufacturer: orderData.manufacturer ?? null,
             sku: orderData.sku ?? null,
             shipping_cents: orderData.shipping_cents ?? null,
+            shipping_method: orderData.shipping_method ?? "standard",
             has_payment_intent: true,
             duration_ms: consumeStepDurationMs(`payment_init:${orderId}`),
           });
@@ -448,6 +453,11 @@ function CheckoutInner() {
     if (!order || checkoutStartTracked.current) return;
 
     const activeOrder = order;
+    const shippingCents = activeOrder.shipping_cents ?? 0;
+    const subtotalCents = Math.max(
+      0,
+      activeOrder.total_amount_cents - shippingCents,
+    );
     const completionKey = `hl_checkout_completed:${activeOrder.id}`;
     sessionStorage.removeItem(completionKey);
     checkoutStartTracked.current = true;
@@ -465,6 +475,9 @@ function CheckoutInner() {
         verification_mode: mode,
         order_value_cents: activeOrder.total_amount_cents,
         total_cart_value_cents: activeOrder.total_amount_cents,
+        subtotal_cents: subtotalCents,
+        shipping_cents: shippingCents,
+        shipping_method: activeOrder.shipping_method ?? "standard",
         manufacturer: activeOrder.manufacturer ?? null,
         sku: activeOrder.sku ?? null,
         has_payment_intent: activeOrder.has_payment_intent,
@@ -500,6 +513,10 @@ function CheckoutInner() {
     router.replace("/cart");
     return null;
   }
+
+  const shippingCents = order.shipping_cents ?? 0;
+  const subtotalCents = Math.max(0, order.total_amount_cents - shippingCents);
+  const shippingMethod = order.shipping_method ?? "standard";
 
   return (
     <main>
@@ -542,10 +559,30 @@ function CheckoutInner() {
               Order Summary
             </h2>
 
-            <div style={{ display: "flex", gap: 10 }}>
-              <div style={{ fontWeight: 800 }}>Total:</div>
-              <div style={{ fontWeight: 900 }}>
-                ${(order.total_amount_cents / 100).toFixed(2)}
+            <div style={{ display: "grid", gap: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <div style={{ fontWeight: 700 }}>Subtotal</div>
+                <div style={{ fontWeight: 800 }}>
+                  ${(subtotalCents / 100).toFixed(2)}
+                </div>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <div style={{ fontWeight: 700 }}>
+                  {shippingMethod === "express"
+                    ? "Express Shipping"
+                    : "Standard Shipping"}
+                </div>
+                <div style={{ fontWeight: 800 }}>
+                  {shippingCents === 0
+                    ? "Free"
+                    : `$${(shippingCents / 100).toFixed(2)}`}
+                </div>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <div style={{ fontWeight: 800 }}>Total</div>
+                <div style={{ fontWeight: 900 }}>
+                  ${(order.total_amount_cents / 100).toFixed(2)}
+                </div>
               </div>
             </div>
 
@@ -560,8 +597,9 @@ function CheckoutInner() {
             </p>
 
             <p style={{ marginTop: 8, fontSize: 13, color: "#475569" }}>
-              Shipping follows the cart estimate: annual supplies ship free;
-              smaller supplies ship for $14.
+              {shippingMethod === "express"
+                ? "Priority processing and expedited shipping where available. Delivery timing may vary based on manufacturer fulfillment and prescription verification."
+                : "Most orders arrive within 7-10 business days. Annual supply orders may qualify for free standard shipping."}
             </p>
           </div>
 

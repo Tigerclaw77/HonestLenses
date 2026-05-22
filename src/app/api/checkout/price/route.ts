@@ -27,6 +27,8 @@ export async function POST(req: Request) {
       status,
       sku,
       box_count,
+      shipping_cents,
+      shipping_method,
       total_amount_cents,
       currency
     `)
@@ -74,6 +76,8 @@ export async function POST(req: Request) {
     id: order.id,
     sku: order.sku,
     box_count: order.box_count,
+    shipping_cents: order.shipping_cents ?? null,
+    shipping_method: order.shipping_method ?? "standard",
     total_amount_cents: order.total_amount_cents,
   });
 
