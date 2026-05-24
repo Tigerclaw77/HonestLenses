@@ -231,6 +231,8 @@ const FULFILLMENT_PROGRESS_FLOW: FulfillmentStatus[] = [
 const HIGHLIGHT_MS = 120_000;
 const RECENT_SHIPPED_DAYS = 7;
 const STALE_INACTIVE_DAYS = 7;
+const RECENT_ACTIVITY_DAYS = 7;
+const MATERIAL_ACTIVITY_DIFF_MS = 5 * 60 * 1000;
 
 const VERIFICATION_FLAGS: { key: VerificationFlag; label: string }[] = [
   { key: "needs_review", label: "Needs review" },
@@ -255,7 +257,14 @@ function formatDateTime(value?: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
 
-  return date.toLocaleString();
+  return `${new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date)} CT`;
 }
 
 function formatAdminOrderDateTimeCentral(value?: string | null): {
@@ -279,6 +288,54 @@ function formatAdminOrderDateTimeCentral(value?: string | null): {
       minute: "2-digit",
     }).format(date)} CT`,
   };
+}
+
+function formatOrderCreatedDate(order: Order): {
+  date: string;
+  time: string;
+} {
+  return formatAdminOrderDateTimeCentral(order.created_at);
+}
+
+function getTimestamp(value?: string | null): number {
+  return Date.parse(value ?? "") || 0;
+}
+
+function getOrderCreatedTimestamp(order: Order): number {
+  return getTimestamp(order.created_at);
+}
+
+function getOperationalSortTimestamp(order: Order): number {
+  return getTimestamp(order.updated_at) || getOrderCreatedTimestamp(order);
+}
+
+function shouldShowRecentActivity(order: Order): boolean {
+  const createdAt = getOrderCreatedTimestamp(order);
+  const activityAt = getOperationalSortTimestamp(order);
+
+  if (!createdAt || !activityAt) return false;
+  if (Math.abs(activityAt - createdAt) < MATERIAL_ACTIVITY_DIFF_MS) {
+    return false;
+  }
+
+  return Date.now() - activityAt <= RECENT_ACTIVITY_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function formatOrderActivityDate(order: Order): string {
+  const activityAt = getOperationalSortTimestamp(order);
+  if (!activityAt) return "";
+
+  const elapsedMs = Math.max(0, Date.now() - activityAt);
+  const elapsedMinutes = Math.floor(elapsedMs / 60_000);
+
+  if (elapsedMinutes < 1) return "Activity just now";
+  if (elapsedMinutes < 60) return `Activity ${elapsedMinutes}m ago`;
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `Activity ${elapsedHours}h ago`;
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  return `Activity ${elapsedDays}d ago`;
 }
 
 function formatAge(hours?: number | null): string {
@@ -386,7 +443,7 @@ function orderVerificationBlocked(order: Order): boolean {
 }
 
 function compareOperationalPriority(a: Order, b: Order): number {
-  return orderActivityTime(b) - orderActivityTime(a);
+  return getOperationalSortTimestamp(b) - getOperationalSortTimestamp(a);
 }
 
 function normalizedRxStatus(order: Order): string {
@@ -652,11 +709,7 @@ function workflowActionLabel(
 }
 
 function orderActivityTime(order: Order): number {
-  return (
-    Date.parse(order.updated_at ?? "") ||
-    Date.parse(order.created_at ?? "") ||
-    0
-  );
+  return getOperationalSortTimestamp(order);
 }
 
 function isWithinDays(order: Order, days: number): boolean {
@@ -729,7 +782,7 @@ function archiveOrderStatus(order: Order): { label: string; tone: BadgeTone } {
 }
 
 function archiveSort(a: Order, b: Order): number {
-  return orderActivityTime(b) - orderActivityTime(a);
+  return getOrderCreatedTimestamp(b) - getOrderCreatedTimestamp(a);
 }
 
 function compactTimeline(order: Order): { label: string; tone: BadgeTone }[] {
@@ -1460,7 +1513,7 @@ export default function AdminOrdersPage() {
     isInitialLoad.current = false;
 
     setOrders(combined.sort(compareOperationalPriority));
-    setAbandonedOrders(abandoned);
+    setAbandonedOrders([...abandoned].sort(archiveSort));
   }, [authHeaders, markHighlightedPaymentOrders]);
 
   useEffect(() => {
@@ -1795,7 +1848,7 @@ export default function AdminOrdersPage() {
       const aOpen = expanded === a.id;
       const bOpen = expanded === b.id;
       if (aOpen !== bOpen) return aOpen ? -1 : 1;
-      return orderActivityTime(b) - orderActivityTime(a);
+      return getOperationalSortTimestamp(b) - getOperationalSortTimestamp(a);
     });
   const activeOrderSections: {
     key: Exclude<OrderOperationalBucket, "history_archive">;
@@ -1898,9 +1951,10 @@ export default function AdminOrdersPage() {
           const verification = getVerificationStatus(o);
           const fulfillment = normalizedFulfillmentStatus(o);
           const path = verificationPath(o);
-          const dateTime = formatAdminOrderDateTimeCentral(
-            o.updated_at ?? o.created_at,
-          );
+          const dateTime = formatOrderCreatedDate(o);
+          const activityLabel = shouldShowRecentActivity(o)
+            ? formatOrderActivityDate(o)
+            : null;
           const derivedStage = getOperationalStatus(o);
           const actionability = getActionability(o);
           const captureState = paymentCaptureSummary(o);
@@ -1991,6 +2045,17 @@ export default function AdminOrdersPage() {
                       {dateTime.date}
                     </div>
                     <div style={{ opacity: 0.72 }}>{dateTime.time}</div>
+                    {activityLabel && (
+                      <div
+                        style={{
+                          marginTop: 3,
+                          color: "rgba(226,232,240,0.48)",
+                          fontSize: 11,
+                        }}
+                      >
+                        {activityLabel}
+                      </div>
+                    )}
                     <div style={{ marginTop: 8 }}>
                       <span style={badgeStyle(derivedStage.tone)}>
                         {derivedStage.stage}
@@ -2464,9 +2529,7 @@ export default function AdminOrdersPage() {
             {archiveOrders.map((o) => {
               const status = archiveOrderStatus(o);
               const isOpen = expanded === o.id;
-              const dateTime = formatAdminOrderDateTimeCentral(
-                o.updated_at ?? o.created_at,
-              );
+              const dateTime = formatOrderCreatedDate(o);
               const patientName =
                 o.patient_name ||
                 o.patient_full_name ||
@@ -2643,9 +2706,7 @@ export default function AdminOrdersPage() {
               const draft = recoveryDrafts[o.id];
               const rowId = `abandoned:${o.id}`;
               const isOpen = expanded === rowId;
-              const dateTime = formatAdminOrderDateTimeCentral(
-                info?.activityAt ?? o.updated_at ?? o.created_at,
-              );
+              const dateTime = formatOrderCreatedDate(o);
               const primaryReason = info?.primaryReason
                 ? abandonedReasonLabel(info.primaryReason)
                 : "ABANDONED";
