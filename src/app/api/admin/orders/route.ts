@@ -58,6 +58,7 @@ type OrderRow = {
   shipping_cents?: number | null;
   shipping_method?: string | null;
   archived?: boolean | null;
+  archived_at?: string | null;
   payment_intent_id?: string | null;
   payment_status?: PaymentStatus | null;
   stripe_payment_intent_status?: string | null;
@@ -118,7 +119,7 @@ function normalizeRx(rx: RxData): RxData {
 
 function isActionableOrder(o: OrderRow): boolean {
   if (!o) return false;
-  if (o.archived) return false;
+  if (o.archived || o.archived_at) return false;
 
   // Hard rule: fulfillment/admin action queue starts after payment intent.
   if (!o.payment_intent_id) return false;
@@ -128,7 +129,14 @@ function isActionableOrder(o: OrderRow): boolean {
 }
 
 function fallbackPaymentStatus(order: OrderRow): PaymentStatus {
-  if (order.status === "captured" || order.status === "paid") return "captured";
+  if (
+    order.status === "captured" ||
+    order.status === "paid" ||
+    order.status === "shipped" ||
+    order.status === "completed"
+  ) {
+    return "captured";
+  }
   if (order.status === "refunded") return "refunded";
   if (order.status === "cancelled" || order.status === "failed") return "failed";
   return order.payment_intent_id ? "authorized" : "failed";
@@ -277,6 +285,7 @@ export async function GET(req: Request) {
     }
 
     const actionableOrders = orders.filter(isActionableOrder);
+    const archivedOrders = orders.filter((o) => Boolean(o.archived || o.archived_at));
 
     /* =========================
        Grouping (unchanged shape)
@@ -303,6 +312,7 @@ export async function GET(req: Request) {
       needsAction,
       stalled,
       pipeline,
+      archive: archivedOrders,
       abandoned,
     });
   } catch (err) {
