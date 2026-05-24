@@ -16,7 +16,7 @@ import {
 
 type AdminAbandonedAction =
   | "archive"
-  | "ignore"
+  | "delete_permanently"
   | "draft_recovery_email";
 
 type ActionBody = {
@@ -30,6 +30,7 @@ type OrderRow = {
   created_at: string | null;
   updated_at: string | null;
   archived: boolean | null;
+  archived_at: string | null;
   payment_intent_id: string | null;
   total_amount_cents: number | null;
   rx: unknown;
@@ -48,7 +49,7 @@ type OrderRow = {
 function isAction(value: unknown): value is AdminAbandonedAction {
   return (
     value === "archive" ||
-    value === "ignore" ||
+    value === "delete_permanently" ||
     value === "draft_recovery_email"
   );
 }
@@ -98,6 +99,7 @@ export async function POST(
       created_at,
       updated_at,
       archived,
+      archived_at,
       payment_intent_id,
       total_amount_cents,
       rx,
@@ -167,17 +169,48 @@ export async function POST(
     return NextResponse.json({ ok: true, draft });
   }
 
-  const update =
-    body.action === "ignore"
-      ? {
-          status: "ignored",
-          archived: true,
-          archived_at: new Date().toISOString(),
-        }
-      : {
-          archived: true,
-          archived_at: new Date().toISOString(),
-        };
+  if (body.action === "delete_permanently") {
+    if (order.payment_intent_id) {
+      return NextResponse.json(
+        { error: "Permanent delete is only allowed for no-payment drafts" },
+        { status: 400 },
+      );
+    }
+
+    if (order.rx_upload_path) {
+      const { error: storageError } = await supabaseServer.storage
+        .from("prescriptions")
+        .remove([order.rx_upload_path]);
+
+      if (storageError && process.env.NODE_ENV !== "production") {
+        console.warn("Abandoned checkout Rx storage delete failed", {
+          orderId: order.id,
+          path: order.rx_upload_path,
+          error: storageError.message,
+        });
+      }
+    }
+
+    await supabaseServer.from("order_events").delete().eq("order_id", order.id);
+
+    const { error: deleteError } = await supabaseServer
+      .from("orders")
+      .delete()
+      .eq("id", order.id)
+      .eq("status", "draft")
+      .is("payment_intent_id", null);
+
+    if (deleteError) {
+      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true, action: body.action });
+  }
+
+  const update = {
+    archived: true,
+    archived_at: new Date().toISOString(),
+  };
 
   const { data: updated, error: updateError } = await supabaseServer
     .from("orders")

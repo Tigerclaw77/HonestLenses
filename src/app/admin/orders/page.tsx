@@ -56,6 +56,7 @@ type Order = {
   verification_status: string;
   rx_status?: string | null;
   archived?: boolean;
+  archived_at?: string | null;
   fulfillment_status?: FulfillmentStatus | null;
   payment_status?: PaymentStatus | null;
   stripe_payment_intent_status?: string | null;
@@ -163,6 +164,11 @@ type RxImageModalState = {
   previewFailed: boolean;
 };
 
+type PermanentDeleteModalState = {
+  orderId: string;
+  patientName: string;
+};
+
 type AbandonedCheckoutReason =
   | "abandoned_no_payment_intent"
   | "abandoned_with_payment_intent"
@@ -183,7 +189,7 @@ type AbandonedCheckoutClassification = {
 
 type AbandonedAdminAction =
   | "archive"
-  | "ignore"
+  | "delete_permanently"
   | "draft_recovery_email";
 
 type RecoveryEmailDraft = {
@@ -199,6 +205,7 @@ type AdminApiPayload = {
   needsAction?: Order[];
   stalled?: Order[];
   pipeline?: Order[];
+  archive?: Order[];
   abandoned?: Order[];
   draft?: RecoveryEmailDraft;
 };
@@ -328,6 +335,7 @@ function normalizedFulfillmentStatus(order: Order): FulfillmentStatus {
     return order.fulfillment_status;
   }
 
+  if (order.status === "completed") return "completed";
   if (order.status === "shipped") return "shipped";
   if (order.status === "cancelled") return "cancelled";
   return "review";
@@ -343,7 +351,12 @@ function normalizedPaymentStatus(order: Order): PaymentStatus {
     return order.payment_status;
   }
 
-  if (order.status === "captured" || order.status === "paid") {
+  if (
+    order.status === "captured" ||
+    order.status === "paid" ||
+    order.status === "shipped" ||
+    order.status === "completed"
+  ) {
     return "captured";
   }
 
@@ -373,20 +386,7 @@ function orderVerificationBlocked(order: Order): boolean {
 }
 
 function compareOperationalPriority(a: Order, b: Order): number {
-  const aNeedsVerification = !orderVerificationComplete(a);
-  const bNeedsVerification = !orderVerificationComplete(b);
-
-  if (aNeedsVerification !== bNeedsVerification) {
-    return aNeedsVerification ? -1 : 1;
-  }
-
-  const aReady = deriveOperationalReadiness(a).ready;
-  const bReady = deriveOperationalReadiness(b).ready;
-  if (aReady !== bReady) return aReady ? -1 : 1;
-
-  const aTime = Date.parse(a.created_at ?? "") || 0;
-  const bTime = Date.parse(b.created_at ?? "") || 0;
-  return bTime - aTime;
+  return orderActivityTime(b) - orderActivityTime(a);
 }
 
 function normalizedRxStatus(order: Order): string {
@@ -462,52 +462,62 @@ function deriveOperationalReadiness(order: Order): {
   tone: BadgeTone;
   reasons: string[];
 } {
-  const reasons: string[] = [];
-  const payment = normalizedPaymentStatus(order);
-  const fulfillment = normalizedFulfillmentStatus(order);
-
-  if (payment !== "captured") {
-    reasons.push(payment === "authorized" ? "payment authorized only" : `payment ${payment}`);
-  }
-
-  if (!orderVerificationComplete(order)) reasons.push("verification incomplete");
-  if (order.needs_review) reasons.push("needs review");
-  if (orderVerificationBlocked(order)) reasons.push("verification blocked");
-  if (!orderHasRx(order)) reasons.push("rx missing");
-
-  if (fulfillment === "hold") reasons.push("on hold");
-  if (fulfillment === "cancelled") reasons.push("cancelled");
-  if (fulfillment === "ordered") reasons.push("already ordered");
-  if (fulfillment === "shipped") reasons.push("already shipped");
-  if (fulfillment === "completed") reasons.push("completed");
-
-  const ready =
-    reasons.length === 0 &&
-    (fulfillment === "review" || fulfillment === "ready_to_order");
+  const operational = getOperationalStatus(order);
+  const actionability = getActionability(order);
+  const ready = operational.stage === "READY";
 
   if (ready) {
     return {
       ready,
-      label:
-        fulfillment === "ready_to_order"
-          ? "READY TO ORDER"
-          : "READY - SET FULFILLMENT",
-      tone: "good",
-      reasons,
+      label: "READY TO ORDER",
+      tone: operational.tone,
+      reasons: actionability.reasons,
     };
   }
 
+  const label =
+    operational.awaiting === "No action"
+      ? operational.stage
+      : `${operational.stage}: ${operational.awaiting.toUpperCase()}`;
+
   return {
     ready,
-    label: reasons[0] ? `WAITING: ${reasons[0].toUpperCase()}` : "IN REVIEW",
-    tone: reasons.some((reason) => reason.includes("blocked") || reason === "cancelled")
-      ? "blocked"
-      : "warning",
-    reasons,
+    label,
+    tone: operational.tone,
+    reasons: actionability.reasons,
   };
 }
 
-function getDerivedOrderStage(order: Order): DerivedOrderStage {
+function isOperationallyComplete(order: Order): boolean {
+  const fulfillment = normalizedFulfillmentStatus(order);
+  return fulfillment === "shipped" || fulfillment === "completed";
+}
+
+function getVerificationStatus(order: Order): {
+  complete: boolean;
+  blocked: boolean;
+  label: string;
+  tone: BadgeTone;
+} {
+  if (isOperationallyComplete(order)) {
+    return {
+      complete: true,
+      blocked: false,
+      label: "CLOSED",
+      tone: "neutral",
+    };
+  }
+
+  const summary = verificationSummary(order);
+  return {
+    complete: orderVerificationComplete(order),
+    blocked: orderVerificationBlocked(order),
+    label: summary.label,
+    tone: summary.tone,
+  };
+}
+
+function getOperationalStatus(order: Order): DerivedOrderStage {
   const payment = normalizedPaymentStatus(order);
   const fulfillment = normalizedFulfillmentStatus(order);
 
@@ -559,11 +569,38 @@ function getDerivedOrderStage(order: Order): DerivedOrderStage {
     return { stage: "WAITING", awaiting: "Verification", tone: "warning" };
   }
 
-  if (fulfillment === "ready_to_order") {
-    return { stage: "READY", awaiting: "Manufacturer order", tone: "good" };
+  return { stage: "READY", awaiting: "Manufacturer order", tone: "good" };
+}
+
+function getActionability(order: Order): {
+  actionable: boolean;
+  reasons: string[];
+} {
+  if (isOperationallyComplete(order)) {
+    return { actionable: false, reasons: [] };
   }
 
-  return { stage: "READY", awaiting: "Fulfillment review", tone: "good" };
+  const reasons: string[] = [];
+  const payment = normalizedPaymentStatus(order);
+  const fulfillment = normalizedFulfillmentStatus(order);
+
+  if (fulfillment === "hold") reasons.push("hold");
+  if (payment === "failed" || payment === "refunded") reasons.push(payment);
+  if (payment !== "captured") reasons.push("capture");
+  if (orderVerificationBlocked(order)) reasons.push("verification blocked");
+  if (!orderHasRx(order)) reasons.push("rx missing");
+  if (order.needs_review) reasons.push("review");
+  if (!orderVerificationComplete(order)) reasons.push("verification");
+  if (
+    order.shipping_method === "express" &&
+    fulfillment !== "ordered" &&
+    fulfillment !== "shipped" &&
+    fulfillment !== "completed"
+  ) {
+    reasons.push("express");
+  }
+
+  return { actionable: reasons.length > 0, reasons };
 }
 
 function paymentCaptureSummary(order: Order): { label: string; tone: BadgeTone } {
@@ -591,6 +628,29 @@ function previousFulfillmentStatus(
   return FULFILLMENT_PROGRESS_FLOW[currentIndex - 1] ?? null;
 }
 
+function workflowActionLabel(
+  current: FulfillmentStatus,
+  next: FulfillmentStatus,
+): string {
+  if (current === "review" && next === "ready_to_order") {
+    return "Approve / Ready to Order";
+  }
+
+  if (current === "ready_to_order" && next === "ordered") {
+    return "Place Vendor Order";
+  }
+
+  if (current === "ordered" && next === "shipped") {
+    return "Mark Shipped";
+  }
+
+  if (current === "shipped" && next === "completed") {
+    return "Complete Order";
+  }
+
+  return `Advance to ${labelizeStatus(next)}`;
+}
+
 function orderActivityTime(order: Order): number {
   return (
     Date.parse(order.updated_at ?? "") ||
@@ -613,24 +673,12 @@ function isRecentlyShipped(order: Order): boolean {
   );
 }
 
+function isOperatorArchived(order: Order): boolean {
+  return Boolean(order.archived || order.archived_at);
+}
+
 function isActionRequired(order: Order): boolean {
-  const payment = normalizedPaymentStatus(order);
-  const fulfillment = normalizedFulfillmentStatus(order);
-
-  if (fulfillment === "hold") return true;
-  if (payment === "failed" || payment === "refunded") return true;
-  if (payment !== "captured") return true;
-  if (orderVerificationBlocked(order)) return true;
-  if (!orderHasRx(order)) return true;
-  if (order.needs_review) return true;
-  if (!orderVerificationComplete(order)) return true;
-
-  return (
-    order.shipping_method === "express" &&
-    fulfillment !== "ordered" &&
-    fulfillment !== "shipped" &&
-    fulfillment !== "completed"
-  );
+  return getActionability(order).actionable;
 }
 
 function isArchiveOrder(order: Order): boolean {
@@ -638,7 +686,10 @@ function isArchiveOrder(order: Order): boolean {
   const payment = normalizedPaymentStatus(order);
 
   if (order.abandoned_checkout?.isAbandoned) return true;
-  if (order.archived) return true;
+  if (isOperatorArchived(order)) {
+    if (order.status === "draft" || !order.payment_intent_id) return true;
+    return !getActionability(order).actionable;
+  }
   if (fulfillment === "completed" || fulfillment === "cancelled") return true;
   if (fulfillment === "shipped") return !isRecentlyShipped(order);
   if (
@@ -683,12 +734,16 @@ function archiveSort(a: Order, b: Order): number {
 
 function compactTimeline(order: Order): { label: string; tone: BadgeTone }[] {
   const payment = normalizedPaymentStatus(order);
-  const verification = verificationSummary(order);
+  const verification = getVerificationStatus(order);
   const fulfillment = normalizedFulfillmentStatus(order);
+  const complete = isOperationallyComplete(order);
 
   return [
     { label: `Payment ${payment}`, tone: paymentStatus(order).tone },
-    { label: orderHasRx(order) ? "Rx ready" : "Rx missing", tone: rxTone(order) },
+    {
+      label: complete ? "Rx closed" : orderHasRx(order) ? "Rx ready" : "Rx missing",
+      tone: complete ? "neutral" : rxTone(order),
+    },
     { label: `Verification ${verification.label.toLowerCase()}`, tone: verification.tone },
     { label: `Fulfillment ${fulfillment.replace(/_/g, " ")}`, tone: fulfillmentTone(fulfillment) },
   ];
@@ -1280,6 +1335,8 @@ export default function AdminOrdersPage() {
   const [rxImageModal, setRxImageModal] = useState<RxImageModalState | null>(
     null,
   );
+  const [permanentDeleteModal, setPermanentDeleteModal] =
+    useState<PermanentDeleteModalState | null>(null);
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
   const [highlightedOrderIds, setHighlightedOrderIds] = useState<Set<string>>(
     () => new Set(),
@@ -1361,14 +1418,15 @@ export default function AdminOrdersPage() {
 
     setAdminError(null);
 
-    const combined: Order[] = [
+    const activeOrders: Order[] = [
       ...(json.needsAction ?? []),
       ...(json.stalled ?? []),
       ...(json.pipeline ?? []),
     ];
+    const combined: Order[] = [...activeOrders, ...(json.archive ?? [])];
     const abandoned: Order[] = json.abandoned ?? [];
 
-    const paymentIntentOrders = combined.filter(isNewPaymentIntentOrder);
+    const paymentIntentOrders = activeOrders.filter(isNewPaymentIntentOrder);
 
     if (!isInitialLoad.current) {
       const newPaymentIntentOrders = paymentIntentOrders.filter(
@@ -1534,6 +1592,20 @@ export default function AdminOrdersPage() {
     });
   }
 
+  function startReturnRefund(order: Order, patientName: string) {
+    const existingNotes = order.admin_notes?.trim();
+    setNotesModal({
+      orderId: order.id,
+      patientName,
+      notes: [
+        existingNotes,
+        `[Return/refund started ${new Date().toLocaleDateString()}] `,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+    });
+  }
+
   async function saveNotes() {
     if (!notesModal) return;
 
@@ -1596,8 +1668,10 @@ export default function AdminOrdersPage() {
     );
   }
 
-  async function softDeleteOrder(orderId: string) {
-    if (!confirm("Archive this order?")) return;
+  async function archiveOrder(orderId: string) {
+    if (!confirm("Archive this order and hide it from the operational queue?")) {
+      return;
+    }
 
     await fetch(`/api/orders/${orderId}/archive`, {
       method: "POST",
@@ -1612,18 +1686,11 @@ export default function AdminOrdersPage() {
   async function runAbandonedAction(
     orderId: string,
     action: AbandonedAdminAction,
-  ) {
+  ): Promise<boolean> {
     setAdminError(null);
 
     if (action === "archive" && !confirm("Archive this abandoned draft?")) {
-      return;
-    }
-
-    if (
-      action === "ignore" &&
-      !confirm("Mark this abandoned draft as ignored?")
-    ) {
-      return;
+      return false;
     }
 
     const res = await fetch(`/api/admin/abandoned-checkouts/${orderId}`, {
@@ -1650,7 +1717,7 @@ export default function AdminOrdersPage() {
           code: json.code,
         });
       }
-      return;
+      return false;
     }
 
     if (action === "draft_recovery_email" && json.draft) {
@@ -1662,10 +1729,21 @@ export default function AdminOrdersPage() {
       } catch {
         // Clipboard access can be blocked by the browser; the draft remains visible.
       }
-      return;
+      return true;
     }
 
     await fetchData();
+    return true;
+  }
+
+  async function confirmPermanentDelete() {
+    if (!permanentDeleteModal) return;
+
+    const ok = await runAbandonedAction(
+      permanentDeleteModal.orderId,
+      "delete_permanently",
+    );
+    if (ok) setPermanentDeleteModal(null);
   }
 
   function copyOrderText(order: Order, rx: ReturnType<typeof parseRx>): void {
@@ -1712,6 +1790,13 @@ export default function AdminOrdersPage() {
     (order) => getOrderOperationalBucket(order) === "active_fulfillment",
   );
   const archiveOrders = orders.filter(shouldDefaultCollapse).sort(archiveSort);
+  const sortSectionOrders = (sectionOrders: Order[]) =>
+    [...sectionOrders].sort((a, b) => {
+      const aOpen = expanded === a.id;
+      const bOpen = expanded === b.id;
+      if (aOpen !== bOpen) return aOpen ? -1 : 1;
+      return orderActivityTime(b) - orderActivityTime(a);
+    });
   const activeOrderSections: {
     key: Exclude<OrderOperationalBucket, "history_archive">;
     title: string;
@@ -1722,13 +1807,13 @@ export default function AdminOrdersPage() {
       key: "action_required",
       title: "Action Required",
       description: "Payment, Rx, verification, blocked, express, or manual attention.",
-      orders: actionRequiredOrders,
+      orders: sortSectionOrders(actionRequiredOrders),
     },
     {
       key: "active_fulfillment",
       title: "Active Fulfillment",
       description: "Ready, ordered, and recent shipped work still in the operator lane.",
-      orders: activeFulfillmentOrders,
+      orders: sortSectionOrders(activeFulfillmentOrders),
     },
   ];
   const archiveCount = archiveOrders.length + abandonedOrders.length;
@@ -1810,11 +1895,14 @@ export default function AdminOrdersPage() {
           const rx = parseRx(o.rx);
           const rxStatus = normalizedRxStatus(o);
           const payment = paymentStatus(o);
-          const verification = verificationSummary(o);
+          const verification = getVerificationStatus(o);
           const fulfillment = normalizedFulfillmentStatus(o);
           const path = verificationPath(o);
-          const dateTime = formatAdminOrderDateTimeCentral(o.created_at);
-          const derivedStage = getDerivedOrderStage(o);
+          const dateTime = formatAdminOrderDateTimeCentral(
+            o.updated_at ?? o.created_at,
+          );
+          const derivedStage = getOperationalStatus(o);
+          const actionability = getActionability(o);
           const captureState = paymentCaptureSummary(o);
           const rxLines = formatCollapsedRxLine(o);
           const lensDisplay = getOrderLensDisplayName(o);
@@ -1835,15 +1923,19 @@ export default function AdminOrdersPage() {
 
           const sameName = patientName === shippingName;
 
-          const flags = [
-            !sameName ? "Name mismatch" : null,
-            !o.prescriber_name && normalizedPaymentStatus(o) === "authorized"
-              ? "No prescriber"
-              : null,
-            !o.rx_upload_path && !o.prescriber_name
-              ? "No verification path"
-              : null,
-          ].filter((flag): flag is string => Boolean(flag));
+          const flags = isOperationallyComplete(o)
+            ? []
+            : [
+                !sameName ? "Name mismatch" : null,
+                !o.prescriber_name &&
+                normalizedPaymentStatus(o) === "authorized"
+                  ? "No prescriber"
+                  : null,
+                !o.rx_upload_path && !o.prescriber_name
+                  ? "No verification path"
+                  : null,
+                ...actionability.reasons,
+              ].filter((flag): flag is string => Boolean(flag));
 
           const isOpen = expanded === o.id;
           const isRxOpen = rxExpanded === o.id;
@@ -1873,7 +1965,7 @@ export default function AdminOrdersPage() {
                 boxShadow: isHighlighted
                   ? "0 0 0 1px rgba(186,230,253,0.18), 0 0 20px rgba(14,165,233,0.16)"
                   : "none",
-                opacity: o.archived ? 0.5 : 1,
+                opacity: 1,
               }}
             >
               <div
@@ -2089,10 +2181,18 @@ export default function AdminOrdersPage() {
                     <span style={badgeStyle(payment.tone)}>
                       Payment: {payment.label}
                     </span>
-                    <span style={badgeStyle(rxTone(o))}>Rx: {rxStatus}</span>
-                    <span style={badgeStyle(path.tone)}>
-                      Path: {path.label}
+                    <span
+                      style={badgeStyle(
+                        isOperationallyComplete(o) ? "neutral" : rxTone(o),
+                      )}
+                    >
+                      Rx: {isOperationallyComplete(o) ? "closed" : rxStatus}
                     </span>
+                    {!isOperationallyComplete(o) && (
+                      <span style={badgeStyle(path.tone)}>
+                        Path: {path.label}
+                      </span>
+                    )}
                     <span style={badgeStyle(verification.tone)}>
                       Verification: {verification.label}
                     </span>
@@ -2244,12 +2344,30 @@ export default function AdminOrdersPage() {
                             background: "rgba(20,184,166,0.22)",
                           })}
                         >
-                          Advance to {labelizeStatus(nextFulfillment)}
+                          {workflowActionLabel(fulfillment, nextFulfillment)}
+                        </button>
+                      )}
+
+                      {fulfillment === "completed" && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startReturnRefund(
+                              o,
+                              patientName || "Unknown customer",
+                            );
+                          }}
+                          style={buttonStyle({
+                            background: "rgba(236,72,153,0.18)",
+                          })}
+                        >
+                          Start Return / Refund
                         </button>
                       )}
 
                       <label style={{ fontWeight: 700 }}>
-                        Fulfillment
+                        Advanced override
                         <select
                           value={fulfillment}
                           disabled={savingOrderId === o.id}
@@ -2310,12 +2428,12 @@ export default function AdminOrdersPage() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        softDeleteOrder(o.id);
+                        archiveOrder(o.id);
                       }}
                       onClickCapture={(e) => e.stopPropagation()}
-                      style={buttonStyle({ color: "#ef4444" })}
+                      style={buttonStyle({ color: "#fbbf24" })}
                     >
-                      Delete
+                      Archive
                     </button>
                   </div>
                 </div>
@@ -2643,13 +2761,7 @@ export default function AdminOrdersPage() {
                           onClick={() => runAbandonedAction(o.id, "archive")}
                           style={{ padding: "4px 8px", borderRadius: 4 }}
                         >
-                          Archive draft
-                        </button>
-                        <button
-                          onClick={() => runAbandonedAction(o.id, "ignore")}
-                          style={{ padding: "4px 8px", borderRadius: 4 }}
-                        >
-                          Mark ignored
+                          Archive
                         </button>
                         <button
                           onClick={() =>
@@ -2659,6 +2771,25 @@ export default function AdminOrdersPage() {
                         >
                           Draft recovery email
                         </button>
+                        {!o.payment_intent_id && (
+                          <button
+                            onClick={() =>
+                              setPermanentDeleteModal({
+                                orderId: o.id,
+                                patientName,
+                              })
+                            }
+                            style={{
+                              padding: "4px 8px",
+                              borderRadius: 4,
+                              color: "#fecaca",
+                              border: "1px solid rgba(248,113,113,0.45)",
+                              background: "rgba(127,29,29,0.2)",
+                            }}
+                          >
+                            Delete permanently
+                          </button>
+                        )}
                       </div>
 
                       {draft && (
@@ -2694,6 +2825,65 @@ export default function AdminOrdersPage() {
           </div>
         )}
       </section>
+
+      {permanentDeleteModal && (
+        <div
+          onClick={() => setPermanentDeleteModal(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 55,
+            background: "rgba(2,6,23,0.78)",
+            display: "grid",
+            placeItems: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(520px, 100%)",
+              ...mutedPanelStyle(),
+              background: "#0f172a",
+            }}
+          >
+            <div style={{ fontWeight: 900, marginBottom: 8 }}>
+              Delete permanently?
+            </div>
+            <p style={{ marginTop: 0, color: "rgba(226,232,240,0.8)" }}>
+              This will permanently delete the abandoned no-payment draft for{" "}
+              {permanentDeleteModal.patientName} and remove any uploaded Rx file.
+              This cannot be undone.
+            </p>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+              }}
+            >
+              <button
+                type="button"
+                style={buttonStyle()}
+                onClick={() => setPermanentDeleteModal(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                style={buttonStyle({
+                  color: "#fecaca",
+                  border: "1px solid rgba(248,113,113,0.45)",
+                  background: "rgba(127,29,29,0.32)",
+                })}
+                onClick={confirmPermanentDelete}
+              >
+                Delete permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {notesModal && (
         <div

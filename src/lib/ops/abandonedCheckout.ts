@@ -19,6 +19,7 @@ export type AbandonedCheckoutSnapshot = {
   created_at?: string | null;
   updated_at?: string | null;
   archived?: boolean | null;
+  archived_at?: string | null;
   payment_intent_id?: string | null;
   rx?: unknown;
   rx_source?: string | null;
@@ -133,6 +134,7 @@ export function classifyAbandonedCheckout(
 
   if (
     order.archived ||
+    Boolean(order.archived_at) ||
     order.status !== "draft" ||
     ageHours === null ||
     ageHours < thresholdHours

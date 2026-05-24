@@ -8,7 +8,8 @@ alter table public.orders
   add column if not exists verified boolean not null default false,
   add column if not exists passive_verified boolean not null default false,
   add column if not exists doctor_confirmed boolean not null default false,
-  add column if not exists blocked boolean not null default false;
+  add column if not exists blocked boolean not null default false,
+  add column if not exists archived_at timestamptz;
 
 do $$
 begin
