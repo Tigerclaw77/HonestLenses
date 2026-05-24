@@ -165,8 +165,8 @@ type RxImageModalState = {
 };
 
 type PermanentDeleteModalState = {
-  orderId: string;
-  patientName: string;
+  orderIds: string[];
+  label: string;
 };
 
 type AbandonedCheckoutReason =
@@ -197,6 +197,19 @@ type RecoveryEmailDraft = {
   subject: string;
   text: string;
   html: string;
+};
+
+type AdminNotice = {
+  tone: "info" | "success";
+  message: string;
+};
+
+type OptimisticOrdersSnapshot = {
+  orders: Order[];
+  abandonedOrders: Order[];
+  selectedAbandonedOrderIds: Set<string>;
+  expanded: string | null;
+  recoveryDrafts: Record<string, RecoveryEmailDraft>;
 };
 
 type AdminApiPayload = {
@@ -730,6 +743,14 @@ function isOperatorArchived(order: Order): boolean {
   return Boolean(order.archived || order.archived_at);
 }
 
+function canPermanentlyDelete(order: Order): boolean {
+  return Boolean(
+    order.abandoned_checkout?.isAbandoned &&
+      order.status === "draft" &&
+      !order.payment_intent_id,
+  );
+}
+
 function isActionRequired(order: Order): boolean {
   return getActionability(order).actionable;
 }
@@ -783,6 +804,18 @@ function archiveOrderStatus(order: Order): { label: string; tone: BadgeTone } {
 
 function archiveSort(a: Order, b: Order): number {
   return getOrderCreatedTimestamp(b) - getOrderCreatedTimestamp(a);
+}
+
+function mergeOrderLists(
+  current: Order[],
+  restored: Order[],
+  sort: (a: Order, b: Order) => number,
+): Order[] {
+  if (restored.length === 0) return current;
+
+  const byId = new Map(current.map((order) => [order.id, order]));
+  restored.forEach((order) => byId.set(order.id, order));
+  return [...byId.values()].sort(sort);
 }
 
 function compactTimeline(order: Order): { label: string; tone: BadgeTone }[] {
@@ -1390,13 +1423,21 @@ export default function AdminOrdersPage() {
   );
   const [permanentDeleteModal, setPermanentDeleteModal] =
     useState<PermanentDeleteModalState | null>(null);
+  const [selectedAbandonedOrderIds, setSelectedAbandonedOrderIds] = useState<
+    Set<string>
+  >(() => new Set());
+  const [pendingAbandonedOrderIds, setPendingAbandonedOrderIds] = useState<
+    Set<string>
+  >(() => new Set());
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
   const [highlightedOrderIds, setHighlightedOrderIds] = useState<Set<string>>(
     () => new Set(),
   );
   const [adminError, setAdminError] = useState<string | null>(null);
+  const [adminNotice, setAdminNotice] = useState<AdminNotice | null>(null);
   const knownPaymentIntentOrderIds = useRef<Set<string>>(new Set());
   const notifiedPaymentIntentOrderIds = useRef<Set<string>>(new Set());
+  const optimisticallyHiddenOrderIds = useRef<Set<string>>(new Set());
   const highlightTimeouts = useRef<Map<string, number>>(new Map());
   const baseDocumentTitle = useRef<string | null>(null);
   const isInitialLoad = useRef(true);
@@ -1476,8 +1517,13 @@ export default function AdminOrdersPage() {
       ...(json.stalled ?? []),
       ...(json.pipeline ?? []),
     ];
-    const combined: Order[] = [...activeOrders, ...(json.archive ?? [])];
-    const abandoned: Order[] = json.abandoned ?? [];
+    const hiddenIds = optimisticallyHiddenOrderIds.current;
+    const combined: Order[] = [...activeOrders, ...(json.archive ?? [])].filter(
+      (order) => !hiddenIds.has(order.id),
+    );
+    const abandoned: Order[] = (json.abandoned ?? []).filter(
+      (order) => !hiddenIds.has(order.id),
+    );
 
     const paymentIntentOrders = activeOrders.filter(isNewPaymentIntentOrder);
 
@@ -1514,6 +1560,10 @@ export default function AdminOrdersPage() {
 
     setOrders(combined.sort(compareOperationalPriority));
     setAbandonedOrders([...abandoned].sort(archiveSort));
+    setSelectedAbandonedOrderIds((current) => {
+      const visibleIds = new Set(abandoned.map((order) => order.id));
+      return new Set([...current].filter((id) => visibleIds.has(id)));
+    });
   }, [authHeaders, markHighlightedPaymentOrders]);
 
   useEffect(() => {
@@ -1721,31 +1771,138 @@ export default function AdminOrdersPage() {
     );
   }
 
+  function setAbandonedPending(orderIds: string[], pending: boolean) {
+    setPendingAbandonedOrderIds((current) => {
+      const next = new Set(current);
+      orderIds.forEach((orderId) => {
+        if (pending) next.add(orderId);
+        else next.delete(orderId);
+      });
+      return next;
+    });
+  }
+
+  function removeOrderOptimistically(
+    orderIds: string[],
+  ): OptimisticOrdersSnapshot {
+    const idSet = new Set(orderIds);
+    const snapshot = {
+      orders,
+      abandonedOrders,
+      selectedAbandonedOrderIds,
+      expanded,
+      recoveryDrafts,
+    };
+
+    orderIds.forEach((orderId) =>
+      optimisticallyHiddenOrderIds.current.add(orderId),
+    );
+
+    setOrders((current) => current.filter((order) => !idSet.has(order.id)));
+    setAbandonedOrders((current) =>
+      current.filter((order) => !idSet.has(order.id)),
+    );
+    setSelectedAbandonedOrderIds((current) =>
+      new Set([...current].filter((orderId) => !idSet.has(orderId))),
+    );
+    setRecoveryDrafts((current) => {
+      const next = { ...current };
+      orderIds.forEach((orderId) => delete next[orderId]);
+      return next;
+    });
+    setExpanded((current) => {
+      if (!current) return current;
+      if (idSet.has(current)) return null;
+      if (
+        current.startsWith("abandoned:") &&
+        idSet.has(current.replace("abandoned:", ""))
+      ) {
+        return null;
+      }
+      return current;
+    });
+
+    return snapshot;
+  }
+
+  function restoreOrderAfterActionFailure(
+    snapshot: OptimisticOrdersSnapshot,
+    failedOrderIds: string[],
+  ) {
+    const failedIdSet = new Set(failedOrderIds);
+
+    failedOrderIds.forEach((orderId) =>
+      optimisticallyHiddenOrderIds.current.delete(orderId),
+    );
+
+    const restoredOrders = snapshot.orders.filter((order) =>
+      failedIdSet.has(order.id),
+    );
+    const restoredAbandonedOrders = snapshot.abandonedOrders.filter((order) =>
+      failedIdSet.has(order.id),
+    );
+
+    setOrders((current) =>
+      mergeOrderLists(current, restoredOrders, compareOperationalPriority),
+    );
+    setAbandonedOrders((current) =>
+      mergeOrderLists(current, restoredAbandonedOrders, archiveSort),
+    );
+    setSelectedAbandonedOrderIds((current) => {
+      const next = new Set(current);
+      snapshot.selectedAbandonedOrderIds.forEach((orderId) => {
+        if (failedIdSet.has(orderId)) next.add(orderId);
+      });
+      return next;
+    });
+    setRecoveryDrafts((current) => {
+      const next = { ...current };
+      Object.entries(snapshot.recoveryDrafts).forEach(([orderId, draft]) => {
+        if (failedIdSet.has(orderId)) next[orderId] = draft;
+      });
+      return next;
+    });
+    setExpanded((current) => current ?? snapshot.expanded);
+  }
+
   async function archiveOrder(orderId: string) {
     if (!confirm("Archive this order and hide it from the operational queue?")) {
       return;
     }
 
-    await fetch(`/api/orders/${orderId}/archive`, {
+    const snapshot = removeOrderOptimistically([orderId]);
+    setAdminError(null);
+    setAdminNotice({ tone: "info", message: "Archiving order..." });
+
+    const res = await fetch(`/api/orders/${orderId}/archive`, {
       method: "POST",
       headers: await authHeaders(),
       credentials: "same-origin",
       body: JSON.stringify({ archived: true }),
     });
+    const json = await readAdminApiPayload(res);
 
-    await fetchData();
+    if (!res.ok) {
+      restoreOrderAfterActionFailure(snapshot, [orderId]);
+      setAdminNotice(null);
+      setAdminError(adminApiErrorMessage(json, "Archive failed."));
+      return;
+    }
+
+    setAdminNotice({ tone: "success", message: "Order archived." });
   }
 
   async function runAbandonedAction(
     orderId: string,
     action: AbandonedAdminAction,
   ): Promise<boolean> {
-    setAdminError(null);
+    return runAbandonedActions([orderId], action);
+  }
 
-    if (action === "archive" && !confirm("Archive this abandoned draft?")) {
-      return false;
-    }
-
+  async function postAbandonedAction(
+    orderId: string,
+    action: AbandonedAdminAction,
+  ): Promise<{ ok: boolean; status: number; json: AdminApiPayload }> {
     const res = await fetch(`/api/admin/abandoned-checkouts/${orderId}`, {
       method: "POST",
       headers: await authHeaders(),
@@ -1753,50 +1910,177 @@ export default function AdminOrdersPage() {
       body: JSON.stringify({ action }),
     });
 
-    const json = await readAdminApiPayload(res);
+    return {
+      ok: res.ok,
+      status: res.status,
+      json: await readAdminApiPayload(res),
+    };
+  }
 
-    if (!res.ok) {
-      const message = adminApiErrorMessage(
-        json,
-        "Abandoned checkout action failed.",
-      );
-      setAdminError(message);
-      if (process.env.NODE_ENV !== "production") {
-        console.warn("[AdminOrdersPage] abandoned checkout action failed", {
-          orderId,
-          action,
-          status: res.status,
-          error: json.error,
-          code: json.code,
-        });
+  async function runAbandonedActions(
+    orderIds: string[],
+    action: AbandonedAdminAction,
+  ): Promise<boolean> {
+    const uniqueOrderIds = [...new Set(orderIds)];
+    if (uniqueOrderIds.length === 0) return true;
+
+    setAdminError(null);
+
+    if (action === "draft_recovery_email") {
+      const [orderId] = uniqueOrderIds;
+      const result = await postAbandonedAction(orderId, action);
+
+      if (!result.ok) {
+        const message = adminApiErrorMessage(
+          result.json,
+          "Abandoned checkout action failed.",
+        );
+        setAdminError(message);
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[AdminOrdersPage] abandoned checkout action failed", {
+            orderId,
+            action,
+            status: result.status,
+            error: result.json.error,
+            code: result.json.code,
+          });
+        }
+        return false;
       }
-      return false;
-    }
 
-    if (action === "draft_recovery_email" && json.draft) {
-      const draft = json.draft;
-      setRecoveryDrafts((prev) => ({ ...prev, [orderId]: draft }));
+      if (result.json.draft) {
+        const draft = result.json.draft;
+        setRecoveryDrafts((prev) => ({ ...prev, [orderId]: draft }));
 
-      try {
-        await navigator.clipboard.writeText(draft.text);
-      } catch {
-        // Clipboard access can be blocked by the browser; the draft remains visible.
+        try {
+          await navigator.clipboard.writeText(draft.text);
+        } catch {
+          // Clipboard access can be blocked by the browser; the draft remains visible.
+        }
       }
+
       return true;
     }
 
-    await fetchData();
+    const snapshot = removeOrderOptimistically(uniqueOrderIds);
+    setAbandonedPending(uniqueOrderIds, true);
+    setAdminNotice({
+      tone: "info",
+      message:
+        action === "archive"
+          ? `Archiving ${uniqueOrderIds.length} abandoned draft${
+              uniqueOrderIds.length === 1 ? "" : "s"
+            }...`
+          : `Deleting ${uniqueOrderIds.length} abandoned draft${
+              uniqueOrderIds.length === 1 ? "" : "s"
+            }...`,
+    });
+
+    const results = await Promise.all(
+      uniqueOrderIds.map(async (orderId) => ({
+        orderId,
+        ...(await postAbandonedAction(orderId, action)),
+      })),
+    );
+    setAbandonedPending(uniqueOrderIds, false);
+
+    const failed = results.filter((result) => !result.ok);
+
+    if (failed.length > 0) {
+      restoreOrderAfterActionFailure(
+        snapshot,
+        failed.map((result) => result.orderId),
+      );
+      const firstFailure = failed[0];
+      const message = adminApiErrorMessage(
+        firstFailure.json,
+        `${failed.length} abandoned checkout action${
+          failed.length === 1 ? "" : "s"
+        } failed.`,
+      );
+      setAdminNotice(null);
+      setAdminError(message);
+
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[AdminOrdersPage] abandoned checkout action failed", {
+          action,
+          failed_order_ids: failed.map((result) => result.orderId),
+          status: firstFailure.status,
+          error: firstFailure.json.error,
+          code: firstFailure.json.code,
+        });
+      }
+
+      return false;
+    }
+
+    setAdminNotice({
+      tone: "success",
+      message:
+        action === "archive"
+          ? `Archived ${uniqueOrderIds.length} abandoned draft${
+              uniqueOrderIds.length === 1 ? "" : "s"
+            }.`
+          : `Deleted ${uniqueOrderIds.length} abandoned draft${
+              uniqueOrderIds.length === 1 ? "" : "s"
+            }.`,
+    });
     return true;
   }
 
   async function confirmPermanentDelete() {
     if (!permanentDeleteModal) return;
 
-    const ok = await runAbandonedAction(
-      permanentDeleteModal.orderId,
-      "delete_permanently",
+    const { orderIds } = permanentDeleteModal;
+    setPermanentDeleteModal(null);
+    void runAbandonedActions(orderIds, "delete_permanently");
+  }
+
+  function toggleSelectedAbandonedOrder(orderId: string, checked: boolean) {
+    setSelectedAbandonedOrderIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(orderId);
+      else next.delete(orderId);
+      return next;
+    });
+  }
+
+  function selectAllVisibleAbandonedOrders() {
+    setSelectedAbandonedOrderIds(
+      new Set(abandonedOrders.map((order) => order.id)),
     );
-    if (ok) setPermanentDeleteModal(null);
+  }
+
+  function clearSelectedAbandonedOrders() {
+    setSelectedAbandonedOrderIds(new Set<string>());
+  }
+
+  function batchArchiveOrders() {
+    void runAbandonedActions([...selectedAbandonedOrderIds], "archive");
+  }
+
+  function batchDeleteOrders() {
+    const selectedOrders = abandonedOrders.filter((order) =>
+      selectedAbandonedOrderIds.has(order.id),
+    );
+    const deletableOrders = selectedOrders.filter(canPermanentlyDelete);
+
+    if (
+      selectedOrders.length === 0 ||
+      deletableOrders.length !== selectedOrders.length
+    ) {
+      setAdminError(
+        "Permanent delete is only available for selected abandoned drafts with no payment intent.",
+      );
+      return;
+    }
+
+    setPermanentDeleteModal({
+      orderIds: deletableOrders.map((order) => order.id),
+      label: `${deletableOrders.length} selected abandoned draft${
+        deletableOrders.length === 1 ? "" : "s"
+      }`,
+    });
   }
 
   function copyOrderText(order: Order, rx: ReturnType<typeof parseRx>): void {
@@ -1870,6 +2154,14 @@ export default function AdminOrdersPage() {
     },
   ];
   const archiveCount = archiveOrders.length + abandonedOrders.length;
+  const selectedAbandonedOrders = abandonedOrders.filter((order) =>
+    selectedAbandonedOrderIds.has(order.id),
+  );
+  const selectedAbandonedCount = selectedAbandonedOrders.length;
+  const selectedDeleteAllowed =
+    selectedAbandonedCount > 0 &&
+    selectedAbandonedOrders.every(canPermanentlyDelete);
+  const pendingAbandonedCount = pendingAbandonedOrderIds.size;
 
   return (
     <main style={{ padding: 20 }} onClick={requestNotificationPermission}>
@@ -1898,6 +2190,40 @@ export default function AdminOrdersPage() {
             type="button"
             onClick={() => setAdminError(null)}
             style={buttonStyle({ color: "#fecaca" })}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {adminNotice && (
+        <div
+          role="status"
+          style={{
+            border:
+              adminNotice.tone === "success"
+                ? "1px solid rgba(34,197,94,0.42)"
+                : "1px solid rgba(56,189,248,0.38)",
+            borderRadius: 8,
+            background:
+              adminNotice.tone === "success"
+                ? "rgba(20,83,45,0.2)"
+                : "rgba(12,74,110,0.2)",
+            color: adminNotice.tone === "success" ? "#bbf7d0" : "#bae6fd",
+            padding: "8px 10px",
+            marginBottom: 12,
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "center",
+            fontSize: 13,
+          }}
+        >
+          <span>{adminNotice.message}</span>
+          <button
+            type="button"
+            onClick={() => setAdminNotice(null)}
+            style={buttonStyle({ color: "inherit" })}
           >
             Dismiss
           </button>
@@ -2526,6 +2852,78 @@ export default function AdminOrdersPage() {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {abandonedOrders.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  padding: "8px 10px",
+                  border: "1px solid rgba(251,191,36,0.2)",
+                  borderRadius: 8,
+                  background: "rgba(120,53,15,0.08)",
+                  fontSize: 12,
+                }}
+              >
+                <span style={{ fontWeight: 800 }}>
+                  {selectedAbandonedCount > 0
+                    ? `${selectedAbandonedCount} selected`
+                    : "Abandoned drafts"}
+                </span>
+                <button
+                  type="button"
+                  onClick={selectAllVisibleAbandonedOrders}
+                  style={buttonStyle()}
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedAbandonedCount === 0}
+                  onClick={clearSelectedAbandonedOrders}
+                  style={buttonStyle({
+                    opacity: selectedAbandonedCount === 0 ? 0.5 : 1,
+                  })}
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedAbandonedCount === 0}
+                  onClick={batchArchiveOrders}
+                  style={buttonStyle({
+                    opacity: selectedAbandonedCount === 0 ? 0.5 : 1,
+                  })}
+                >
+                  Archive selected
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedDeleteAllowed}
+                  title={
+                    selectedDeleteAllowed
+                      ? "Delete selected abandoned no-payment drafts"
+                      : "Permanent delete only applies to selected no-payment abandoned drafts"
+                  }
+                  onClick={batchDeleteOrders}
+                  style={buttonStyle({
+                    color: "#fecaca",
+                    border: "1px solid rgba(248,113,113,0.45)",
+                    background: "rgba(127,29,29,0.2)",
+                    opacity: selectedDeleteAllowed ? 1 : 0.5,
+                  })}
+                >
+                  Delete selected
+                </button>
+                {pendingAbandonedCount > 0 && (
+                  <span style={{ color: "#bae6fd", opacity: 0.82 }}>
+                    Syncing {pendingAbandonedCount}
+                  </span>
+                )}
+              </div>
+            )}
+
             {archiveOrders.map((o) => {
               const status = archiveOrderStatus(o);
               const isOpen = expanded === o.id;
@@ -2707,52 +3105,77 @@ export default function AdminOrdersPage() {
               const rowId = `abandoned:${o.id}`;
               const isOpen = expanded === rowId;
               const dateTime = formatOrderCreatedDate(o);
+              const isSelected = selectedAbandonedOrderIds.has(o.id);
+              const isPending = pendingAbandonedOrderIds.has(o.id);
               const primaryReason = info?.primaryReason
                 ? abandonedReasonLabel(info.primaryReason)
                 : "ABANDONED";
 
               return (
                 <div key={`abandoned-${o.id}`}>
-                  <button
-                    type="button"
-                    onClick={() => setExpanded(isOpen ? null : rowId)}
-                    aria-expanded={isOpen}
+                  <div
                     style={{
-                      width: "100%",
-                      minHeight: 34,
                       display: "grid",
-                      gridTemplateColumns:
-                        "92px minmax(160px, 1fr) 100px 150px 80px",
-                      gap: 10,
+                      gridTemplateColumns: "28px minmax(0, 1fr)",
+                      gap: 6,
                       alignItems: "center",
-                      border: "1px solid rgba(251,191,36,0.24)",
-                      borderRadius: 8,
-                      background: isOpen
-                        ? "rgba(120,53,15,0.22)"
-                        : "rgba(120,53,15,0.1)",
-                      color: "inherit",
-                      padding: "6px 10px",
-                      textAlign: "left",
-                      cursor: "pointer",
-                      fontSize: 12,
                     }}
                   >
-                    <span style={{ fontWeight: 800 }}>{dateTime.date}</span>
-                    <span
+                    <input
+                      type="checkbox"
+                      aria-label={`Select abandoned order for ${patientName}`}
+                      checked={isSelected}
+                      disabled={isPending}
+                      onChange={(event) =>
+                        toggleSelectedAbandonedOrder(o.id, event.target.checked)
+                      }
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setExpanded(isOpen ? null : rowId)}
+                      aria-expanded={isOpen}
                       style={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                        width: "100%",
+                        minHeight: 34,
+                        display: "grid",
+                        gridTemplateColumns:
+                          "92px minmax(160px, 1fr) 100px 150px 80px",
+                        gap: 10,
+                        alignItems: "center",
+                        border: isSelected
+                          ? "1px solid rgba(251,191,36,0.55)"
+                          : "1px solid rgba(251,191,36,0.24)",
+                        borderRadius: 8,
+                        background: isOpen
+                          ? "rgba(120,53,15,0.22)"
+                          : isSelected
+                            ? "rgba(251,191,36,0.14)"
+                            : "rgba(120,53,15,0.1)",
+                        color: "inherit",
+                        padding: "6px 10px",
+                        textAlign: "left",
+                        cursor: "pointer",
+                        fontSize: 12,
+                        opacity: isPending ? 0.55 : 1,
                       }}
                     >
-                      {patientName}
-                    </span>
-                    <span>{formatMoney(o.total_amount_cents)}</span>
-                    <span style={badgeStyle("warning")}>{primaryReason}</span>
-                    <span style={{ textAlign: "right", opacity: 0.7 }}>
-                      {isOpen ? "Hide" : "Details"}
-                    </span>
-                  </button>
+                      <span style={{ fontWeight: 800 }}>{dateTime.date}</span>
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {patientName}
+                      </span>
+                      <span>{formatMoney(o.total_amount_cents)}</span>
+                      <span style={badgeStyle("warning")}>{primaryReason}</span>
+                      <span style={{ textAlign: "right", opacity: 0.7 }}>
+                        {isOpen ? "Hide" : "Details"}
+                      </span>
+                    </button>
+                  </div>
 
                   {isOpen && (
                     <div
@@ -2819,12 +3242,14 @@ export default function AdminOrdersPage() {
 
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <button
+                          type="button"
                           onClick={() => runAbandonedAction(o.id, "archive")}
                           style={{ padding: "4px 8px", borderRadius: 4 }}
                         >
                           Archive
                         </button>
                         <button
+                          type="button"
                           onClick={() =>
                             runAbandonedAction(o.id, "draft_recovery_email")
                           }
@@ -2832,12 +3257,13 @@ export default function AdminOrdersPage() {
                         >
                           Draft recovery email
                         </button>
-                        {!o.payment_intent_id && (
+                        {canPermanentlyDelete(o) && (
                           <button
+                            type="button"
                             onClick={() =>
                               setPermanentDeleteModal({
-                                orderId: o.id,
-                                patientName,
+                                orderIds: [o.id],
+                                label: patientName,
                               })
                             }
                             style={{
@@ -2912,9 +3338,11 @@ export default function AdminOrdersPage() {
               Delete permanently?
             </div>
             <p style={{ marginTop: 0, color: "rgba(226,232,240,0.8)" }}>
-              This will permanently delete the abandoned no-payment draft for{" "}
-              {permanentDeleteModal.patientName} and remove any uploaded Rx file.
-              This cannot be undone.
+              This will permanently delete{" "}
+              {permanentDeleteModal.orderIds.length === 1
+                ? `the abandoned no-payment draft for ${permanentDeleteModal.label}`
+                : permanentDeleteModal.label}{" "}
+              and remove any uploaded Rx files. This cannot be undone.
             </p>
             <div
               style={{
