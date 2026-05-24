@@ -188,6 +188,16 @@ type RecoveryEmailDraft = {
   html: string;
 };
 
+type AdminApiPayload = {
+  error?: string;
+  code?: string;
+  needsAction?: Order[];
+  stalled?: Order[];
+  pipeline?: Order[];
+  abandoned?: Order[];
+  draft?: RecoveryEmailDraft;
+};
+
 const FULFILLMENT_STATUSES: FulfillmentStatus[] = [
   "review",
   "ready_to_order",
@@ -954,6 +964,26 @@ function isNewPaymentIntentOrder(order: Order): boolean {
   return Boolean(order.payment_intent_id);
 }
 
+async function readAdminApiPayload(response: Response): Promise<AdminApiPayload> {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    return (await response.json().catch(() => ({}))) as AdminApiPayload;
+  }
+
+  const text = await response.text().catch(() => "");
+  return text ? { error: text } : {};
+}
+
+function adminApiErrorMessage(
+  payload: AdminApiPayload,
+  fallback: string,
+): string {
+  return [payload.error ?? fallback, payload.code ? `(${payload.code})` : null]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function parseRx(rxRaw: string | RxData | null): {
   od: string;
   os: string;
@@ -1157,13 +1187,14 @@ export default function AdminOrdersPage() {
   const [highlightedOrderIds, setHighlightedOrderIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [adminError, setAdminError] = useState<string | null>(null);
   const knownPaymentIntentOrderIds = useRef<Set<string>>(new Set());
   const notifiedPaymentIntentOrderIds = useRef<Set<string>>(new Set());
   const highlightTimeouts = useRef<Map<string, number>>(new Map());
   const baseDocumentTitle = useRef<string | null>(null);
   const isInitialLoad = useRef(true);
 
-  async function authHeaders(): Promise<HeadersInit> {
+  const authHeaders = useCallback(async (): Promise<HeadersInit> => {
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -1175,7 +1206,7 @@ export default function AdminOrdersPage() {
         ? { Authorization: `Bearer ${session.access_token}` }
         : {}),
     };
-  }
+  }, []);
 
   const clearOrderHighlight = useCallback((orderId: string) => {
     const timeoutId = highlightTimeouts.current.get(orderId);
@@ -1212,8 +1243,26 @@ export default function AdminOrdersPage() {
   }, [clearOrderHighlight]);
 
   const fetchData = useCallback(async () => {
-    const res = await fetch("/api/admin/orders");
-    const json = await res.json();
+    const res = await fetch("/api/admin/orders", {
+      headers: await authHeaders(),
+      credentials: "same-origin",
+    });
+    const json = await readAdminApiPayload(res);
+
+    if (!res.ok) {
+      const message = adminApiErrorMessage(json, "Failed to fetch orders.");
+      setAdminError(message);
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[AdminOrdersPage] orders fetch failed", {
+          status: res.status,
+          error: json.error,
+          code: json.code,
+        });
+      }
+      return;
+    }
+
+    setAdminError(null);
 
     const combined: Order[] = [
       ...(json.needsAction ?? []),
@@ -1257,7 +1306,7 @@ export default function AdminOrdersPage() {
 
     setOrders(combined.sort(compareOperationalPriority));
     setAbandonedOrders(abandoned);
-  }, [markHighlightedPaymentOrders]);
+  }, [authHeaders, markHighlightedPaymentOrders]);
 
   useEffect(() => {
     let mounted = true;
@@ -1330,18 +1379,29 @@ export default function AdminOrdersPage() {
     >,
   ): Promise<boolean> {
     setSavingOrderId(orderId);
+    setAdminError(null);
 
     try {
       const res = await fetch(`/api/admin/orders/${orderId}`, {
         method: "PATCH",
         headers: await authHeaders(),
+        credentials: "same-origin",
         body: JSON.stringify(patch),
       });
 
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      const json = await readAdminApiPayload(res);
 
       if (!res.ok) {
-        alert(json.error ?? "Order update failed.");
+        const message = adminApiErrorMessage(json, "Order update failed.");
+        setAdminError(message);
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[AdminOrdersPage] order update failed", {
+            orderId,
+            status: res.status,
+            error: json.error,
+            code: json.code,
+          });
+        }
         return false;
       }
 
@@ -1445,6 +1505,7 @@ export default function AdminOrdersPage() {
     await fetch(`/api/orders/${orderId}/archive`, {
       method: "POST",
       headers: await authHeaders(),
+      credentials: "same-origin",
       body: JSON.stringify({ archived: true }),
     });
 
@@ -1455,6 +1516,8 @@ export default function AdminOrdersPage() {
     orderId: string,
     action: AbandonedAdminAction,
   ) {
+    setAdminError(null);
+
     if (action === "archive" && !confirm("Archive this abandoned draft?")) {
       return;
     }
@@ -1469,16 +1532,27 @@ export default function AdminOrdersPage() {
     const res = await fetch(`/api/admin/abandoned-checkouts/${orderId}`, {
       method: "POST",
       headers: await authHeaders(),
+      credentials: "same-origin",
       body: JSON.stringify({ action }),
     });
 
-    const json = (await res.json()) as {
-      draft?: RecoveryEmailDraft;
-      error?: string;
-    };
+    const json = await readAdminApiPayload(res);
 
     if (!res.ok) {
-      alert(json.error ?? "Abandoned checkout action failed.");
+      const message = adminApiErrorMessage(
+        json,
+        "Abandoned checkout action failed.",
+      );
+      setAdminError(message);
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[AdminOrdersPage] abandoned checkout action failed", {
+          orderId,
+          action,
+          status: res.status,
+          error: json.error,
+          code: json.code,
+        });
+      }
       return;
     }
 
@@ -1539,6 +1613,33 @@ export default function AdminOrdersPage() {
       <h1 style={{ fontSize: 26, fontWeight: 800, marginBottom: 20 }}>
         Orders
       </h1>
+
+      {adminError && (
+        <div
+          role="status"
+          style={{
+            border: "1px solid rgba(248,113,113,0.5)",
+            borderRadius: 8,
+            background: "rgba(127,29,29,0.22)",
+            color: "#fecaca",
+            padding: "10px 12px",
+            marginBottom: 12,
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "center",
+          }}
+        >
+          <span>{adminError}</span>
+          <button
+            type="button"
+            onClick={() => setAdminError(null)}
+            style={buttonStyle({ color: "#fecaca" })}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {orders.map((o) => {

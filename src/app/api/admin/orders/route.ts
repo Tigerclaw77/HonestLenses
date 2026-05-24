@@ -8,6 +8,12 @@ import {
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { captureServerEvent } from "@/lib/posthog/server";
 import { supabaseServer } from "@/lib/supabase-server";
+import {
+  adminAuthErrorResponse,
+  logAdminAuthFailure,
+  requireAdminUser,
+} from "@/lib/admin-auth";
+import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 export const runtime = "nodejs";
@@ -194,7 +200,13 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
    Route
 ========================= */
 
-export async function GET() {
+export async function GET(req: Request) {
+  const auth = await requireAdminUser(req);
+  if (!auth.ok) {
+    logAdminAuthFailure("GET /api/admin/orders", auth);
+    return adminAuthErrorResponse(auth);
+  }
+
   try {
     /* =========================
        Fetch orders (MOST RECENT FIRST)
@@ -207,7 +219,10 @@ export async function GET() {
 
     if (error) {
       console.error("Admin orders fetch error:", error);
-      return new Response("Failed to fetch orders", { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to fetch orders", code: "ORDERS_FETCH_FAILED" },
+        { status: 500 },
+      );
     }
 
     const baseOrders: OrderRow[] = (data ?? [])
@@ -284,7 +299,7 @@ export async function GET() {
       (o) => o.status !== "authorized",
     );
 
-    return Response.json({
+    return NextResponse.json({
       needsAction,
       stalled,
       pipeline,
@@ -292,6 +307,9 @@ export async function GET() {
     });
   } catch (err) {
     console.error("Admin route crash:", err);
-    return new Response("Server error", { status: 500 });
+    return NextResponse.json(
+      { error: "Server error", code: "SERVER_ERROR" },
+      { status: 500 },
+    );
   }
 }

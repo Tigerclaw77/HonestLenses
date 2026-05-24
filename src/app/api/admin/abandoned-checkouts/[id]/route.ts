@@ -5,12 +5,14 @@ import {
   getStaleCheckoutThresholdHours,
 } from "@/lib/ops/abandonedCheckout";
 import { buildAbandonedCheckoutRecoveryEmail } from "@/lib/email/recoveryEmail";
-import { getUserFromRequest } from "@/lib/get-user-from-request";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { captureServerEvent } from "@/lib/posthog/server";
 import { supabaseServer } from "@/lib/supabase-server";
-
-const ADMIN_EMAILS = ["pauldriggers@aol.com"];
+import {
+  adminAuthErrorResponse,
+  logAdminAuthFailure,
+  requireAdminUser,
+} from "@/lib/admin-auth";
 
 type AdminAbandonedAction =
   | "archive"
@@ -73,13 +75,10 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const user = await getUserFromRequest(req);
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  if (!ADMIN_EMAILS.includes(user.email ?? "")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const auth = await requireAdminUser(req);
+  if (!auth.ok) {
+    logAdminAuthFailure("POST /api/admin/abandoned-checkouts/[id]", auth);
+    return adminAuthErrorResponse(auth);
   }
 
   const { id } = await context.params;
