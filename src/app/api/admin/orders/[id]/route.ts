@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserFromRequest } from "@/lib/get-user-from-request";
 import { supabaseServer } from "@/lib/supabase-server";
-
-const ADMIN_EMAILS = ["pauldriggers@aol.com"];
+import {
+  adminAuthErrorResponse,
+  logAdminAuthFailure,
+  requireAdminUser,
+} from "@/lib/admin-auth";
 
 const FULFILLMENT_STATUSES = [
   "review",
@@ -47,13 +49,10 @@ export async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const user = await getUserFromRequest(req);
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  if (!ADMIN_EMAILS.includes(user.email ?? "")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const auth = await requireAdminUser(req);
+  if (!auth.ok) {
+    logAdminAuthFailure("PATCH /api/admin/orders/[id]", auth);
+    return adminAuthErrorResponse(auth);
   }
 
   const { id } = await context.params;
