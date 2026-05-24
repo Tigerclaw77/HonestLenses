@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import type { CSSProperties } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase-client";
+import { getLensDisplayName } from "@/lib/cart/display";
 
 /* =========================
    Types
@@ -13,12 +14,15 @@ type RxValue = string | number | null | undefined;
 type RxEye = {
   coreId?: string | null;
   sphere?: RxValue;
+  sph?: RxValue;
   cylinder?: RxValue;
   cyl?: RxValue;
   axis?: RxValue;
+  ax?: RxValue;
   add?: RxValue;
   base_curve?: RxValue;
   baseCurve?: RxValue;
+  bc?: RxValue;
   diameter?: RxValue;
   dia?: RxValue;
   brand_raw?: string | null;
@@ -132,6 +136,12 @@ type BadgeTone =
   | "capture"
   | "refund";
 
+type DerivedOrderStage = {
+  stage: "READY" | "WAITING" | "ACTION" | "ORDERED" | "SHIPPED" | "COMPLETE";
+  awaiting: string;
+  tone: BadgeTone;
+};
+
 type NotesModalState = {
   orderId: string;
   patientName: string;
@@ -188,6 +198,16 @@ const FULFILLMENT_STATUSES: FulfillmentStatus[] = [
   "cancelled",
 ];
 
+const FULFILLMENT_PROGRESS_FLOW: FulfillmentStatus[] = [
+  "review",
+  "ready_to_order",
+  "ordered",
+  "shipped",
+  "completed",
+];
+
+const HIGHLIGHT_MS = 120_000;
+
 const VERIFICATION_FLAGS: { key: VerificationFlag; label: string }[] = [
   { key: "needs_review", label: "Needs review" },
   { key: "verified", label: "Verified" },
@@ -201,21 +221,44 @@ const VERIFICATION_FLAGS: { key: VerificationFlag; label: string }[] = [
 ========================= */
 
 function formatMoney(cents?: number): string {
-  if (typeof cents !== "number") return "—";
+  if (typeof cents !== "number") return "-";
   return `$${(cents / 100).toFixed(2)}`;
 }
 
 function formatDateTime(value?: string | null): string {
-  if (!value) return "â€”";
+  if (!value) return "-";
 
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "â€”";
+  if (Number.isNaN(date.getTime())) return "-";
 
   return date.toLocaleString();
 }
 
+function formatAdminOrderDateTimeCentral(value?: string | null): {
+  date: string;
+  time: string;
+} {
+  if (!value) return { date: "-", time: "-" };
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { date: "-", time: "-" };
+
+  return {
+    date: new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Chicago",
+      month: "short",
+      day: "numeric",
+    }).format(date),
+    time: `${new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Chicago",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(date)} CT`,
+  };
+}
+
 function formatAge(hours?: number | null): string {
-  if (typeof hours !== "number") return "â€”";
+  if (typeof hours !== "number") return "-";
   if (hours < 24) return `${Math.round(hours)}h`;
   return `${Math.round(hours / 24)}d`;
 }
@@ -447,6 +490,90 @@ function deriveOperationalReadiness(order: Order): {
   };
 }
 
+function getDerivedOrderStage(order: Order): DerivedOrderStage {
+  const payment = normalizedPaymentStatus(order);
+  const fulfillment = normalizedFulfillmentStatus(order);
+
+  if (fulfillment === "completed") {
+    return { stage: "COMPLETE", awaiting: "No action", tone: "good" };
+  }
+
+  if (fulfillment === "shipped") {
+    return { stage: "SHIPPED", awaiting: "Completion", tone: "good" };
+  }
+
+  if (fulfillment === "ordered") {
+    return { stage: "ORDERED", awaiting: "Shipment", tone: "info" };
+  }
+
+  if (fulfillment === "cancelled") {
+    return { stage: "ACTION", awaiting: "Cancelled review", tone: "blocked" };
+  }
+
+  if (fulfillment === "hold") {
+    return { stage: "ACTION", awaiting: "Hold resolution", tone: "warning" };
+  }
+
+  if (payment === "failed" || payment === "refunded") {
+    return { stage: "ACTION", awaiting: "Payment fix", tone: "blocked" };
+  }
+
+  if (payment !== "captured") {
+    return { stage: "WAITING", awaiting: "Capture", tone: "warning" };
+  }
+
+  if (orderVerificationBlocked(order)) {
+    return {
+      stage: "ACTION",
+      awaiting: "Verification unblock",
+      tone: "blocked",
+    };
+  }
+
+  if (!orderHasRx(order)) {
+    return { stage: "ACTION", awaiting: "Rx", tone: "warning" };
+  }
+
+  if (order.needs_review) {
+    return { stage: "ACTION", awaiting: "Manual review", tone: "warning" };
+  }
+
+  if (!orderVerificationComplete(order)) {
+    return { stage: "WAITING", awaiting: "Verification", tone: "warning" };
+  }
+
+  if (fulfillment === "ready_to_order") {
+    return { stage: "READY", awaiting: "Manufacturer order", tone: "good" };
+  }
+
+  return { stage: "READY", awaiting: "Fulfillment review", tone: "good" };
+}
+
+function paymentCaptureSummary(order: Order): { label: string; tone: BadgeTone } {
+  const payment = normalizedPaymentStatus(order);
+
+  if (payment === "captured") return { label: "Captured", tone: "capture" };
+  if (payment === "authorized") {
+    return { label: "Awaiting capture", tone: "warning" };
+  }
+  if (payment === "refunded") return { label: "Refunded", tone: "refund" };
+  return { label: "Payment failed", tone: "blocked" };
+}
+
+function nextFulfillmentStatus(status: FulfillmentStatus): FulfillmentStatus | null {
+  const currentIndex = FULFILLMENT_PROGRESS_FLOW.indexOf(status);
+  if (currentIndex < 0) return null;
+  return FULFILLMENT_PROGRESS_FLOW[currentIndex + 1] ?? null;
+}
+
+function previousFulfillmentStatus(
+  status: FulfillmentStatus,
+): FulfillmentStatus | null {
+  const currentIndex = FULFILLMENT_PROGRESS_FLOW.indexOf(status);
+  if (currentIndex <= 0) return null;
+  return FULFILLMENT_PROGRESS_FLOW[currentIndex - 1] ?? null;
+}
+
 function compactTimeline(order: Order): { label: string; tone: BadgeTone }[] {
   const payment = normalizedPaymentStatus(order);
   const verification = verificationSummary(order);
@@ -609,12 +736,15 @@ function eyeValueWithRootFallback(
 function hasEyeDetails(eye: RxEye | null | undefined): boolean {
   return [
     "sphere",
+    "sph",
     "cylinder",
     "cyl",
     "axis",
+    "ax",
     "add",
     "base_curve",
     "baseCurve",
+    "bc",
     "diameter",
     "dia",
     "brand_raw",
@@ -658,6 +788,172 @@ function fullRxDetails(order: Order): {
   };
 }
 
+function firstEyeValue(
+  eye: RxEye | null | undefined,
+  keys: (keyof RxEye)[],
+): unknown {
+  return keys
+    .map((key) => eye?.[key])
+    .find((value) => hasValue(value));
+}
+
+function firstRootValue(
+  rx: RxData | null,
+  keys: (keyof RxData)[],
+): unknown {
+  return keys
+    .map((key) => rx?.[key])
+    .find((value) => hasValue(value));
+}
+
+function firstEyeValueWithRootFallback(
+  eye: RxEye | null | undefined,
+  eyeKeys: (keyof RxEye)[],
+  rx: RxData | null,
+  rootKeys: (keyof RxData)[],
+): unknown {
+  return firstEyeValue(eye, eyeKeys) ?? firstRootValue(rx, rootKeys);
+}
+
+function normalizedCurve(value: unknown): string | null {
+  const formatted = formatRxNumber(value, 1);
+  return formatted === "-" ? null : formatted;
+}
+
+function normalizedPower(value: unknown): string | null {
+  const formatted = formatRxNumber(value, 2);
+  return formatted === "-" ? null : formatted;
+}
+
+function normalizedAxis(value: unknown): string | null {
+  if (!hasValue(value)) return null;
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return String(Math.round(numeric));
+
+  const trimmed = String(value).trim();
+  return trimmed || null;
+}
+
+function uniqueValues(values: (string | null)[]): string[] {
+  return Array.from(new Set(values.filter((value): value is string => !!value)));
+}
+
+function formatCollapsedRxLine(order: Order): string[] {
+  const details = fullRxDetails(order);
+  const rx = details.rx;
+  const right = rx?.right ?? null;
+  const left = rx?.left ?? null;
+  const bcValues = [
+    normalizedCurve(
+      firstEyeValueWithRootFallback(
+        right,
+        ["base_curve", "baseCurve", "bc"],
+        rx,
+        ["base_curve", "baseCurve"],
+      ),
+    ),
+    normalizedCurve(
+      firstEyeValueWithRootFallback(
+        left,
+        ["base_curve", "baseCurve", "bc"],
+        rx,
+        ["base_curve", "baseCurve"],
+      ),
+    ),
+  ];
+  const diaValues = [
+    normalizedCurve(
+      firstEyeValueWithRootFallback(
+        right,
+        ["diameter", "dia"],
+        rx,
+        ["diameter", "dia"],
+      ),
+    ),
+    normalizedCurve(
+      firstEyeValueWithRootFallback(
+        left,
+        ["diameter", "dia"],
+        rx,
+        ["diameter", "dia"],
+      ),
+    ),
+  ];
+  const showBc = bcValues.some(Boolean);
+  const showDia = uniqueValues(diaValues).length > 1;
+
+  const formatEye = (
+    label: "OD" | "OS",
+    eye: RxEye | null,
+    bc: string | null,
+    dia: string | null,
+  ): string | null => {
+    if (!eye || !hasEyeDetails(eye)) return null;
+
+    const sphere = normalizedPower(firstEyeValue(eye, ["sphere", "sph"]));
+    const cylinder = normalizedPower(firstEyeValue(eye, ["cylinder", "cyl"]));
+    const axis = normalizedAxis(firstEyeValue(eye, ["axis", "ax"]));
+    const add = normalizedPower(firstEyeValue(eye, ["add"]));
+    const pieces = [sphere ?? "-"];
+
+    if (cylinder) pieces.push(cylinder);
+    if (axis) pieces.push(`x${axis}`);
+    if (add) pieces.push(`${add} add`);
+
+    let line = `${label} ${pieces.join(" ")}`;
+    if (showBc && bc) line += ` / ${bc}`;
+    if (showDia && dia) line += ` / ${dia}`;
+    if (eye.color) line += ` ${eye.color}`;
+    return line;
+  };
+
+  const od = formatEye("OD", right, bcValues[0], diaValues[0]);
+  const os = formatEye("OS", left, bcValues[1], diaValues[1]);
+
+  if (od && os && od.replace(/^OD /, "") === os.replace(/^OS /, "")) {
+    return [`OU ${od.replace(/^OD /, "")}`];
+  }
+
+  return [od, os].filter((line): line is string => Boolean(line));
+}
+
+function getOrderLensDisplayName(order: Order): string {
+  const details = fullRxDetails(order);
+  const rightCoreId = details.rx?.right?.coreId ?? null;
+  const leftCoreId = details.rx?.left?.coreId ?? null;
+  const displayFromCore = (coreId: string): string | null => {
+    const displayName = getLensDisplayName(coreId, order.sku ?? null);
+    return displayName === "Unknown Lens" ? null : displayName;
+  };
+
+  if (rightCoreId && leftCoreId && rightCoreId !== leftCoreId) {
+    const rightName = displayFromCore(rightCoreId) ?? rightCoreId;
+    const leftName = displayFromCore(leftCoreId) ?? leftCoreId;
+    return `OD ${rightName} / OS ${leftName}`;
+  }
+
+  const coreId = rightCoreId ?? leftCoreId;
+  if (coreId) {
+    const displayName = displayFromCore(coreId);
+    if (displayName) return displayName;
+  }
+
+  return details.brand ?? order.rx_lens_brand ?? order.sku ?? "Lens pending";
+}
+
+function copyToClipboard(value?: string | null): void {
+  const text = value?.trim();
+  if (!text) return;
+  navigator.clipboard.writeText(text).catch(() => {
+    // Clipboard writes can be blocked outside a direct user gesture.
+  });
+}
+
+function isNewPaymentIntentOrder(order: Order): boolean {
+  return Boolean(order.payment_intent_id);
+}
+
 function parseRx(rxRaw: string | RxData | null): {
   od: string;
   os: string;
@@ -670,7 +966,7 @@ function parseRx(rxRaw: string | RxData | null): {
     const os = rx?.left;
 
     const formatEye = (eye?: RxEye | null) => {
-      if (!eye) return "—";
+      if (!eye) return "-";
       const parts = [eye.coreId ?? "", `SPH ${formatRxNumber(eye.sphere, 2)}`];
       if (hasValue(eye.cylinder))
         parts.push(`CYL ${formatRxNumber(eye.cylinder, 2)}`);
@@ -694,7 +990,7 @@ function parseRx(rxRaw: string | RxData | null): {
       exp: rx?.expires ?? rx?.expirationDate ?? rx?.expiration_date ?? null,
     };
   } catch {
-    return { od: "OD: —", os: "OS: —", exp: null };
+    return { od: "OD: -", os: "OS: -", exp: null };
   }
 }
 
@@ -803,6 +1099,44 @@ function RxDetailsPanel({ order }: { order: Order }) {
   );
 }
 
+function CopyableValue({
+  value,
+  children,
+  style,
+}: {
+  value?: string | null;
+  children?: ReactNode;
+  style?: CSSProperties;
+}) {
+  if (!value) return null;
+
+  return (
+    <button
+      type="button"
+      title={`Copy ${value}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        copyToClipboard(value);
+      }}
+      style={{
+        display: "inline",
+        padding: 0,
+        border: "none",
+        background: "transparent",
+        color: "inherit",
+        font: "inherit",
+        textAlign: "left",
+        cursor: "copy",
+        textDecoration: "underline dotted rgba(148,163,184,0.7)",
+        textUnderlineOffset: 3,
+        ...style,
+      }}
+    >
+      {children ?? value}
+    </button>
+  );
+}
+
 /* =========================
    Component
 ========================= */
@@ -820,7 +1154,13 @@ export default function AdminOrdersPage() {
     null,
   );
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
-  const knownOrderIds = useRef<Set<string>>(new Set());
+  const [highlightedOrderIds, setHighlightedOrderIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const knownPaymentIntentOrderIds = useRef<Set<string>>(new Set());
+  const notifiedPaymentIntentOrderIds = useRef<Set<string>>(new Set());
+  const highlightTimeouts = useRef<Map<string, number>>(new Map());
+  const baseDocumentTitle = useRef<string | null>(null);
   const isInitialLoad = useRef(true);
 
   async function authHeaders(): Promise<HeadersInit> {
@@ -837,7 +1177,41 @@ export default function AdminOrdersPage() {
     };
   }
 
-  async function fetchData() {
+  const clearOrderHighlight = useCallback((orderId: string) => {
+    const timeoutId = highlightTimeouts.current.get(orderId);
+    if (timeoutId) window.clearTimeout(timeoutId);
+    highlightTimeouts.current.delete(orderId);
+
+    setHighlightedOrderIds((current) => {
+      if (!current.has(orderId)) return current;
+      const next = new Set(current);
+      next.delete(orderId);
+      return next;
+    });
+  }, []);
+
+  const markHighlightedPaymentOrders = useCallback((newOrders: Order[]) => {
+    if (newOrders.length === 0) return;
+
+    setHighlightedOrderIds((current) => {
+      const next = new Set(current);
+      newOrders.forEach((order) => next.add(order.id));
+      return next;
+    });
+
+    newOrders.forEach((order) => {
+      const existingTimeout = highlightTimeouts.current.get(order.id);
+      if (existingTimeout) window.clearTimeout(existingTimeout);
+
+      const timeoutId = window.setTimeout(() => {
+        clearOrderHighlight(order.id);
+      }, HIGHLIGHT_MS);
+
+      highlightTimeouts.current.set(order.id, timeoutId);
+    });
+  }, [clearOrderHighlight]);
+
+  const fetchData = useCallback(async () => {
     const res = await fetch("/api/admin/orders");
     const json = await res.json();
 
@@ -848,18 +1222,25 @@ export default function AdminOrdersPage() {
     ];
     const abandoned: Order[] = json.abandoned ?? [];
 
+    const paymentIntentOrders = combined.filter(isNewPaymentIntentOrder);
+
     if (!isInitialLoad.current) {
-      const newOrders = combined.filter(
-        (o) => !knownOrderIds.current.has(o.id),
+      const newPaymentIntentOrders = paymentIntentOrders.filter(
+        (order) =>
+          !knownPaymentIntentOrderIds.current.has(order.id) &&
+          !notifiedPaymentIntentOrderIds.current.has(order.id),
       );
 
-      for (const order of newOrders) {
+      markHighlightedPaymentOrders(newPaymentIntentOrders);
+
+      for (const order of newPaymentIntentOrders) {
         const name =
           order.patient_name ||
           order.patient_full_name ||
           `${order.shipping_first_name ?? ""} ${order.shipping_last_name ?? ""}`.trim();
 
         const amount = formatMoney(order.total_amount_cents);
+        notifiedPaymentIntentOrderIds.current.add(order.id);
 
         if ("Notification" in window && Notification.permission === "granted") {
           new Notification("New Order", {
@@ -869,12 +1250,14 @@ export default function AdminOrdersPage() {
       }
     }
 
-    combined.forEach((o) => knownOrderIds.current.add(o.id));
+    paymentIntentOrders.forEach((o) =>
+      knownPaymentIntentOrderIds.current.add(o.id),
+    );
     isInitialLoad.current = false;
 
     setOrders(combined.sort(compareOperationalPriority));
     setAbandonedOrders(abandoned);
-  }
+  }, [markHighlightedPaymentOrders]);
 
   useEffect(() => {
     let mounted = true;
@@ -906,7 +1289,24 @@ export default function AdminOrdersPage() {
       mounted = false;
       supabase.removeChannel(channel);
     };
+  }, [fetchData]);
+
+  useEffect(() => {
+    const timeoutMap = highlightTimeouts.current;
+    baseDocumentTitle.current = document.title || "Orders";
+
+    return () => {
+      timeoutMap.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      timeoutMap.clear();
+      if (baseDocumentTitle.current) document.title = baseDocumentTitle.current;
+    };
   }, []);
+
+  useEffect(() => {
+    const baseTitle = baseDocumentTitle.current ?? "Orders";
+    const count = highlightedOrderIds.size;
+    document.title = count > 0 ? `(${count}) ${baseTitle}` : baseTitle;
+  }, [highlightedOrderIds.size]);
 
   function requestNotificationPermission() {
     if ("Notification" in window && Notification.permission === "default") {
@@ -1113,20 +1513,20 @@ export default function AdminOrdersPage() {
       `Shipping: ${order.shipping_method ?? "standard"} | ${formatMoney(
         order.shipping_cents ?? 0,
       )}`,
-      `SKU: ${order.sku ?? "—"}`,
-      `Boxes: OD ${order.od_box_count ?? order.box_count ?? "—"} | OS ${
-        order.os_box_count ?? order.box_count ?? "—"
-      } | Total ${order.total_box_count ?? order.box_count ?? "—"}`,
+      `SKU: ${order.sku ?? "-"}`,
+      `Boxes: OD ${order.od_box_count ?? order.box_count ?? "-"} | OS ${
+        order.os_box_count ?? order.box_count ?? "-"
+      } | Total ${order.total_box_count ?? order.box_count ?? "-"}`,
       `RX OD: ${rx.od}`,
       `RX OS: ${rx.os}`,
-      `Expires: ${rx.exp ?? "—"}`,
-      `Dr: ${order.prescriber_name ?? "—"}`,
+      `Expires: ${rx.exp ?? "-"}`,
+      `Dr: ${order.prescriber_name ?? "-"}`,
       `Ship to: ${order.shipping_first_name ?? ""} ${order.shipping_last_name ?? ""}`,
       order.shipping_address1,
       order.shipping_address2,
       `${order.shipping_city}, ${order.shipping_state} ${order.shipping_zip}`,
-      `Phone: ${order.shipping_phone ?? "—"}`,
-      `Email: ${order.shipping_email ?? "—"}`,
+      `Phone: ${order.shipping_phone ?? "-"}`,
+      `Email: ${order.shipping_email ?? "-"}`,
     ]
       .filter(Boolean)
       .join("\n");
@@ -1148,6 +1548,14 @@ export default function AdminOrdersPage() {
           const verification = verificationSummary(o);
           const fulfillment = normalizedFulfillmentStatus(o);
           const path = verificationPath(o);
+          const dateTime = formatAdminOrderDateTimeCentral(o.created_at);
+          const derivedStage = getDerivedOrderStage(o);
+          const captureState = paymentCaptureSummary(o);
+          const rxLines = formatCollapsedRxLine(o);
+          const lensDisplay = getOrderLensDisplayName(o);
+          const isHighlighted = highlightedOrderIds.has(o.id);
+          const nextFulfillment = nextFulfillmentStatus(fulfillment);
+          const previousFulfillment = previousFulfillmentStatus(fulfillment);
 
           const patientName =
             o.patient_name ||
@@ -1162,26 +1570,22 @@ export default function AdminOrdersPage() {
 
           const sameName = patientName === shippingName;
 
-          const addressLines = [
-            o.shipping_address1,
-            o.shipping_address2,
-            `${o.shipping_city}, ${o.shipping_state} ${o.shipping_zip}`,
-          ].filter((v): v is string => Boolean(v));
-
-          const flags: string[] = [];
-
-          if (!sameName) flags.push("⚠ NAME");
-          if (!o.prescriber_name && normalizedPaymentStatus(o) === "authorized")
-            flags.push("⚠ NO DR");
-          if (!o.rx_upload_path && !o.prescriber_name)
-            flags.push("🚨 NO VERIFY");
+          const flags = [
+            !sameName ? "Name mismatch" : null,
+            !o.prescriber_name && normalizedPaymentStatus(o) === "authorized"
+              ? "No prescriber"
+              : null,
+            !o.rx_upload_path && !o.prescriber_name
+              ? "No verification path"
+              : null,
+          ].filter((flag): flag is string => Boolean(flag));
 
           const isOpen = expanded === o.id;
           const isRxOpen = rxExpanded === o.id;
 
-          const odBoxes = o.od_box_count ?? o.box_count ?? "—";
-          const osBoxes = o.os_box_count ?? o.box_count ?? "—";
-          const totalBoxes = o.total_box_count ?? o.box_count ?? "—";
+          const odBoxes = o.od_box_count ?? o.box_count ?? "-";
+          const osBoxes = o.os_box_count ?? o.box_count ?? "-";
+          const totalBoxes = o.total_box_count ?? o.box_count ?? "-";
           const boxDisplay =
             odBoxes === osBoxes
               ? `${odBoxes} bx`
@@ -1191,83 +1595,166 @@ export default function AdminOrdersPage() {
             <div
               key={o.id}
               style={{
-                border: "1px solid rgba(148,163,184,0.2)",
-                borderRadius: 12,
-                padding: 14,
-                background: isOpen ? "rgba(30,41,59,0.6)" : "transparent",
+                border: isHighlighted
+                  ? "1px solid rgba(186,230,253,0.95)"
+                  : "1px solid rgba(148,163,184,0.2)",
+                borderRadius: 10,
+                padding: "10px 12px",
+                background: isOpen
+                  ? "rgba(30,41,59,0.6)"
+                  : isHighlighted
+                    ? "rgba(14,165,233,0.08)"
+                    : "transparent",
+                boxShadow: isHighlighted
+                  ? "0 0 0 1px rgba(186,230,253,0.18), 0 0 20px rgba(14,165,233,0.16)"
+                  : "none",
                 opacity: o.archived ? 0.5 : 1,
               }}
             >
               <div
-                onClick={() => setExpanded(isOpen ? null : o.id)}
+                onClick={() => {
+                  clearOrderHighlight(o.id);
+                  setExpanded(isOpen ? null : o.id);
+                }}
                 style={{ cursor: "pointer" }}
               >
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 1fr 1fr",
+                    gridTemplateColumns:
+                      "112px minmax(260px, 1.35fr) minmax(260px, 1fr)",
                     gap: 12,
+                    alignItems: "start",
+                    fontSize: 12,
+                    lineHeight: 1.35,
                   }}
                 >
                   <div>
-                    <div style={{ fontWeight: 700 }}>{patientName}</div>
-                    <div>{rx.od}</div>
-                    <div>{rx.os}</div>
-                  </div>
-
-                  <div>
-                    {!sameName && (
-                      <div style={{ fontWeight: 600 }}>{shippingName}</div>
-                    )}
-                    {addressLines.map((line, i) => (
-                      <div key={i}>{line}</div>
-                    ))}
-                  </div>
-
-                  <div>
-                    <div style={{ fontWeight: 700 }}>
-                      {formatMoney(o.total_amount_cents)}
+                    <div style={{ fontWeight: 800, fontSize: 14 }}>
+                      {dateTime.date}
                     </div>
-                    <div style={{ fontSize: 12, opacity: 0.78 }}>
-                      Shipping:{" "}
-                      {o.shipping_method === "express"
-                        ? "Express"
-                        : "Standard"}{" "}
-                      ({formatMoney(o.shipping_cents ?? 0)})
+                    <div style={{ opacity: 0.72 }}>{dateTime.time}</div>
+                    <div style={{ marginTop: 8 }}>
+                      <span style={badgeStyle(derivedStage.tone)}>
+                        {derivedStage.stage}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 6,
+                        color: "rgba(226,232,240,0.78)",
+                      }}
+                    >
+                      Awaiting {derivedStage.awaiting}
+                    </div>
+                    {o.shipping_method === "express" && (
+                      <div
+                        style={{
+                          marginTop: 7,
+                          padding: "5px 7px",
+                          borderRadius: 6,
+                          border: "1px solid rgba(251,191,36,0.7)",
+                          background: "rgba(251,191,36,0.14)",
+                          color: "#fde68a",
+                          fontWeight: 800,
+                          letterSpacing: 0,
+                        }}
+                      >
+                        EXPRESS
+                      </div>
+                    )}
+                    {isHighlighted && (
+                      <div
+                        style={{
+                          marginTop: 6,
+                          color: "#bae6fd",
+                          fontWeight: 700,
+                        }}
+                      >
+                        New payment
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 13 }}>
+                      {patientName || shippingName || "Unknown customer"}
+                    </div>
+                    {!sameName && shippingName && (
+                      <div style={{ opacity: 0.72 }}>Ship: {shippingName}</div>
+                    )}
+                    <div style={{ marginTop: 6 }}>
+                      <CopyableValue value={o.shipping_address1} />
+                    </div>
+                    {o.shipping_address2 && (
+                      <div>
+                        <CopyableValue value={o.shipping_address2} />
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 6,
+                        flexWrap: "wrap",
+                        alignItems: "baseline",
+                      }}
+                    >
+                      <CopyableValue value={o.shipping_city} />
+                      {o.shipping_state && (
+                        <span style={{ opacity: 0.75 }}>
+                          {o.shipping_state}
+                        </span>
+                      )}
+                      <CopyableValue value={o.shipping_zip} />
+                    </div>
+                    {o.shipping_email && (
+                      <div style={{ marginTop: 3 }}>
+                        <CopyableValue value={o.shipping_email} />
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 6,
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span style={badgeStyle(captureState.tone)}>
+                        {captureState.label}
+                      </span>
+                      <span style={{ opacity: 0.72 }}>
+                        {formatMoney(o.total_amount_cents)}
+                      </span>
+                    </div>
+
+                    <div style={{ marginTop: 7, fontWeight: 800 }}>
+                      {lensDisplay}
                     </div>
 
                     <div
                       style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: 6,
-                        margin: "8px 0",
+                        marginTop: 3,
+                        color: "rgba(226,232,240,0.85)",
                       }}
                     >
-                      <span style={badgeStyle(payment.tone)}>
-                        Payment: {payment.label}
-                      </span>
-                      <span style={badgeStyle(rxTone(o))}>Rx: {rxStatus}</span>
-                      <span style={badgeStyle(path.tone)}>
-                        Path: {path.label}
-                      </span>
-                      <span style={badgeStyle(verification.tone)}>
-                        Verification: {verification.label}
-                      </span>
-                      <span style={badgeStyle(fulfillmentTone(fulfillment))}>
-                        Fulfillment: {labelizeStatus(fulfillment)}
-                      </span>
+                      {rxLines.length > 0 ? (
+                        rxLines.map((line) => <div key={line}>{line}</div>)
+                      ) : (
+                        <div>Rx pending</div>
+                      )}
                     </div>
 
-                    <OperationalTimeline order={o} />
-
-                    <div>
-                      Backend: {labelizeStatus(o.status)}{" "}
-                      {flags.length > 0 && "| " + flags.join(" ")}
+                    <div style={{ marginTop: 5, opacity: 0.76 }}>
+                      {boxDisplay}
                     </div>
 
-                    <div>
-                      {o.sku ?? "—"} • {boxDisplay}
+                    <div style={{ marginTop: 2, opacity: 0.76 }}>
+                      {o.shipping_method === "express" ? "Express" : "Standard"}{" "}
+                      shipping {formatMoney(o.shipping_cents ?? 0)}
                     </div>
 
                     <div
@@ -1283,7 +1770,7 @@ export default function AdminOrdersPage() {
                           e.stopPropagation();
                           setRxExpanded(isRxOpen ? null : o.id);
                         }}
-                        style={buttonStyle()}
+                        style={buttonStyle({ fontSize: 12 })}
                       >
                         {isRxOpen ? "Hide Rx" : "View Rx"}
                       </button>
@@ -1294,17 +1781,28 @@ export default function AdminOrdersPage() {
                             e.stopPropagation();
                             openRxImage(o, patientName || "Unknown customer");
                           }}
-                          style={buttonStyle()}
+                          style={buttonStyle({ fontSize: 12 })}
                         >
                           View Rx Image
                         </button>
                       )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          clearOrderHighlight(o.id);
+                          setExpanded(isOpen ? null : o.id);
+                        }}
+                        style={buttonStyle({ fontSize: 12 })}
+                        aria-expanded={isOpen}
+                      >
+                        {isOpen ? "Hide Details" : "Details"}
+                      </button>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {isRxOpen && <RxDetailsPanel order={o} />}
+              {isRxOpen && !isOpen && <RxDetailsPanel order={o} />}
 
               {isOpen && (
                 <div
@@ -1315,23 +1813,129 @@ export default function AdminOrdersPage() {
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div style={{ marginBottom: 8 }}>
-                    {o.shipping_phone && <div>Phone: {o.shipping_phone}</div>}
-                    {o.shipping_email && <div>Email: {o.shipping_email}</div>}
-                    {rx.exp && <div>Exp: {rx.exp}</div>}
-                    {o.payment_intent_id && (
-                      <div>PI: {o.payment_intent_id}</div>
-                    )}
-                    {o.stripe_payment_intent_status && (
-                      <div>Stripe: {o.stripe_payment_intent_status}</div>
-                    )}
-                    {o.admin_notes && (
-                      <div style={{ marginTop: 6 }}>
-                        Notes: {o.admin_notes.slice(0, 140)}
-                        {o.admin_notes.length > 140 ? "..." : ""}
-                      </div>
-                    )}
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 6,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <span style={badgeStyle(payment.tone)}>
+                      Payment: {payment.label}
+                    </span>
+                    <span style={badgeStyle(rxTone(o))}>Rx: {rxStatus}</span>
+                    <span style={badgeStyle(path.tone)}>
+                      Path: {path.label}
+                    </span>
+                    <span style={badgeStyle(verification.tone)}>
+                      Verification: {verification.label}
+                    </span>
+                    <span style={badgeStyle(fulfillmentTone(fulfillment))}>
+                      Fulfillment: {labelizeStatus(fulfillment)}
+                    </span>
+                    {flags.map((flag) => (
+                      <span key={flag} style={badgeStyle("warning")}>
+                        {flag}
+                      </span>
+                    ))}
                   </div>
+
+                  <OperationalTimeline order={o} />
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                      gap: 10,
+                      marginTop: 12,
+                      marginBottom: 12,
+                    }}
+                  >
+                    <div style={mutedPanelStyle()}>
+                      <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                        Customer / Shipping
+                      </div>
+                      {o.shipping_phone && <div>Phone: {o.shipping_phone}</div>}
+                      {o.shipping_email && <div>Email: {o.shipping_email}</div>}
+                      <div>
+                        Ship to: {shippingName || patientName || "Unknown"}
+                      </div>
+                      <div>{o.shipping_address1 ?? "-"}</div>
+                      {o.shipping_address2 && <div>{o.shipping_address2}</div>}
+                      <div>
+                        {[o.shipping_city, o.shipping_state, o.shipping_zip]
+                          .filter(Boolean)
+                          .join(", ")}
+                      </div>
+                    </div>
+
+                    <div style={mutedPanelStyle()}>
+                      <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                        Payment / Stripe
+                      </div>
+                      <div>Status: {normalizedPaymentStatus(o)}</div>
+                      <div>Total: {formatMoney(o.total_amount_cents)}</div>
+                      <div>
+                        Shipping:{" "}
+                        {o.shipping_method === "express"
+                          ? "Express"
+                          : "Standard"}{" "}
+                        {formatMoney(o.shipping_cents ?? 0)}
+                      </div>
+                      {o.payment_intent_id && <div>PI: {o.payment_intent_id}</div>}
+                      {o.stripe_payment_intent_status && (
+                        <div>Stripe: {o.stripe_payment_intent_status}</div>
+                      )}
+                      {o.payment_status_source && (
+                        <div>Source: {o.payment_status_source}</div>
+                      )}
+                    </div>
+
+                    <div style={mutedPanelStyle()}>
+                      <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                        Prescriber
+                      </div>
+                      <div>Name: {o.prescriber_name ?? "-"}</div>
+                      <div>Email: {o.prescriber_email ?? "-"}</div>
+                      <div>Phone: {o.prescriber_phone ?? "-"}</div>
+                    </div>
+
+                    <div style={mutedPanelStyle()}>
+                      <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                        Internal / Audit
+                      </div>
+                      <div>Order: {o.id}</div>
+                      <div>Backend: {labelizeStatus(o.status)}</div>
+                      <div>Created: {formatDateTime(o.created_at)}</div>
+                      <div>Updated: {formatDateTime(o.updated_at)}</div>
+                      <div>Rx status: {rxStatus}</div>
+                      <div>Rx source: {o.rx_source ?? "-"}</div>
+                      {rx.exp && <div>Rx exp: {rx.exp}</div>}
+                    </div>
+                  </div>
+
+                  {o.rx_upload_path && (
+                    <div style={{ ...mutedPanelStyle(), marginBottom: 12 }}>
+                      <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                        Uploaded Rx Image
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openRxImage(o, patientName || "Unknown customer");
+                        }}
+                        style={buttonStyle()}
+                      >
+                        View Rx Image
+                      </button>
+                      <div style={{ marginTop: 6, opacity: 0.72 }}>
+                        {o.rx_upload_path}
+                      </div>
+                    </div>
+                  )}
+
+                  <RxDetailsPanel order={o} />
 
                   <div
                     style={{
@@ -1349,6 +1953,36 @@ export default function AdminOrdersPage() {
                         flexWrap: "wrap",
                       }}
                     >
+                      {previousFulfillment && (
+                        <button
+                          type="button"
+                          disabled={savingOrderId === o.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            updateFulfillmentStatus(o.id, previousFulfillment);
+                          }}
+                          style={buttonStyle()}
+                        >
+                          Undo to {labelizeStatus(previousFulfillment)}
+                        </button>
+                      )}
+
+                      {nextFulfillment && (
+                        <button
+                          type="button"
+                          disabled={savingOrderId === o.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            updateFulfillmentStatus(o.id, nextFulfillment);
+                          }}
+                          style={buttonStyle({
+                            background: "rgba(20,184,166,0.22)",
+                          })}
+                        >
+                          Advance to {labelizeStatus(nextFulfillment)}
+                        </button>
+                      )}
+
                       <label style={{ fontWeight: 700 }}>
                         Fulfillment
                         <select
