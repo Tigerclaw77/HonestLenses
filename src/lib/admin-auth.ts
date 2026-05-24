@@ -12,8 +12,14 @@ type AdminCandidate = {
 };
 
 type ProfileLookup = {
+  exists: boolean;
   role: string | null;
   error: string | null;
+};
+
+type AdminAuthDebugStep = {
+  step: string;
+  data: Record<string, unknown>;
 };
 
 export type AdminAuthSuccess = {
@@ -35,15 +41,55 @@ export type AdminAuthFailure = {
 
 export type AdminAuthResult = AdminAuthSuccess | AdminAuthFailure;
 
+const adminEmailsRaw = process.env.ADMIN_EMAILS?.trim()
+  ? process.env.ADMIN_EMAILS
+  : "pauldriggers@aol.com";
+
 const ADMIN_EMAILS = new Set(
-  (process.env.ADMIN_EMAILS ?? "pauldriggers@aol.com")
-    .split(",")
-    .map((email) => email.trim().toLowerCase())
+  adminEmailsRaw
+    .split(/[,\s;]+/)
+    .map(normalizeEmail)
     .filter(Boolean),
 );
 
+function normalizeEmail(email?: string | null): string {
+  return (email ?? "").trim().toLowerCase();
+}
+
+function normalizeRole(role?: string | null): string {
+  return (role ?? "").trim().toLowerCase();
+}
+
 function isAdminEmail(email?: string | null): boolean {
-  return Boolean(email && ADMIN_EMAILS.has(email.toLowerCase()));
+  const normalizedEmail = normalizeEmail(email);
+  return Boolean(normalizedEmail && ADMIN_EMAILS.has(normalizedEmail));
+}
+
+function isAdminRole(role?: string | null): boolean {
+  return normalizeRole(role) === "admin";
+}
+
+function addDebugStep(
+  steps: AdminAuthDebugStep[],
+  step: string,
+  data: Record<string, unknown>,
+): void {
+  if (process.env.NODE_ENV === "production") return;
+  steps.push({ step, data });
+}
+
+function logAdminAuthDecision(
+  decision: "authorized" | "denied",
+  steps: AdminAuthDebugStep[],
+  result: Record<string, unknown>,
+): void {
+  if (process.env.NODE_ENV === "production") return;
+
+  console.warn("[admin auth] decision trace", {
+    decision,
+    result,
+    steps,
+  });
 }
 
 async function getBearerUser(req: Request): Promise<{
@@ -85,9 +131,15 @@ async function getBearerUser(req: Request): Promise<{
 async function getCookieUser(): Promise<{
   user: User | null;
   error: string | null;
+  hasSession: boolean;
+  sessionEmail: string | null;
 }> {
   try {
     const supabaseAuth = await getSupabaseServerAuth();
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabaseAuth.auth.getSession();
     const {
       data: { user },
       error,
@@ -95,12 +147,16 @@ async function getCookieUser(): Promise<{
 
     return {
       user: error ? null : user,
-      error: error?.message ?? null,
+      error: error?.message ?? sessionError?.message ?? null,
+      hasSession: Boolean(session),
+      sessionEmail: session?.user.email ?? null,
     };
   } catch (error) {
     return {
       user: null,
       error: error instanceof Error ? error.message : String(error),
+      hasSession: false,
+      sessionEmail: null,
     };
   }
 }
@@ -113,6 +169,7 @@ async function getProfileRole(userId: string): Promise<ProfileLookup> {
     .maybeSingle<{ role: string | null }>();
 
   return {
+    exists: Boolean(data),
     role: data?.role ?? null,
     error: error?.message ?? null,
   };
@@ -128,15 +185,47 @@ function uniqueCandidates(candidates: AdminCandidate[]): AdminCandidate[] {
 }
 
 export async function requireAdminUser(req: Request): Promise<AdminAuthResult> {
+  const debugSteps: AdminAuthDebugStep[] = [];
+  addDebugStep(debugSteps, "start", {
+    host: req.headers.get("host"),
+    adminEmailCount: ADMIN_EMAILS.size,
+  });
+
   const bearer = await getBearerUser(req);
+  addDebugStep(debugSteps, "bearer_auth", {
+    hasBearer: bearer.hasBearer,
+    hasUser: Boolean(bearer.user),
+    userId: bearer.user?.id ?? null,
+    email: bearer.user?.email ?? null,
+    error: bearer.error,
+  });
+
   const cookie = await getCookieUser();
+  addDebugStep(debugSteps, "cookie_auth", {
+    hasSession: cookie.hasSession,
+    sessionEmail: cookie.sessionEmail,
+    hasSessionUser: Boolean(cookie.user),
+    userId: cookie.user?.id ?? null,
+    email: cookie.user?.email ?? null,
+    error: cookie.error,
+  });
+
   const candidates = uniqueCandidates([
     ...(bearer.user ? [{ source: "bearer" as const, user: bearer.user }] : []),
     ...(cookie.user ? [{ source: "cookie" as const, user: cookie.user }] : []),
   ]);
+  addDebugStep(debugSteps, "candidates", {
+    count: candidates.length,
+    candidates: candidates.map((candidate) => ({
+      authSource: candidate.source,
+      userId: candidate.user.id,
+      email: candidate.user.email ?? null,
+      normalizedEmail: normalizeEmail(candidate.user.email),
+    })),
+  });
 
   if (candidates.length === 0) {
-    return {
+    const failure: AdminAuthFailure = {
       ok: false,
       status: 401,
       error: "Unauthorized",
@@ -145,21 +234,42 @@ export async function requireAdminUser(req: Request): Promise<AdminAuthResult> {
       details: {
         hasBearer: bearer.hasBearer,
         bearerError: bearer.error,
+        cookieHasSession: cookie.hasSession,
         cookieError: cookie.error,
         host: req.headers.get("host"),
       },
     };
+    logAdminAuthDecision("denied", debugSteps, {
+      code: failure.code,
+      reason: failure.reason,
+    });
+    return failure;
   }
 
   for (const candidate of candidates) {
-    if (isAdminEmail(candidate.user.email)) {
-      return {
+    const emailMatched = isAdminEmail(candidate.user.email);
+    addDebugStep(debugSteps, "email_allowlist_check", {
+      authSource: candidate.source,
+      userId: candidate.user.id,
+      email: candidate.user.email ?? null,
+      normalizedEmail: normalizeEmail(candidate.user.email),
+      matched: emailMatched,
+    });
+
+    if (emailMatched) {
+      const success: AdminAuthSuccess = {
         ok: true,
         user: candidate.user,
         authSource: candidate.source,
         adminSource: "email",
         profileRole: null,
       };
+      logAdminAuthDecision("authorized", debugSteps, {
+        authSource: success.authSource,
+        adminSource: success.adminSource,
+        email: success.user.email ?? null,
+      });
+      return success;
     }
   }
 
@@ -169,22 +279,41 @@ export async function requireAdminUser(req: Request): Promise<AdminAuthResult> {
       profile: await getProfileRole(candidate.user.id),
     })),
   );
+  addDebugStep(debugSteps, "profile_role_lookup", {
+    lookups: profileLookups.map(({ candidate, profile }) => ({
+      authSource: candidate.source,
+      userId: candidate.user.id,
+      email: candidate.user.email ?? null,
+      profileExists: profile.exists,
+      profileRole: profile.role,
+      normalizedProfileRole: normalizeRole(profile.role),
+      profileError: profile.error,
+      matched: isAdminRole(profile.role),
+    })),
+  });
 
   const profileAdmin = profileLookups.find(
-    ({ profile }) => profile.role === "admin",
+    ({ profile }) => isAdminRole(profile.role),
   );
 
   if (profileAdmin) {
-    return {
+    const success: AdminAuthSuccess = {
       ok: true,
       user: profileAdmin.candidate.user,
       authSource: profileAdmin.candidate.source,
       adminSource: "profile",
       profileRole: profileAdmin.profile.role,
     };
+    logAdminAuthDecision("authorized", debugSteps, {
+      authSource: success.authSource,
+      adminSource: success.adminSource,
+      email: success.user.email ?? null,
+      profileRole: success.profileRole,
+    });
+    return success;
   }
 
-  return {
+  const failure: AdminAuthFailure = {
     ok: false,
     status: 403,
     error: "Forbidden",
@@ -193,17 +322,24 @@ export async function requireAdminUser(req: Request): Promise<AdminAuthResult> {
     details: {
       hasBearer: bearer.hasBearer,
       bearerError: bearer.error,
+      cookieHasSession: cookie.hasSession,
       cookieError: cookie.error,
       candidates: profileLookups.map(({ candidate, profile }) => ({
         authSource: candidate.source,
         userId: candidate.user.id,
         email: candidate.user.email ?? null,
         profileRole: profile.role,
+        profileExists: profile.exists,
         profileError: profile.error,
       })),
       host: req.headers.get("host"),
     },
   };
+  logAdminAuthDecision("denied", debugSteps, {
+    code: failure.code,
+    reason: failure.reason,
+  });
+  return failure;
 }
 
 export function logAdminAuthFailure(
