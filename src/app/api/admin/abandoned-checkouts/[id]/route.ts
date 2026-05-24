@@ -177,21 +177,33 @@ export async function POST(
       );
     }
 
-    if (order.rx_upload_path) {
-      const { error: storageError } = await supabaseServer.storage
-        .from("prescriptions")
-        .remove([order.rx_upload_path]);
+    const storageDelete = order.rx_upload_path
+      ? supabaseServer.storage.from("prescriptions").remove([order.rx_upload_path])
+      : Promise.resolve({ error: null });
+    const orderEventsDelete = supabaseServer
+      .from("order_events")
+      .delete()
+      .eq("order_id", order.id);
 
-      if (storageError && process.env.NODE_ENV !== "production") {
-        console.warn("Abandoned checkout Rx storage delete failed", {
-          orderId: order.id,
-          path: order.rx_upload_path,
-          error: storageError.message,
-        });
-      }
+    const [storageResult, orderEventsResult] = await Promise.all([
+      storageDelete,
+      orderEventsDelete,
+    ]);
+
+    if (storageResult.error && process.env.NODE_ENV !== "production") {
+      console.warn("Abandoned checkout Rx storage delete failed", {
+        orderId: order.id,
+        path: order.rx_upload_path,
+        error: storageResult.error.message,
+      });
     }
 
-    await supabaseServer.from("order_events").delete().eq("order_id", order.id);
+    if (orderEventsResult.error && process.env.NODE_ENV !== "production") {
+      console.warn("Abandoned checkout order_events cleanup failed", {
+        orderId: order.id,
+        error: orderEventsResult.error.message,
+      });
+    }
 
     const { error: deleteError } = await supabaseServer
       .from("orders")
