@@ -142,6 +142,11 @@ type DerivedOrderStage = {
   tone: BadgeTone;
 };
 
+type OrderOperationalBucket =
+  | "action_required"
+  | "active_fulfillment"
+  | "history_archive";
+
 type NotesModalState = {
   orderId: string;
   patientName: string;
@@ -217,6 +222,8 @@ const FULFILLMENT_PROGRESS_FLOW: FulfillmentStatus[] = [
 ];
 
 const HIGHLIGHT_MS = 120_000;
+const RECENT_SHIPPED_DAYS = 7;
+const STALE_INACTIVE_DAYS = 7;
 
 const VERIFICATION_FLAGS: { key: VerificationFlag; label: string }[] = [
   { key: "needs_review", label: "Needs review" },
@@ -582,6 +589,96 @@ function previousFulfillmentStatus(
   const currentIndex = FULFILLMENT_PROGRESS_FLOW.indexOf(status);
   if (currentIndex <= 0) return null;
   return FULFILLMENT_PROGRESS_FLOW[currentIndex - 1] ?? null;
+}
+
+function orderActivityTime(order: Order): number {
+  return (
+    Date.parse(order.updated_at ?? "") ||
+    Date.parse(order.created_at ?? "") ||
+    0
+  );
+}
+
+function isWithinDays(order: Order, days: number): boolean {
+  const activityTime = orderActivityTime(order);
+  if (!activityTime) return false;
+
+  return Date.now() - activityTime <= days * 24 * 60 * 60 * 1000;
+}
+
+function isRecentlyShipped(order: Order): boolean {
+  return (
+    normalizedFulfillmentStatus(order) === "shipped" &&
+    isWithinDays(order, RECENT_SHIPPED_DAYS)
+  );
+}
+
+function isActionRequired(order: Order): boolean {
+  const payment = normalizedPaymentStatus(order);
+  const fulfillment = normalizedFulfillmentStatus(order);
+
+  if (fulfillment === "hold") return true;
+  if (payment === "failed" || payment === "refunded") return true;
+  if (payment !== "captured") return true;
+  if (orderVerificationBlocked(order)) return true;
+  if (!orderHasRx(order)) return true;
+  if (order.needs_review) return true;
+  if (!orderVerificationComplete(order)) return true;
+
+  return (
+    order.shipping_method === "express" &&
+    fulfillment !== "ordered" &&
+    fulfillment !== "shipped" &&
+    fulfillment !== "completed"
+  );
+}
+
+function isArchiveOrder(order: Order): boolean {
+  const fulfillment = normalizedFulfillmentStatus(order);
+  const payment = normalizedPaymentStatus(order);
+
+  if (order.abandoned_checkout?.isAbandoned) return true;
+  if (order.archived) return true;
+  if (fulfillment === "completed" || fulfillment === "cancelled") return true;
+  if (fulfillment === "shipped") return !isRecentlyShipped(order);
+  if (
+    (payment === "failed" || payment === "refunded") &&
+    !isWithinDays(order, STALE_INACTIVE_DAYS)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function getOrderOperationalBucket(order: Order): OrderOperationalBucket {
+  if (isArchiveOrder(order)) return "history_archive";
+  if (isActionRequired(order)) return "action_required";
+  return "active_fulfillment";
+}
+
+function shouldDefaultCollapse(order: Order): boolean {
+  return getOrderOperationalBucket(order) === "history_archive";
+}
+
+function archiveOrderStatus(order: Order): { label: string; tone: BadgeTone } {
+  if (order.abandoned_checkout?.isAbandoned) {
+    return { label: "ABANDONED", tone: "warning" };
+  }
+
+  const payment = normalizedPaymentStatus(order);
+  const fulfillment = normalizedFulfillmentStatus(order);
+
+  if (payment === "failed") return { label: "PAYMENT FAILED", tone: "blocked" };
+  if (payment === "refunded") return { label: "REFUNDED", tone: "refund" };
+  if (fulfillment === "cancelled") return { label: "CANCELLED", tone: "blocked" };
+  if (fulfillment === "completed") return { label: "COMPLETED", tone: "good" };
+  if (fulfillment === "shipped") return { label: "SHIPPED", tone: "good" };
+  return { label: labelizeStatus(fulfillment), tone: fulfillmentTone(fulfillment) };
+}
+
+function archiveSort(a: Order, b: Order): number {
+  return orderActivityTime(b) - orderActivityTime(a);
 }
 
 function compactTimeline(order: Order): { label: string; tone: BadgeTone }[] {
@@ -1608,6 +1705,34 @@ export default function AdminOrdersPage() {
     navigator.clipboard.writeText(text);
   }
 
+  const actionRequiredOrders = orders.filter(
+    (order) => getOrderOperationalBucket(order) === "action_required",
+  );
+  const activeFulfillmentOrders = orders.filter(
+    (order) => getOrderOperationalBucket(order) === "active_fulfillment",
+  );
+  const archiveOrders = orders.filter(shouldDefaultCollapse).sort(archiveSort);
+  const activeOrderSections: {
+    key: Exclude<OrderOperationalBucket, "history_archive">;
+    title: string;
+    description: string;
+    orders: Order[];
+  }[] = [
+    {
+      key: "action_required",
+      title: "Action Required",
+      description: "Payment, Rx, verification, blocked, express, or manual attention.",
+      orders: actionRequiredOrders,
+    },
+    {
+      key: "active_fulfillment",
+      title: "Active Fulfillment",
+      description: "Ready, ordered, and recent shipped work still in the operator lane.",
+      orders: activeFulfillmentOrders,
+    },
+  ];
+  const archiveCount = archiveOrders.length + abandonedOrders.length;
+
   return (
     <main style={{ padding: 20 }} onClick={requestNotificationPermission}>
       <h1 style={{ fontSize: 26, fontWeight: 800, marginBottom: 20 }}>
@@ -1641,8 +1766,47 @@ export default function AdminOrdersPage() {
         </div>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {orders.map((o) => {
+      <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
+        {activeOrderSections.map((section) => (
+          <section key={section.key}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                alignItems: "baseline",
+                marginBottom: 10,
+                paddingBottom: 8,
+                borderBottom: "1px solid rgba(148,163,184,0.18)",
+              }}
+            >
+              <div>
+                <h2 style={{ fontSize: 16, margin: 0, fontWeight: 900 }}>
+                  {section.title} ({section.orders.length})
+                </h2>
+                <div style={{ fontSize: 12, opacity: 0.68, marginTop: 3 }}>
+                  {section.description}
+                </div>
+              </div>
+            </div>
+
+            {section.orders.length === 0 ? (
+              <div
+                style={{
+                  border: "1px solid rgba(148,163,184,0.16)",
+                  borderRadius: 10,
+                  padding: "10px 12px",
+                  color: "rgba(226,232,240,0.6)",
+                  fontSize: 13,
+                }}
+              >
+                No orders in this queue.
+              </div>
+            ) : (
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 10 }}
+              >
+                {section.orders.map((o) => {
           const rx = parseRx(o.rx);
           const rxStatus = normalizedRxStatus(o);
           const payment = paymentStatus(o);
@@ -2158,31 +2322,196 @@ export default function AdminOrdersPage() {
               )}
             </div>
           );
-        })}
+                })}
+              </div>
+            )}
+          </section>
+        ))}
       </div>
 
-      <section style={{ marginTop: 36 }}>
+      <section style={{ marginTop: 34 }}>
         <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>
-          Abandoned / stale drafts
+          History / Archive ({archiveCount})
         </h2>
-        <p style={{ marginTop: 0, opacity: 0.75 }}>
-          Draft checkouts are kept out of the fulfillment queue until payment is
-          authorized.
+        <p style={{ marginTop: 0, opacity: 0.72, fontSize: 13 }}>
+          Shipped, completed, cancelled, abandoned, and stale inactive orders are
+          compressed by default.
         </p>
-
-        {abandonedOrders.length === 0 ? (
-          <div
-            style={{
-              border: "1px solid rgba(148,163,184,0.2)",
-              borderRadius: 12,
-              padding: 14,
-              opacity: 0.75,
-            }}
-          >
-            No abandoned drafts above the configured threshold.
+        {archiveCount === 0 ? (
+          <div style={{ ...mutedPanelStyle(), opacity: 0.72 }}>
+            No historical orders yet.
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {archiveOrders.map((o) => {
+              const status = archiveOrderStatus(o);
+              const isOpen = expanded === o.id;
+              const dateTime = formatAdminOrderDateTimeCentral(
+                o.updated_at ?? o.created_at,
+              );
+              const patientName =
+                o.patient_name ||
+                o.patient_full_name ||
+                `${o.shipping_first_name ?? ""} ${
+                  o.shipping_last_name ?? ""
+                }`.trim() ||
+                "Unknown customer";
+              const rx = parseRx(o.rx);
+
+              return (
+                <div key={o.id}>
+                  <button
+                    type="button"
+                    onClick={() => setExpanded(isOpen ? null : o.id)}
+                    aria-expanded={isOpen}
+                    style={{
+                      width: "100%",
+                      minHeight: 34,
+                      display: "grid",
+                      gridTemplateColumns:
+                        "92px minmax(160px, 1fr) 100px 150px 80px",
+                      gap: 10,
+                      alignItems: "center",
+                      border: "1px solid rgba(148,163,184,0.14)",
+                      borderRadius: 8,
+                      background: isOpen
+                        ? "rgba(30,41,59,0.45)"
+                        : "rgba(15,23,42,0.22)",
+                      color: "inherit",
+                      padding: "6px 10px",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    <span style={{ fontWeight: 800 }}>{dateTime.date}</span>
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {patientName}
+                    </span>
+                    <span>{formatMoney(o.total_amount_cents)}</span>
+                    <span style={badgeStyle(status.tone)}>{status.label}</span>
+                    <span style={{ textAlign: "right", opacity: 0.7 }}>
+                      {isOpen ? "Hide" : "Details"}
+                    </span>
+                  </button>
+
+                  {isOpen && (
+                    <div
+                      style={{
+                        ...mutedPanelStyle(),
+                        marginTop: 6,
+                        marginBottom: 8,
+                        fontSize: 13,
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns:
+                            "repeat(auto-fit, minmax(220px, 1fr))",
+                          gap: 10,
+                          marginBottom: 12,
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 800, marginBottom: 4 }}>
+                            Order
+                          </div>
+                          <div>Status: {status.label}</div>
+                          <div>Total: {formatMoney(o.total_amount_cents)}</div>
+                          <div>
+                            Payment: {normalizedPaymentStatus(o)}
+                          </div>
+                          <div>
+                            Fulfillment:{" "}
+                            {labelizeStatus(normalizedFulfillmentStatus(o))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div style={{ fontWeight: 800, marginBottom: 4 }}>
+                            Customer
+                          </div>
+                          <div>{patientName}</div>
+                          <div>{o.shipping_email ?? "-"}</div>
+                          <div>
+                            {[o.shipping_city, o.shipping_state, o.shipping_zip]
+                              .filter(Boolean)
+                              .join(", ") || "-"}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div style={{ fontWeight: 800, marginBottom: 4 }}>
+                            Rx / Fulfillment
+                          </div>
+                          <div>{getOrderLensDisplayName(o)}</div>
+                          <div>
+                            {o.total_box_count ?? o.box_count ?? "-"} boxes
+                          </div>
+                          <div>
+                            {o.shipping_method === "express"
+                              ? "Express"
+                              : "Standard"}{" "}
+                            shipping {formatMoney(o.shipping_cents ?? 0)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          flexWrap: "wrap",
+                          marginBottom: 12,
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setRxExpanded(rxExpanded === o.id ? null : o.id)}
+                          style={buttonStyle()}
+                        >
+                          {rxExpanded === o.id ? "Hide Rx" : "View Rx"}
+                        </button>
+                        {o.rx_upload_path && (
+                          <button
+                            type="button"
+                            onClick={() => openRxImage(o, patientName)}
+                            style={buttonStyle()}
+                          >
+                            View Rx Image
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => openNotes(o, patientName)}
+                          style={buttonStyle()}
+                        >
+                          Notes
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => copyOrderText(o, rx)}
+                          style={buttonStyle()}
+                        >
+                          Copy Order
+                        </button>
+                      </div>
+
+                      {rxExpanded === o.id && <RxDetailsPanel order={o} />}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
             {abandonedOrders.map((o) => {
               const info = o.abandoned_checkout;
               const reasons = info?.reasons ?? [];
@@ -2194,41 +2523,68 @@ export default function AdminOrdersPage() {
                 }`.trim() ||
                 "Unknown customer";
               const draft = recoveryDrafts[o.id];
+              const rowId = `abandoned:${o.id}`;
+              const isOpen = expanded === rowId;
+              const dateTime = formatAdminOrderDateTimeCentral(
+                info?.activityAt ?? o.updated_at ?? o.created_at,
+              );
+              const primaryReason = info?.primaryReason
+                ? abandonedReasonLabel(info.primaryReason)
+                : "ABANDONED";
 
               return (
-                <div
-                  key={o.id}
-                  style={{
-                    border: "1px solid rgba(251,191,36,0.35)",
-                    borderRadius: 12,
-                    padding: 14,
-                    background: "rgba(120,53,15,0.12)",
-                  }}
-                >
-                  <div
+                <div key={`abandoned-${o.id}`}>
+                  <button
+                    type="button"
+                    onClick={() => setExpanded(isOpen ? null : rowId)}
+                    aria-expanded={isOpen}
                     style={{
+                      width: "100%",
+                      minHeight: 34,
                       display: "grid",
-                      gridTemplateColumns: "1.2fr 1fr 1.1fr",
-                      gap: 12,
+                      gridTemplateColumns:
+                        "92px minmax(160px, 1fr) 100px 150px 80px",
+                      gap: 10,
+                      alignItems: "center",
+                      border: "1px solid rgba(251,191,36,0.24)",
+                      borderRadius: 8,
+                      background: isOpen
+                        ? "rgba(120,53,15,0.22)"
+                        : "rgba(120,53,15,0.1)",
+                      color: "inherit",
+                      padding: "6px 10px",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      fontSize: 12,
                     }}
                   >
-                    <div>
-                      <div style={{ fontWeight: 800 }}>{patientName}</div>
-                      <div>Created: {formatDateTime(o.created_at)}</div>
-                      <div>Updated: {formatDateTime(o.updated_at)}</div>
-                      <div>Age: {formatAge(info?.ageHours)}</div>
-                    </div>
+                    <span style={{ fontWeight: 800 }}>{dateTime.date}</span>
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {patientName}
+                    </span>
+                    <span>{formatMoney(o.total_amount_cents)}</span>
+                    <span style={badgeStyle("warning")}>{primaryReason}</span>
+                    <span style={{ textAlign: "right", opacity: 0.7 }}>
+                      {isOpen ? "Hide" : "Details"}
+                    </span>
+                  </button>
 
-                    <div>
-                      <div>Total: {formatMoney(o.total_amount_cents)}</div>
-                      <div>Email: {o.shipping_email ?? "-"}</div>
-                      <div>Rx mode: {rxModeLabel(info?.rxMode)}</div>
-                      <div>
-                        Payment intent: {o.payment_intent_id ? "yes" : "no"}
-                      </div>
-                    </div>
-
-                    <div>
+                  {isOpen && (
+                    <div
+                      style={{
+                        ...mutedPanelStyle(),
+                        marginTop: 6,
+                        marginBottom: 8,
+                        background: "rgba(120,53,15,0.12)",
+                        fontSize: 13,
+                      }}
+                    >
                       <div
                         style={{
                           display: "flex",
@@ -2242,6 +2598,44 @@ export default function AdminOrdersPage() {
                             {abandonedReasonLabel(reason)}
                           </span>
                         ))}
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns:
+                            "repeat(auto-fit, minmax(220px, 1fr))",
+                          gap: 10,
+                          marginBottom: 12,
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 800, marginBottom: 4 }}>
+                            Draft
+                          </div>
+                          <div>Created: {formatDateTime(o.created_at)}</div>
+                          <div>Updated: {formatDateTime(o.updated_at)}</div>
+                          <div>Age: {formatAge(info?.ageHours)}</div>
+                        </div>
+
+                        <div>
+                          <div style={{ fontWeight: 800, marginBottom: 4 }}>
+                            Customer
+                          </div>
+                          <div>{patientName}</div>
+                          <div>Email: {o.shipping_email ?? "-"}</div>
+                          <div>Rx mode: {rxModeLabel(info?.rxMode)}</div>
+                        </div>
+
+                        <div>
+                          <div style={{ fontWeight: 800, marginBottom: 4 }}>
+                            Payment
+                          </div>
+                          <div>Total: {formatMoney(o.total_amount_cents)}</div>
+                          <div>
+                            Payment intent: {o.payment_intent_id ? "yes" : "no"}
+                          </div>
+                        </div>
                       </div>
 
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -2266,30 +2660,32 @@ export default function AdminOrdersPage() {
                           Draft recovery email
                         </button>
                       </div>
-                    </div>
-                  </div>
 
-                  {draft && (
-                    <div
-                      style={{
-                        marginTop: 12,
-                        padding: 12,
-                        borderRadius: 8,
-                        border: "1px solid rgba(148,163,184,0.25)",
-                        background: "rgba(15,23,42,0.35)",
-                      }}
-                    >
-                      <div style={{ fontWeight: 700 }}>{draft.subject}</div>
-                      <div style={{ opacity: 0.75 }}>To: {draft.to ?? "-"}</div>
-                      <pre
+                      {draft && (
+                        <div
                         style={{
-                          whiteSpace: "pre-wrap",
-                          marginBottom: 0,
-                          fontFamily: "monospace",
+                            marginTop: 12,
+                            padding: 12,
+                            borderRadius: 8,
+                            border: "1px solid rgba(148,163,184,0.25)",
+                            background: "rgba(15,23,42,0.35)",
                         }}
-                      >
-                        {draft.text}
-                      </pre>
+                        >
+                          <div style={{ fontWeight: 700 }}>{draft.subject}</div>
+                          <div style={{ opacity: 0.75 }}>
+                            To: {draft.to ?? "-"}
+                          </div>
+                          <pre
+                            style={{
+                              whiteSpace: "pre-wrap",
+                              marginBottom: 0,
+                              fontFamily: "monospace",
+                            }}
+                          >
+                            {draft.text}
+                          </pre>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
