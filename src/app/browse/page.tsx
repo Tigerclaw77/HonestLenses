@@ -18,6 +18,8 @@ import { getPopularityRank } from "@/data/lensPopularityTiers";
 import { POSTHOG_EVENTS, track } from "@/lib/posthog/client";
 import { getLensAnalyticsProperties } from "@/lib/posthog/lensMetadata";
 import { getLensImagePresentation } from "@/lib/display/lensImagePresentation";
+import { recordRecentUserAction } from "@/lib/telemetry/clientErrors";
+import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 
 type LensSelection = {
   right?: string;
@@ -169,6 +171,10 @@ export default function BrowsePage() {
     if (selection.right) params.set("right", selection.right);
     if (selection.left) params.set("left", selection.left);
 
+    recordRecentUserAction("browse_enter_prescription_click", {
+      has_right_lens: Boolean(selection.right),
+      has_left_lens: Boolean(selection.left),
+    });
     router.push(`/upload-prescription?${params.toString()}`);
   }
 
@@ -192,6 +198,14 @@ export default function BrowsePage() {
 
       return a.displayName.localeCompare(b.displayName);
     });
+
+  useEffect(() => {
+    void trackFunnelEvent(POSTHOG_EVENTS.BROWSE_VIEWED, {
+      source: "browse",
+      lens_count: filtered.length,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- page-view telemetry should run once per mounted route.
+  }, []);
 
   useEffect(() => {
     const query = search.trim();
@@ -318,6 +332,9 @@ export default function BrowsePage() {
                 <div
                   key={lens.coreId}
                   onClick={() => {
+                    recordRecentUserAction("product_modal_opened", {
+                      core_id: lens.coreId,
+                    });
                     track(
                       POSTHOG_EVENTS.PRODUCT_MODAL_OPENED,
                       getLensAnalyticsProperties(lens, {
@@ -610,7 +627,12 @@ function LensModal({
             letterSpacing: "normal",
             padding: ".6rem .75rem",
           }}
-          onClick={() => onSelect(lens.coreId, "both")}
+          onClick={() => {
+            recordRecentUserAction("lens_selected_for_both", {
+              core_id: lens.coreId,
+            });
+            onSelect(lens.coreId, "both");
+          }}
         >
           Use for Both Eyes
         </button>
@@ -631,7 +653,12 @@ function LensModal({
               fontWeight: 500,
               letterSpacing: "normal",
             }}
-            onClick={() => onSelect(lens.coreId, "right")}
+            onClick={() => {
+              recordRecentUserAction("lens_selected_for_right", {
+                core_id: lens.coreId,
+              });
+              onSelect(lens.coreId, "right");
+            }}
           >
             Right Only
           </button>
@@ -644,7 +671,12 @@ function LensModal({
               fontWeight: 500,
               letterSpacing: "normal",
             }}
-            onClick={() => onSelect(lens.coreId, "left")}
+            onClick={() => {
+              recordRecentUserAction("lens_selected_for_left", {
+                core_id: lens.coreId,
+              });
+              onSelect(lens.coreId, "left");
+            }}
           >
             Left Only
           </button>

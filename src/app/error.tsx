@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { captureClientException } from "@/lib/posthog/client";
+import { captureClientError } from "@/lib/telemetry/clientErrors";
 
 export default function AppError({
   error,
@@ -11,8 +11,9 @@ export default function AppError({
   reset: () => void;
 }) {
   useEffect(() => {
-    captureClientException(error, {
+    void captureClientError(error, {
       source: "next_app_error",
+      component: "app/error",
       digest: error.digest ?? null,
     });
   }, [error]);

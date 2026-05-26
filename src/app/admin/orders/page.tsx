@@ -3492,6 +3492,8 @@ export default function AdminOrdersPage() {
                 <iframe
                   src={rxImageModal.url}
                   title="Rx PDF preview"
+                  data-ph-block-replay="true"
+                  data-sensitive-media="true"
                   style={{
                     width: "100%",
                     height: "76vh",
@@ -3505,6 +3507,8 @@ export default function AdminOrdersPage() {
                 <img
                   src={rxImageModal.url}
                   alt="Uploaded prescription"
+                  data-ph-block-replay="true"
+                  data-sensitive-media="true"
                   onError={() =>
                     setRxImageModal((current) =>
                       current ? { ...current, previewFailed: true } : current,

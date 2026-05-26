@@ -3,6 +3,9 @@
 import { useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase-client";
+import { POSTHOG_EVENTS } from "@/lib/posthog/client";
+import { captureClientError } from "@/lib/telemetry/clientErrors";
+import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 
 export default function LoginClient() {
   const router = useRouter();
@@ -20,11 +23,21 @@ export default function LoginClient() {
       } = await supabase.auth.getSession();
 
       if (session) {
+        void trackFunnelEvent(POSTHOG_EVENTS.AUTH_SESSION_RESTORED, {
+          restored: true,
+          source: "login_page_existing_session",
+          next_route: next ?? "/",
+        });
         router.replace(next ?? "/");
       }
     }
 
-    checkSession();
+    checkSession().catch((err: unknown) => {
+      void captureClientError(err, {
+        source: "login_check_session",
+        component: "LoginClient",
+      });
+    });
   }, [router, next]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -36,6 +49,12 @@ export default function LoginClient() {
       next ? `?next=${encodeURIComponent(next)}` : ""
     }`;
 
+    void trackFunnelEvent(POSTHOG_EVENTS.LOGIN_REDIRECT_STARTED, {
+      source: "login_form",
+      next_route: next ?? "/",
+      method: "email_otp",
+    });
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
@@ -44,6 +63,10 @@ export default function LoginClient() {
     });
 
     if (error) {
+      void captureClientError(error, {
+        source: "login_magic_link",
+        component: "LoginClient",
+      });
       setMessage(error.message);
     } else {
       setMessage("Check your email for a secure access link.");
@@ -51,8 +74,6 @@ export default function LoginClient() {
 
     setLoading(false);
   }
-
-  console.log("LOGIN CLIENT V2 RENDERED");
 
   return (
     <main className="hl-login-shell">

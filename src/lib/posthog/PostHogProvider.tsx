@@ -10,10 +10,14 @@ import { supabase } from "@/lib/supabase-client";
 import {
   identifyPostHogUser,
   resetPostHogUser,
-  captureClientException,
 } from "./client";
 import { getPublicPostHogConfig } from "./config";
 import { isSensitiveAnalyticsKey } from "./events";
+import {
+  captureClientError,
+  installGlobalClientErrorHandlers,
+} from "@/lib/telemetry/clientErrors";
+import { ensureFunnelSessionId } from "@/lib/telemetry/funnel";
 
 const posthogConfig = getPublicPostHogConfig();
 const posthogKey = posthogConfig.key;
@@ -81,11 +85,15 @@ if (typeof window !== "undefined" && posthogKey && !posthog.__loaded) {
       "order_id",
     ],
     person_profiles: "identified_only",
+    // Session replay is useful for diagnosing dead clicks and auth/upload races,
+    // but it must never expose prescription images, tokens, or typed PHI.
+    // Inputs are masked, element attributes are masked, and any surface that
+    // renders uploaded prescription media should carry data-ph-block-replay.
     session_recording: {
       maskAllInputs: true,
       maskTextSelector: ".ph-mask,[data-ph-mask='true']",
       blockSelector:
-        ".ph-block,[data-ph-block='true'],[data-ph-block-replay='true'],iframe",
+        ".ph-block,[data-ph-block='true'],[data-ph-block-replay='true'],[data-sensitive-media='true'],input[type='file'],iframe,canvas",
     },
     sanitize_properties: sanitizePostHogProperties,
     loaded: (client) => {
@@ -100,6 +108,7 @@ function PageviewTracker() {
 
   useEffect(() => {
     if (!posthogKey || !posthog.__loaded) return;
+    ensureFunnelSessionId();
 
     posthog.capture("$pageview", {
       path: pathname,
@@ -134,7 +143,10 @@ function IdentityStitcher() {
         if (alive) identifySessionUser(data.session);
       })
       .catch((error: unknown) => {
-        captureClientException(error, { source: "posthog_identity" });
+        void captureClientError(error, {
+          source: "posthog_identity",
+          component: "IdentityStitcher",
+        });
       });
 
     const { data: listener } = supabase.auth.onAuthStateChange(
@@ -154,25 +166,7 @@ function IdentityStitcher() {
 
 function ClientErrorListeners() {
   useEffect(() => {
-    function handleError(event: ErrorEvent) {
-      captureClientException(event.error ?? event.message, {
-        source: "window_error",
-      });
-    }
-
-    function handleRejection(event: PromiseRejectionEvent) {
-      captureClientException(event.reason, {
-        source: "unhandled_promise_rejection",
-      });
-    }
-
-    window.addEventListener("error", handleError);
-    window.addEventListener("unhandledrejection", handleRejection);
-
-    return () => {
-      window.removeEventListener("error", handleError);
-      window.removeEventListener("unhandledrejection", handleRejection);
-    };
+    installGlobalClientErrorHandlers();
   }, []);
 
   return null;

@@ -9,6 +9,9 @@ import Header from "../components/Header";
 import Footer from "../components/Footer";
 import FindDoctorModal from "../components/FindDoctorModal";
 import ShopIntentModal from "../components/ShopIntentModal";
+import { POSTHOG_EVENTS } from "@/lib/posthog/client";
+import { recordRecentUserAction } from "@/lib/telemetry/clientErrors";
+import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 
 export default function HomePage() {
   const router = useRouter();
@@ -25,6 +28,12 @@ export default function HomePage() {
       document.body.style.overflow = "";
     };
   }, [isFindDoctorOpen, isShopIntentOpen]);
+
+  useEffect(() => {
+    void trackFunnelEvent(POSTHOG_EVENTS.HOMEPAGE_VIEWED, {
+      source: "homepage",
+    });
+  }, []);
 
   return (
     <main>
@@ -44,7 +53,10 @@ export default function HomePage() {
 
           <button
             className="hero-btn"
-            onClick={() => setIsShopIntentOpen(true)}
+            onClick={() => {
+              recordRecentUserAction("homepage_shop_now_click");
+              setIsShopIntentOpen(true);
+            }}
           >
             Shop Now
           </button>
@@ -174,10 +186,12 @@ export default function HomePage() {
         isOpen={isShopIntentOpen}
         onClose={() => setIsShopIntentOpen(false)}
         onJustLooking={() => {
+          recordRecentUserAction("shop_intent_browse_click");
           setIsShopIntentOpen(false);
           router.push("/browse");
         }}
         onHasPrescription={() => {
+          recordRecentUserAction("shop_intent_upload_click");
           setIsShopIntentOpen(false);
           router.push("/upload-prescription");
         }}
