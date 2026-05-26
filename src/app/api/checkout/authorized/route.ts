@@ -210,6 +210,45 @@ export async function POST(req: Request) {
     },
   });
 
+  await captureServerEvent({
+    event: POSTHOG_EVENTS.ORDER_AUTHORIZED,
+    distinctId: user.id,
+    request: req,
+    properties: {
+      order_id: orderId,
+      order_status_before: orderStatus,
+      order_status_after: isUploaded ? "captured" : "authorized",
+      verification_mode: isUploaded ? "uploaded" : "passive",
+      order_value_cents:
+        typeof orderRaw.total_amount_cents === "number"
+          ? orderRaw.total_amount_cents
+          : null,
+      has_uploaded_rx: isUploaded,
+      has_payment_intent: true,
+      stripe_intent_status: intent.status,
+      next_step: isUploaded ? "success" : "verification-details",
+    },
+  });
+
+  if (isUploaded) {
+    await captureServerEvent({
+      event: POSTHOG_EVENTS.ORDER_CAPTURED,
+      distinctId: user.id,
+      request: req,
+      properties: {
+        order_id: orderId,
+        verification_mode: "uploaded",
+        order_value_cents:
+          typeof orderRaw.total_amount_cents === "number"
+            ? orderRaw.total_amount_cents
+            : null,
+        has_uploaded_rx: true,
+        has_payment_intent: true,
+        capture_reason: "uploaded_rx_auto_capture",
+      },
+    });
+  }
+
   /* =========================
      Email Admin
   ========================= */

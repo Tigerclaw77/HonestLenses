@@ -23,6 +23,11 @@ import {
   track,
 } from "@/lib/posthog/client";
 import { getLensAnalyticsPropertiesByCoreId } from "@/lib/posthog/lensMetadata";
+import {
+  captureClientError,
+  recordRecentUserAction,
+} from "@/lib/telemetry/clientErrors";
+import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 
 import {
   formatBC,
@@ -947,6 +952,13 @@ export default function RxForm({
   ========================= */
 
   async function submitRx() {
+    recordRecentUserAction("manual_rx_submit_click", {
+      mode,
+      loading,
+      has_right_lens: Boolean(rightcoreId || rightLensNotListed),
+      has_left_lens: Boolean(leftcoreId || leftLensNotListed),
+    });
+
     if (loading) return;
 
     const map = validateAll();
@@ -1008,6 +1020,13 @@ export default function RxForm({
 
       if (!accessToken) {
         const next = window.location.pathname + window.location.search;
+        void trackFunnelEvent(POSTHOG_EVENTS.LOGIN_REDIRECT_STARTED, {
+          reason: "rx_entry_requires_auth",
+          next_route: next,
+          verification_mode: mode,
+          has_right_lens: Boolean(rightcoreId || rightLensNotListed),
+          has_left_lens: Boolean(leftcoreId || leftLensNotListed),
+        });
         router.replace(`/login?next=${encodeURIComponent(next)}`);
         return;
       }
@@ -1158,8 +1177,6 @@ export default function RxForm({
         throw new Error("Prescription submission failed");
       }
 
-      router.push(`/cart?orderId=${finalOrderId}`);
-
       console.log("STEP 4: resolving cart");
 
       const resolveRes = await fetch("/api/cart/resolve", {
@@ -1213,6 +1230,11 @@ export default function RxForm({
     } catch (err) {
       console.error("🔴 [RxForm] submitRx error:", err);
       captureClientException(err, { source: "rx_form_submit" });
+      void captureClientError(err, {
+        source: "rx_form_submit",
+        component: "RxForm",
+        verification_mode: mode,
+      });
       alert(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase-client";
 import Link from "next/link";
@@ -14,8 +14,15 @@ import {
   track,
 } from "@/lib/posthog/client";
 import { getLensAnalyticsPropertiesByCoreId } from "@/lib/posthog/lensMetadata";
+import {
+  captureClientError,
+  recordRecentUserAction,
+  setCurrentUploadTelemetryState,
+} from "@/lib/telemetry/clientErrors";
+import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 
 const LS_ORDER_ID = "rx_upload_order_id";
+const SS_PENDING_UPLOAD_INTENT = "hl_pending_upload_intent_v1";
 
 const MAX_FILE_MB = 10;
 
@@ -35,6 +42,13 @@ type OcrResponse = {
   confidence?: number;
   error?: string;
 };
+
+function fileSizeBucket(size: number): string {
+  if (size < 1_000_000) return "<1mb";
+  if (size < 5_000_000) return "1-5mb";
+  if (size < 10_000_000) return "5-10mb";
+  return "10mb+";
+}
 
 function UploadPrescriptionContent() {
   const router = useRouter();
@@ -57,6 +71,46 @@ function UploadPrescriptionContent() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void trackFunnelEvent(POSTHOG_EVENTS.UPLOAD_PRESCRIPTION_VIEWED, {
+      ...selectedLensAnalytics("upload_prescription_view"),
+    });
+
+    const pendingRaw = sessionStorage.getItem(SS_PENDING_UPLOAD_INTENT);
+    if (!pendingRaw) return;
+
+    sessionStorage.removeItem(SS_PENDING_UPLOAD_INTENT);
+
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!data.session) {
+          void trackFunnelEvent(POSTHOG_EVENTS.UPLOAD_RESUME_AFTER_AUTH, {
+            resumed: false,
+            reason: "no_session_after_redirect",
+          });
+          return;
+        }
+
+        // Browsers intentionally do not persist selected local files through
+        // a magic-link redirect. Surface a clear recovery path instead of
+        // leaving the CTA disabled and producing dead-click noise.
+        setError("Please choose your prescription file again to continue.");
+        void trackFunnelEvent(POSTHOG_EVENTS.UPLOAD_RESUME_AFTER_AUTH, {
+          resumed: false,
+          reason: "file_reselect_required",
+          ...selectedLensAnalytics("upload_resume_after_auth"),
+        });
+      })
+      .catch((err: unknown) => {
+        void captureClientError(err, {
+          source: "upload_resume_after_auth",
+          component: "UploadPrescriptionContent",
+        });
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- page-view telemetry should run once per mounted route.
+  }, []);
 
   function selectedLensAnalytics(source: string) {
     return {
@@ -91,6 +145,11 @@ function UploadPrescriptionContent() {
   function handleFileSelected(selected: File | null) {
     if (!selected) return;
 
+    recordRecentUserAction("rx_file_selected", {
+      file_type: selected.type || "unknown",
+      file_size_bucket: fileSizeBucket(selected.size),
+    });
+
     const validation = validateFile(selected);
 
     if (validation) {
@@ -106,6 +165,13 @@ function UploadPrescriptionContent() {
 
     setError(null);
     setFile(selected);
+    setCurrentUploadTelemetryState({
+      stage: "file_selected",
+      has_file: true,
+      file_type: selected.type || "unknown",
+      file_size_bucket: fileSizeBucket(selected.size),
+      verification_mode: "upload",
+    });
     markStepStart("rx_upload");
     track(POSTHOG_EVENTS.RX_METHOD_SELECTED, {
       ...selectedLensAnalytics("upload_prescription"),
@@ -120,6 +186,11 @@ function UploadPrescriptionContent() {
 
   function clearFile() {
     setFile(null);
+    setCurrentUploadTelemetryState({
+      stage: "file_cleared",
+      has_file: false,
+      verification_mode: "upload",
+    });
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -154,10 +225,22 @@ function UploadPrescriptionContent() {
   }
 
   async function submitUpload() {
+    recordRecentUserAction("rx_upload_submit_click", {
+      has_file: Boolean(file),
+      loading,
+    });
+
     if (!file || loading) return;
 
     setLoading(true);
     setError(null);
+    setCurrentUploadTelemetryState({
+      stage: "submit_started",
+      has_file: true,
+      file_type: file.type || "unknown",
+      file_size_bucket: fileSizeBucket(file.size),
+      verification_mode: "upload",
+    });
 
     try {
       const {
@@ -166,6 +249,24 @@ function UploadPrescriptionContent() {
 
       if (!session) {
         const next = window.location.pathname + window.location.search;
+        sessionStorage.setItem(
+          SS_PENDING_UPLOAD_INTENT,
+          JSON.stringify({
+            route: next,
+            has_file: true,
+            file_type: file.type || "unknown",
+            file_size_bucket: fileSizeBucket(file.size),
+            at: Date.now(),
+          }),
+        );
+        void trackFunnelEvent(POSTHOG_EVENTS.LOGIN_REDIRECT_STARTED, {
+          reason: "rx_upload_requires_auth",
+          next_route: next,
+          has_file: true,
+          file_type: file.type || "unknown",
+          file_size_bucket: fileSizeBucket(file.size),
+          ...selectedLensAnalytics("rx_upload_login_redirect"),
+        });
         router.replace(`/login?next=${encodeURIComponent(next)}`);
         return;
       }
@@ -173,6 +274,14 @@ function UploadPrescriptionContent() {
       const orderId = await getOrCreateDraftOrder(session.access_token);
 
       localStorage.setItem(LS_ORDER_ID, orderId);
+      setCurrentUploadTelemetryState({
+        stage: "order_ready",
+        has_file: true,
+        file_type: file.type || "unknown",
+        file_size_bucket: fileSizeBucket(file.size),
+        order_id: orderId,
+        verification_mode: "upload",
+      });
 
       const formData = new FormData();
       formData.append("file", file);
@@ -189,6 +298,12 @@ function UploadPrescriptionContent() {
       const uploadDurationMs = consumeStepDurationMs("rx_upload");
 
       if (!ocrRes.ok) {
+        track(POSTHOG_EVENTS.RX_UPLOAD_FAILED, {
+          ...selectedLensAnalytics("rx_upload_failed"),
+          order_id: orderId,
+          reason: ocrBody.error ?? "Upload failed",
+          upload_duration_ms: uploadDurationMs,
+        });
         track(POSTHOG_EVENTS.OCR_FAILED, {
           ...selectedLensAnalytics("rx_ocr"),
           order_id: orderId,
@@ -228,6 +343,14 @@ function UploadPrescriptionContent() {
       router.push(`/upload-prescription/confirm?${params.toString()}`);
     } catch (err: unknown) {
       captureClientException(err, { source: "rx_upload_submit" });
+      void captureClientError(err, {
+        source: "rx_upload_submit",
+        component: "UploadPrescriptionContent",
+      });
+      track(POSTHOG_EVENTS.RX_UPLOAD_FAILED, {
+        ...selectedLensAnalytics("rx_upload_failed"),
+        reason: err instanceof Error ? err.message : "Upload failed",
+      });
 
       if (err instanceof Error) {
         setError(err.message);
@@ -268,10 +391,24 @@ function UploadPrescriptionContent() {
 
             <div
               className={`rx-choice-card rx-dropzone ${file ? "has-file" : ""}`}
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => e.preventDefault()}
+              onClick={() => {
+                recordRecentUserAction("rx_upload_dropzone_click", {
+                  has_file: Boolean(file),
+                  loading,
+                });
+                fileInputRef.current?.click();
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                recordRecentUserAction("rx_upload_drag_over", {
+                  has_file: Boolean(file),
+                });
+              }}
               onDrop={(e) => {
                 e.preventDefault();
+                recordRecentUserAction("rx_upload_drop", {
+                  file_count: e.dataTransfer.files?.length ?? 0,
+                });
                 const dropped = e.dataTransfer.files?.[0] ?? null;
                 handleFileSelected(dropped);
               }}
@@ -346,9 +483,25 @@ function UploadPrescriptionContent() {
                 className="primary-btn"
                 onClick={(e) => {
                   e.stopPropagation();
+                  recordRecentUserAction("rx_upload_cta_click", {
+                    has_file: Boolean(file),
+                    loading,
+                  });
+                  if (!file) {
+                    void trackFunnelEvent(POSTHOG_EVENTS.RX_UPLOAD_FAILED, {
+                      ...selectedLensAnalytics("rx_upload_cta_without_file"),
+                      reason: "continue_clicked_without_file",
+                    });
+                    fileInputRef.current?.click();
+                    return;
+                  }
                   submitUpload();
                 }}
-                disabled={!file || loading}
+                aria-disabled={!file || loading}
+                style={{
+                  opacity: !file || loading ? 0.72 : 1,
+                  cursor: loading ? "wait" : "pointer",
+                }}
               >
                 {loading ? "Uploading…" : "Continue to cart"}
               </button>
@@ -374,6 +527,10 @@ function UploadPrescriptionContent() {
                 href={manualEntryHref}
                 className="primary-btn"
                 onClick={() => {
+                  recordRecentUserAction("rx_manual_entry_link_click", {
+                    has_right_lens: Boolean(rightLens),
+                    has_left_lens: Boolean(leftLens),
+                  });
                   track(POSTHOG_EVENTS.RX_METHOD_SELECTED, {
                     ...selectedLensAnalytics("upload_prescription"),
                     verification_mode: "manual",

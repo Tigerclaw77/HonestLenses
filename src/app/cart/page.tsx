@@ -22,6 +22,7 @@ import {
   track,
 } from "@/lib/posthog/client";
 import { getCartLensAnalyticsProperties } from "@/lib/posthog/lensMetadata";
+import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 
 const DEV_MODE =
   process.env.NODE_ENV === "development" && process.env.VERCEL !== "1";
@@ -552,7 +553,7 @@ export default function CartPage() {
             onClick={() => {
               if (syncingQty) return;
               markStepStart(`checkout_duration:${cart.id}`);
-              track(POSTHOG_EVENTS.CHECKOUT_STARTED, {
+              void trackFunnelEvent(POSTHOG_EVENTS.CHECKOUT_STARTED, {
                 ...getCartLensAnalyticsProperties(cart),
                 order_id: cart.id,
                 source: "cart",

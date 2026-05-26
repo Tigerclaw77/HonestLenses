@@ -48,10 +48,24 @@ function getRequestProperties(req?: Request): AnalyticsProperties {
   if (!req) return {};
 
   const url = new URL(req.url);
+  const referrer = req.headers.get("referer");
+  const referrerHost = (() => {
+    if (!referrer) return null;
+    try {
+      return new URL(referrer).hostname;
+    } catch {
+      return null;
+    }
+  })();
 
   return {
+    route: url.pathname,
     route_path: url.pathname,
     method: req.method,
+    referrer_host: referrerHost,
+    utm_source: url.searchParams.get("utm_source"),
+    utm_medium: url.searchParams.get("utm_medium"),
+    utm_campaign: url.searchParams.get("utm_campaign"),
   };
 }
 

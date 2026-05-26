@@ -5,7 +5,10 @@ import Stripe from "stripe";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 import { POSTHOG_EVENTS } from "../../../../lib/posthog/events";
-import { captureServerException } from "../../../../lib/posthog/server";
+import {
+  captureServerEvent,
+  captureServerException,
+} from "../../../../lib/posthog/server";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -237,6 +240,20 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
+
+    await captureServerEvent({
+      event: POSTHOG_EVENTS.PAYMENT_INTENT_CREATED,
+      distinctId: user.id,
+      request: req,
+      properties: {
+        order_id: order.id,
+        order_value_cents: order.total_amount_cents,
+        shipping_cents: order.shipping_cents ?? null,
+        shipping_method: order.shipping_method ?? "standard",
+        has_payment_intent: true,
+        stripe_intent_status: intent.status,
+      },
+    });
 
     return NextResponse.json({
       clientSecret: intent.client_secret,

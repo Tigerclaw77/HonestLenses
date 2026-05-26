@@ -6,6 +6,9 @@ import RxForm, { type RxDraft } from "@/components/RxForm";
 import { supabase } from "@/lib/supabase-client";
 import { resolveBrand } from "@/lib/resolveBrand";
 import { lenses } from "@/LensCore";
+import { POSTHOG_EVENTS } from "@/lib/posthog/client";
+import { captureClientError } from "@/lib/telemetry/clientErrors";
+import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 
 /* =========================
    TYPES
@@ -31,6 +34,23 @@ function toStringSafe(val: unknown): string {
   return val != null ? String(val) : "";
 }
 
+async function getSessionWithRetry(maxAttempts = 4) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const {
+      data: { session },
+      error,
+    } = await supabase.auth.getSession();
+
+    if (session || error || attempt === maxAttempts) {
+      return { session, error, attempts: attempt };
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 200));
+  }
+
+  return { session: null, error: null, attempts: maxAttempts };
+}
+
 /* =========================
    COMPONENT
 ========================= */
@@ -54,14 +74,16 @@ export default function ConfirmClient() {
       try {
         setLoading(true);
 
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession();
-
-        console.log("SESSION DEBUG", { session, sessionError });
+        const { session, error: sessionError, attempts } =
+          await getSessionWithRetry();
 
         if (!session?.access_token) {
+          void trackFunnelEvent(POSTHOG_EVENTS.UPLOAD_RESUME_AFTER_AUTH, {
+            resumed: false,
+            reason: sessionError?.message ?? "missing_session_on_confirm",
+            attempts,
+            order_id: orderId,
+          });
           throw new Error("No auth session found");
         }
 
@@ -72,11 +94,7 @@ export default function ConfirmClient() {
           },
         });
 
-        console.log("FETCH STATUS", res.status);
-
         if (!res.ok) {
-          const text = await res.text();
-          console.error("FETCH ERROR BODY", text);
           throw new Error(`Failed to load order (${res.status})`);
         }
 
@@ -92,8 +110,6 @@ export default function ConfirmClient() {
           right?: Eye;
           expires?: string;
         };
-
-        console.log("ORDER RX RAW DATA", rx);
 
         const mapEye = (eye?: Eye): RxDraft["left"] => {
           const rawString = (eye?.brand_raw ?? "").trim();
@@ -121,24 +137,27 @@ export default function ConfirmClient() {
 
             if (match) {
               coreId = match.coreId;
-              console.log("🟨 FALLBACK MATCH USED", {
-                rawString,
-                matched: match.displayName,
-                coreId,
-              });
+              if (process.env.NODE_ENV === "development") {
+                console.info("Rx brand fallback match used", {
+                  matched: match.displayName,
+                  coreId,
+                });
+              }
             }
           }
 
           // 🔍 DEBUG — DO NOT REMOVE YET
-          console.log("RESOLVE BRAND DEBUG", {
-            rawString,
-            result,
-            finalCoreId: coreId,
-          });
+          if (process.env.NODE_ENV === "development") {
+            console.info("Resolve brand debug", {
+              has_raw_brand: Boolean(rawString),
+              matched_lens: result?.lensId ?? null,
+              finalCoreId: coreId,
+            });
+          }
 
           // 🚨 FAIL LOUD (temporary safety)
-          if (!coreId) {
-            console.warn("⚠️ NO CORE ID FOR EYE", eye);
+          if (!coreId && process.env.NODE_ENV === "development") {
+            console.warn("No core id resolved for uploaded Rx eye");
           }
 
           return {
@@ -158,12 +177,27 @@ export default function ConfirmClient() {
           expires: rx.expires ?? "",
         };
 
-        console.log("MAPPED DRAFT", draft);
-
         setInitialDraft(draft);
         setError(null);
+        void trackFunnelEvent(POSTHOG_EVENTS.UPLOAD_RESUME_AFTER_AUTH, {
+          resumed: true,
+          stage: "confirm_loaded",
+          attempts,
+          order_id: orderId,
+          has_right_lens: Boolean(draft.right.coreId),
+          has_left_lens: Boolean(draft.left.coreId),
+        });
       } catch (err: unknown) {
-        console.error("CONFIRM LOAD ERROR", err);
+        void captureClientError(err, {
+          source: "upload_confirm_load",
+          component: "ConfirmClient",
+          order_id: orderId,
+        });
+        void trackFunnelEvent(POSTHOG_EVENTS.UPLOAD_RESUME_AFTER_AUTH, {
+          resumed: false,
+          reason: err instanceof Error ? err.message : "confirm_load_failed",
+          order_id: orderId,
+        });
 
         if (err instanceof Error) {
           setError(err.message);
