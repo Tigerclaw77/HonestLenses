@@ -42,9 +42,12 @@ export default function Header({
   };
 
   const handleShopClick = (e: React.MouseEvent<HTMLElement>) => {
-    e.preventDefault();
     setIsNavOpen(false);
-    onShopIntent?.();
+
+    if (onShopIntent) {
+      e.preventDefault();
+      onShopIntent();
+    }
   };
 
   // Load cart badge

@@ -1,0 +1,294 @@
+.guideShell {
+  min-height: calc(100vh - 220px);
+  padding: 4.5rem 1.5rem 2rem;
+}
+
+.guideWrap {
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.breadcrumbs {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.82rem;
+}
+
+.breadcrumbs a {
+  color: #d8d2ff;
+  text-decoration: none;
+}
+
+.breadcrumbs a:hover {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
+.indexHero,
+.articleHeader {
+  max-width: 780px;
+}
+
+.eyebrow {
+  margin: 0 0 0.8rem;
+  color: rgba(216, 210, 255, 0.82);
+  font-size: 0.74rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.indexHero h1,
+.articleHeader h1 {
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+
+.indexHero p,
+.articleIntro {
+  margin: 1.2rem 0 0;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 1.02rem;
+  line-height: 1.75;
+}
+
+.guideGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 1rem;
+  margin-top: 2.25rem;
+}
+
+.guideCard {
+  display: flex;
+  flex-direction: column;
+  min-height: 220px;
+  padding: 1.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  text-decoration: none;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    transform 0.18s ease;
+}
+
+.guideCard:hover {
+  border-color: rgba(216, 210, 255, 0.36);
+  background: rgba(255, 255, 255, 0.055);
+  transform: translateY(-2px);
+}
+
+.guideCard h2 {
+  margin: 0;
+  color: #ffffff;
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.guideCard p {
+  margin: 0.85rem 0 0;
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 0.94rem;
+  line-height: 1.6;
+}
+
+.cardMeta {
+  margin-top: auto;
+  padding-top: 1.25rem;
+  color: rgba(216, 210, 255, 0.78);
+  font-size: 0.82rem;
+}
+
+.articleGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 3rem;
+  align-items: start;
+  margin-top: 2.25rem;
+}
+
+.articleBody {
+  max-width: 760px;
+}
+
+.articleSection {
+  padding-top: 2rem;
+  margin-top: 2rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.articleSection h2,
+.faq h2 {
+  margin: 0 0 1rem;
+  color: #ffffff;
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.35;
+}
+
+.articleBody p,
+.articleBody li,
+.faq p {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.98rem;
+  line-height: 1.72;
+}
+
+.articleBody p {
+  margin: 0 0 1rem;
+}
+
+.articleBody ul {
+  margin: 0.8rem 0 0;
+  padding-left: 1.15rem;
+}
+
+.articleBody li + li {
+  margin-top: 0.62rem;
+}
+
+.callout {
+  margin: 1.25rem 0;
+  padding: 1rem 1.1rem;
+  border-left: 3px solid rgba(216, 210, 255, 0.7);
+  border-radius: 0 8px 8px 0;
+  background: rgba(216, 210, 255, 0.07);
+}
+
+.actionLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1.25rem 0 0;
+}
+
+.actionLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0.72rem 1rem;
+  border: 1px solid rgba(216, 210, 255, 0.28);
+  border-radius: 8px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.04);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.actionLink:hover {
+  border-color: rgba(216, 210, 255, 0.6);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.faq {
+  padding-top: 2.25rem;
+  margin-top: 2.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.faqItem {
+  padding: 1rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.faqItem h3 {
+  margin: 0 0 0.55rem;
+  color: #ffffff;
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.faqItem p {
+  margin: 0;
+}
+
+.trustBlock {
+  margin-top: 2.5rem;
+  padding: 1.1rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.trustBlock p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.92rem;
+}
+
+.trustBlock p + p {
+  margin-top: 0.55rem;
+}
+
+.sideNav {
+  position: sticky;
+  top: 150px;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.sideNavTitle {
+  margin: 0 0 0.8rem;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.sideNav a {
+  display: block;
+  color: rgba(255, 255, 255, 0.75);
+  text-decoration: none;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.sideNav a + a {
+  margin-top: 0.7rem;
+}
+
+.sideNav a:hover {
+  color: #ffffff;
+}
+
+@media (max-width: 860px) {
+  .guideShell {
+    padding-top: 3rem;
+  }
+
+  .articleGrid {
+    display: block;
+  }
+
+  .sideNav {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .guideShell {
+    padding: 2.5rem 1rem 1.5rem;
+  }
+
+  .indexHero h1,
+  .articleHeader h1 {
+    font-size: 2rem;
+  }
+
+  .actionLinks {
+    display: grid;
+  }
+}
