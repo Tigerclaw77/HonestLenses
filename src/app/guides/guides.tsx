@@ -679,6 +679,699 @@ export const guides: GuidePage[] = [
       },
     ],
   },
+  {
+    slug: "why-was-my-contact-lens-prescription-rejected",
+    title: "Why Was My Contact Lens Prescription Rejected?",
+    description:
+      "Common reasons a contact lens prescription may not verify, including expiration, mismatched lens details, invalid prescriber response, incomplete information, or submitting a glasses prescription.",
+    summary:
+      "Why a contact lens order may stop during verification and what customers can do next.",
+    intro: (
+      <>
+        A contact lens prescription may be rejected or fail verification when
+        the prescription is expired, incomplete, mismatched to the order, or
+        disputed by the prescriber.
+      </>
+    ),
+    sections: [
+      {
+        heading: "The Prescription May Be Expired",
+        content: (
+          <>
+            <p>
+              Contact lenses require a valid contact lens prescription. If the
+              expiration date has passed, or if the prescriber reports that the
+              prescription is expired, the order cannot be completed from that
+              prescription.
+            </p>
+            <p>
+              If your prescription is expired, contact your eye care
+              professional about an exam, renewal, or updated contact lens
+              prescription.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "The Lens Details May Not Match",
+        content: (
+          <>
+            <p>
+              The ordered lens must match the contact lens prescription. A
+              mismatch can include the brand, power, base curve, diameter, lens
+              type, cylinder, axis, add power, or color when those details
+              apply.
+            </p>
+            <p>
+              A seller should not substitute a different contact lens brand or
+              design unless the prescriber updates the prescription.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "The Prescriber May Dispute It",
+        content: (
+          <>
+            <p>
+              During verification, the prescriber may report that the
+              prescription is invalid, incomplete, inaccurate, expired, or not
+              found in the patient record. When that happens, the order needs
+              corrected information before it can continue.
+            </p>
+            <p>
+              The prescriber may also indicate that a contact lens fitting is
+              not complete or that the submitted details do not reflect a
+              finalized contact lens prescription.
+            </p>
+            <p>
+              Honest Lenses may ask you for a clearer prescription copy or
+              updated prescriber information if the office cannot verify the
+              details submitted.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "A Glasses Prescription Was Submitted",
+        content: (
+          <>
+            <p>
+              A glasses prescription is not the same as a contact lens
+              prescription. Contact lenses sit on the eye and require fitting
+              details such as the prescribed contact lens brand or material and
+              lens measurements.
+            </p>
+            <p>
+              If you only have a glasses prescription, ask your eye care
+              professional whether a contact lens fitting or updated contact
+              lens prescription is needed.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "What to Do Next",
+        content: (
+          <>
+            <ul>
+              <li>Review the brand and parameters against your prescription.</li>
+              <li>Upload a clear, complete copy of the contact lens prescription.</li>
+              <li>Check that the patient name and expiration date are visible.</li>
+              <li>Confirm the prescriber office contact information is accurate.</li>
+              <li>Contact your prescriber if the prescription needs correction or renewal.</li>
+            </ul>
+            <div className={styles.actionLinks}>
+              <ActionLink href="/upload-prescription">
+                Upload prescription
+              </ActionLink>
+              <ActionLink href="/verification">
+                Read about verification
+              </ActionLink>
+            </div>
+          </>
+        ),
+      },
+    ],
+    faqs: [
+      {
+        question: "Can my contact lens order be rejected if my prescription is expired?",
+        answer:
+          "Yes. A contact lens order may not be completed if the prescription is expired or if the prescriber reports that it is no longer valid.",
+      },
+      {
+        question: "What if I entered the wrong brand or power?",
+        answer:
+          "The order may need correction before it can continue. Contact lenses should be ordered according to the exact brand and parameters on the valid contact lens prescription.",
+      },
+      {
+        question: "Can I order a different contact lens brand than the one prescribed?",
+        answer:
+          "No. A different brand or lens design should not be substituted unless your eye care professional updates the contact lens prescription.",
+      },
+      {
+        question: "What should I do if my prescription does not verify?",
+        answer:
+          "Check whether the prescription is current, complete, and matched to the ordered lenses. You may need to upload a clearer copy, correct prescriber information, or contact your eye care professional for an updated prescription.",
+      },
+    ],
+  },
+  {
+    slug: "what-happens-if-my-eye-doctor-does-not-respond",
+    title:
+      "What Happens If My Eye Doctor Does Not Respond to Prescription Verification?",
+    description:
+      "What can happen when a prescriber does not respond to contact lens prescription verification, including passive verification, business-hour timing, and other order delays.",
+    summary:
+      "How passive verification works when the prescriber does not respond, and why no response does not always mean the order ships immediately.",
+    intro: (
+      <>
+        If your eye doctor does not respond to a complete contact lens
+        prescription verification request within the allowed business-hour
+        window, the prescription may be treated as verified for that order under
+        the FTC Contact Lens Rule.
+      </>
+    ),
+    sections: [
+      {
+        heading: "Passive Verification in Plain Language",
+        content: (
+          <>
+            <p>
+              Passive verification is a verification pathway, not a way to skip
+              the prescription requirement. The seller still needs prescription
+              information and must send a complete request to the prescriber.
+            </p>
+            <p>
+              If the prescriber does not respond within the applicable business
+              hours, the prescription may be treated as verified unless another
+              issue prevents fulfillment.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "The Request Must Be Complete",
+        content: (
+          <>
+            <p>
+              Passive verification depends on a complete verification request.
+              Missing patient details, prescriber contact information, lens
+              brand, power, or expiration information can delay the process.
+            </p>
+            <p>
+              If the request cannot be sent correctly, the business-hour window
+              may not start until the required information is available.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "Business Hours Matter",
+        content: (
+          <>
+            <p>
+              The verification window is measured in business hours, not simply
+              clock hours. Requests sent after office hours, over weekends, or
+              near federal holidays may take longer to resolve.
+            </p>
+            <p>
+              Saturday time may count only when the seller has appropriate
+              knowledge that the prescriber is regularly open on Saturday.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "No Response Does Not Mean Immediate Shipment",
+        content: (
+          <>
+            <p>
+              A prescription may be treated as verified after the allowed
+              business-hour window, but the order can still require product
+              processing, availability review, payment review, or shipping
+              preparation.
+            </p>
+            <p>
+              If any prescription detail is inconsistent or incomplete, support
+              may still need to resolve that issue before fulfillment.
+            </p>
+            <div className={styles.actionLinks}>
+              <ActionLink href="/guides/passive-prescription-verification">
+                Passive verification guide
+              </ActionLink>
+              <ActionLink href="/verification">
+                Prescription verification
+              </ActionLink>
+            </div>
+          </>
+        ),
+      },
+    ],
+    faqs: [
+      {
+        question: "Does no response mean my order can move forward right away?",
+        answer:
+          "Not by itself. A lack of response may allow the prescription to be treated as verified only when a complete request was received and the required business-hour window has passed. Other order or prescription issues can still require review.",
+      },
+      {
+        question: "How long does passive verification take?",
+        answer:
+          "The FTC Contact Lens Rule uses an eight-business-hour window after a complete verification request is received by the prescriber. That is not the same as eight clock hours.",
+      },
+      {
+        question: "Do weekends or holidays count?",
+        answer:
+          "Federal holidays are excluded. Weekend time generally does not count unless the seller has appropriate knowledge that the prescriber is regularly open on Saturday.",
+      },
+      {
+        question: "Can my order still be delayed after passive verification?",
+        answer:
+          "Yes. Product availability, shipping processing, payment review, incomplete order information, or other prescription inconsistencies can still delay fulfillment.",
+      },
+    ],
+  },
+  {
+    slug: "what-information-is-needed-to-verify-a-contact-lens-prescription",
+    title: "What Information Is Needed to Verify a Contact Lens Prescription?",
+    description:
+      "The patient, prescriber, lens, parameter, and expiration information typically needed to verify a contact lens prescription and reduce order delays.",
+    summary:
+      "A checklist of the prescription and prescriber details that help contact lens verification move cleanly.",
+    intro: (
+      <>
+        To verify a contact lens prescription, the seller needs enough patient,
+        prescriber, lens, parameter, and expiration information to confirm that
+        the order matches a valid contact lens prescription.
+      </>
+    ),
+    sections: [
+      {
+        heading: "Patient and Prescriber Information",
+        content: (
+          <>
+            <p>
+              Verification usually starts with the patient name and prescriber
+              information. The prescriber office needs to be identifiable so the
+              prescription can be confirmed when direct verification is needed.
+            </p>
+            <ul>
+              <li>Patient name as written on the prescription</li>
+              <li>Prescriber name</li>
+              <li>Clinic or office name when available</li>
+              <li>Phone, fax, email, or other contact details</li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        heading: "Lens Brand and Basic Parameters",
+        content: (
+          <>
+            <p>
+              Contact lens prescriptions are brand and fit specific. The lens
+              brand, manufacturer, material, or exact product name matters
+              because different lenses can fit and perform differently.
+            </p>
+            <ul>
+              <li>Lens brand or product name</li>
+              <li>Manufacturer when listed</li>
+              <li>Power or sphere for each eye</li>
+              <li>Base curve and diameter when applicable</li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        heading: "Toric, Multifocal, and Other Lens Details",
+        content: (
+          <>
+            <p>
+              Some prescriptions require additional fields. Toric lenses for
+              astigmatism commonly include cylinder and axis. Multifocal lenses
+              commonly include add power or add designation.
+            </p>
+            <ul>
+              <li>Cylinder and axis for toric lenses</li>
+              <li>Add power for multifocal lenses</li>
+              <li>Color or other product-specific details when prescribed</li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        heading: "Dates and Completeness",
+        content: (
+          <>
+            <p>
+              The prescription should include enough date information to show
+              whether it is current. Missing, cropped, or unreadable dates can
+              slow verification.
+            </p>
+            <ul>
+              <li>Expiration date</li>
+              <li>Issue or exam date when shown</li>
+              <li>Readable image or PDF if uploading the prescription</li>
+            </ul>
+            <div className={styles.actionLinks}>
+              <ActionLink href="/upload-prescription">
+                Upload prescription
+              </ActionLink>
+              <ActionLink href="/enter-prescription">
+                Enter prescription details
+              </ActionLink>
+            </div>
+          </>
+        ),
+      },
+    ],
+    faqs: [
+      {
+        question: "Do I need to upload my prescription?",
+        answer:
+          "Uploading a clear prescription can help, but some orders may also use prescriber verification. The information still needs to be complete and accurate.",
+      },
+      {
+        question: "Why does the contact lens brand matter?",
+        answer:
+          "Contact lens prescriptions are brand and fit specific. A different brand may have a different design, material, or fit and should not be substituted unless the prescriber updates the prescription.",
+      },
+      {
+        question: "What happens if my doctor's contact information is wrong?",
+        answer:
+          "Verification may be delayed because the seller may not be able to send a complete request to the correct prescriber office.",
+      },
+      {
+        question: "What information is different for toric or multifocal lenses?",
+        answer:
+          "Toric lenses commonly require cylinder and axis. Multifocal lenses commonly require add power or add designation. These fields need to match the prescription.",
+      },
+    ],
+  },
+  {
+    slug: "can-i-use-my-glasses-prescription-to-buy-contacts",
+    title: "Can I Use My Glasses Prescription to Buy Contact Lenses?",
+    description:
+      "Why a glasses prescription cannot be used as a contact lens prescription, what contact lens prescriptions include, and what to ask your eye care provider.",
+    summary:
+      "The direct answer on glasses prescriptions, contact lens fitting details, and why sellers should not convert one into the other.",
+    intro: (
+      <>
+        No. A glasses prescription is not the same as a contact lens
+        prescription and should not be used by itself to buy contact lenses.
+      </>
+    ),
+    sections: [
+      {
+        heading: "Glasses and Contacts Are Different Prescriptions",
+        content: (
+          <>
+            <p>
+              Glasses sit in front of the eyes. Contact lenses sit directly on
+              the eyes. Because of that difference, a contact lens prescription
+              includes fitting details that are not usually part of a glasses
+              prescription.
+            </p>
+            <p>
+              Contact lenses are prescription medical devices and should be
+              dispensed according to a valid contact lens prescription.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "What a Contact Lens Prescription Includes",
+        content: (
+          <>
+            <p>
+              A contact lens prescription typically identifies the lens brand or
+              material and the parameters needed for each eye. Depending on the
+              lens, those details may include power, base curve, diameter,
+              cylinder, axis, add power, or color.
+            </p>
+            <p>
+              The prescription should also identify the patient, prescriber, and
+              expiration date.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "A Seller Should Not Convert It",
+        content: (
+          <>
+            <p>
+              Honest Lenses should not convert a glasses prescription into a
+              contact lens prescription. That decision belongs with your eye
+              care professional, who can evaluate fit, vision, and eye health.
+            </p>
+            <p>
+              If you want to wear contact lenses, ask your eye care provider
+              for a contact lens prescription after any required fitting.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "What to Do If You Only Have a Glasses Prescription",
+        content: (
+          <>
+            <ul>
+              <li>Contact your eye care professional.</li>
+              <li>Ask whether you need a contact lens fitting.</li>
+              <li>Request a copy of your current contact lens prescription if one exists.</li>
+              <li>Use the exact brand and parameters listed on that prescription.</li>
+            </ul>
+            <div className={styles.actionLinks}>
+              <ActionLink href="/guides/what-information-is-needed-to-verify-a-contact-lens-prescription">
+                Verification information checklist
+              </ActionLink>
+              <ActionLink href="/contact">Contact support</ActionLink>
+            </div>
+          </>
+        ),
+      },
+    ],
+    faqs: [
+      {
+        question: "Why are glasses and contact lens prescriptions different?",
+        answer:
+          "Contact lenses sit on the eye and require fitting information, including the prescribed lens brand or material and parameters. Glasses prescriptions do not usually include those contact lens details.",
+      },
+      {
+        question: "Can Honest Lenses convert my glasses prescription?",
+        answer:
+          "No. Honest Lenses should not convert a glasses prescription into a contact lens prescription. Ask your eye care professional for a valid contact lens prescription.",
+      },
+      {
+        question: "What if I know my contact lens power from an old box?",
+        answer:
+          "An old box is not a substitute for a current valid contact lens prescription. The order still needs to match a valid prescription for the wearer.",
+      },
+      {
+        question: "Do I need a contact lens fitting?",
+        answer:
+          "Your eye care professional can tell you whether a fitting or updated evaluation is needed before issuing a contact lens prescription.",
+      },
+    ],
+  },
+  {
+    slug: "why-do-contact-lens-prescriptions-expire",
+    title: "Why Do Contact Lens Prescriptions Expire?",
+    description:
+      "Why contact lens prescriptions have expiration dates, how expiration supports professional evaluation, and what customers should do when a prescription is expired.",
+    summary:
+      "Why expiration dates matter for contact lens prescriptions and what to do before placing a new order.",
+    intro: (
+      <>
+        Contact lens prescriptions expire because eye health, lens fit, and
+        vision needs can change over time, and the expiration date helps ensure
+        ongoing professional evaluation.
+      </>
+    ),
+    sections: [
+      {
+        heading: "Contact Lenses Are Medical Devices",
+        content: (
+          <>
+            <p>
+              Contact lenses are prescription medical devices. A current
+              prescription helps confirm that the lens brand and parameters are
+              still the ones your eye care professional prescribed.
+            </p>
+            <p>
+              Expiration dates are part of determining whether a prescription
+              is current for a new order.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "Fit and Vision Can Change",
+        content: (
+          <>
+            <p>
+              Your prescription, comfort, tear film, lens fit, and wearing
+              needs can change. An expiration date encourages periodic review
+              with an eye care professional instead of relying indefinitely on
+              older information.
+            </p>
+            <p>
+              If your lenses still feel fine, your prescriber can determine
+              whether renewal is appropriate.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "Expired Prescriptions Can Block Orders",
+        content: (
+          <>
+            <p>
+              Expired prescriptions generally cannot be used to complete a new
+              contact lens order. If the prescriber reports that the
+              prescription is expired, the order cannot continue as submitted.
+            </p>
+            <p>
+              Honest Lenses may ask for a current prescription before
+              fulfillment.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "What to Do If Yours Is Expired",
+        content: (
+          <>
+            <ul>
+              <li>Schedule an eye exam or contact lens renewal.</li>
+              <li>Ask your prescriber for a copy of the updated contact lens prescription.</li>
+              <li>Confirm the brand, parameters, and expiration date are readable.</li>
+              <li>Use the updated prescription when placing your order.</li>
+            </ul>
+            <div className={styles.actionLinks}>
+              <ActionLink href="/guides/can-i-buy-contacts-with-expired-prescription">
+                Buying with an expired prescription
+              </ActionLink>
+              <ActionLink href="/upload-prescription">
+                Upload current prescription
+              </ActionLink>
+            </div>
+          </>
+        ),
+      },
+    ],
+    faqs: [
+      {
+        question: "Can I buy contacts after my prescription expires?",
+        answer:
+          "Generally, no. A new order requires a valid contact lens prescription. If your prescription is expired, contact your eye care professional about renewal.",
+      },
+      {
+        question: "Why do contact prescriptions expire sooner than I expected?",
+        answer:
+          "Expiration timing can depend on applicable rules and clinical judgment from the prescriber. Ask your eye care professional if you have questions about the date listed.",
+      },
+      {
+        question: "Who sets the expiration date?",
+        answer:
+          "The prescriber sets the expiration date within applicable law and professional requirements.",
+      },
+      {
+        question: "What should I do if my prescription is expired?",
+        answer:
+          "Schedule an exam or contact your prescriber about renewal, then use the updated contact lens prescription for your order.",
+      },
+    ],
+  },
+  {
+    slug: "can-someone-else-order-contacts-for-me",
+    title: "Can Someone Else Order Contact Lenses for Me?",
+    description:
+      "When another person may place a contact lens order for the wearer, why the prescription must belong to the actual wearer, and what information needs to match.",
+    summary:
+      "Practical guidance for family members and caregivers ordering contact lenses for someone else.",
+    intro: (
+      <>
+        Someone else may be able to place an order for you, but the contact
+        lenses must be ordered using the actual wearer name and valid contact
+        lens prescription information.
+      </>
+    ),
+    sections: [
+      {
+        heading: "The Prescription Must Belong to the Wearer",
+        content: (
+          <>
+            <p>
+              Contact lens prescriptions are patient specific. The prescription
+              used for the order must be for the person who will wear the
+              lenses, not the person placing or paying for the order.
+            </p>
+            <p>
+              Do not use a prescription written for another person, even if the
+              brand or power looks similar.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "Order Details Need to Match",
+        content: (
+          <>
+            <p>
+              The wearer name, lens brand, parameters, prescriber information,
+              and expiration date should match the valid contact lens
+              prescription. Mismatches can delay or prevent fulfillment.
+            </p>
+            <p>
+              The shipping or payment information may belong to another person,
+              but the prescription information should identify the wearer.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "Ordering for a Child or Dependent",
+        content: (
+          <>
+            <p>
+              A parent, guardian, or caregiver may place an order for a child or
+              dependent when the order uses a valid contact lens prescription
+              written for the wearer.
+            </p>
+            <p>
+              Enter names and prescriber details carefully so the prescriber
+              office can match the verification request to the correct patient
+              record.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "Practical Checklist",
+        content: (
+          <>
+            <ul>
+              <li>Use the legal name of the wearer or the name shown on the prescription.</li>
+              <li>Order the exact lens brand and parameters prescribed.</li>
+              <li>Confirm the prescription is current and readable.</li>
+              <li>Use accurate prescriber office contact information.</li>
+              <li>Do not share or reuse a prescription written for another person.</li>
+            </ul>
+            <div className={styles.actionLinks}>
+              <ActionLink href="/browse">Browse contacts</ActionLink>
+              <ActionLink href="/upload-prescription">
+                Upload prescription
+              </ActionLink>
+            </div>
+          </>
+        ),
+      },
+    ],
+    faqs: [
+      {
+        question: "Can I order contacts for my child?",
+        answer:
+          "A parent or guardian may be able to place an order, but the prescription information should be for the child who will wear the lenses.",
+      },
+      {
+        question: "Can I order contacts for my spouse or parent?",
+        answer:
+          "Yes, another person may place or pay for an order, but the prescription must belong to the wearer and match the lenses ordered.",
+      },
+      {
+        question: "Can two people share the same contact lens prescription?",
+        answer:
+          "No. Contact lens prescriptions are patient specific and should not be shared, even when two people appear to use similar lenses.",
+      },
+      {
+        question: "Whose name should be on the prescription?",
+        answer:
+          "The prescription should be in the name of the person who will wear the contact lenses.",
+      },
+    ],
+  },
 ];
 
 export const guideMap = new Map(guides.map((guide) => [guide.slug, guide]));

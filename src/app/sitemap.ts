@@ -8,6 +8,12 @@ const guideSlugs = [
   "can-i-buy-contacts-with-expired-prescription",
   "how-long-does-contact-lens-verification-take",
   "why-are-contact-lenses-cheaper-online",
+  "why-was-my-contact-lens-prescription-rejected",
+  "what-happens-if-my-eye-doctor-does-not-respond",
+  "what-information-is-needed-to-verify-a-contact-lens-prescription",
+  "can-i-use-my-glasses-prescription-to-buy-contacts",
+  "why-do-contact-lens-prescriptions-expire",
+  "can-someone-else-order-contacts-for-me",
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
