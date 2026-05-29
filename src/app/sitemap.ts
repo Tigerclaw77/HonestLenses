@@ -2,6 +2,14 @@ import { MetadataRoute } from "next";
 import { lenses } from "@/LensCore/data/lenses";
 import { slugifyLens } from "@/lib/seo/slugifyLens";
 
+const guideSlugs = [
+  "why-is-my-contact-lens-order-delayed",
+  "passive-prescription-verification",
+  "can-i-buy-contacts-with-expired-prescription",
+  "how-long-does-contact-lens-verification-take",
+  "why-are-contact-lenses-cheaper-online",
+];
+
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = "https://honestlenses.com";
 
@@ -18,6 +26,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "daily",
       priority: 0.9,
     },
+    {
+      url: `${base}/guides`,
+      lastModified: new Date(),
+      changeFrequency: "monthly",
+      priority: 0.7,
+    },
   ];
 
   const lensPages: MetadataRoute.Sitemap = lenses.map((lens) => ({
@@ -25,6 +39,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     lastModified: new Date(),
     changeFrequency: "weekly",
     priority: 0.8,
+  }));
+
+  const guidePages: MetadataRoute.Sitemap = guideSlugs.map((slug) => ({
+    url: `${base}/guides/${slug}`,
+    lastModified: new Date(),
+    changeFrequency: "monthly",
+    priority: 0.65,
   }));
 
   // const parameterPages: MetadataRoute.Sitemap = lenses.map((lens) => ({
@@ -44,6 +65,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return [
     ...staticPages,
     ...lensPages,
+    ...guidePages,
     // ...parameterPages,
     // ...alternativePages,
   ];
