@@ -20,6 +20,13 @@ export const POSTHOG_EVENTS = {
   ORDER_CAPTURED: "order_captured",
   RX_METHOD_SELECTED: "rx_method_selected",
   UPLOAD_PRESCRIPTION_VIEWED: "upload_prescription_viewed",
+  RX_FILE_PICKER_OPENED: "rx_file_picker_opened",
+  RX_FILE_SELECTED: "rx_file_selected",
+  RX_UPLOAD_AUTH_REQUIRED: "rx_upload_auth_required",
+  RX_UPLOAD_CTA_CLICKED_WITHOUT_FILE: "rx_upload_cta_clicked_without_file",
+  RX_UPLOAD_RESUME_PROMPT_SHOWN: "rx_upload_resume_prompt_shown",
+  RX_UPLOAD_RESELECT_AFTER_AUTH_CLICKED:
+    "rx_upload_reselect_after_auth_clicked",
   RX_UPLOAD_STARTED: "rx_upload_started",
   RX_UPLOAD_COMPLETED: "rx_upload_completed",
   RX_UPLOAD_FAILED: "rx_upload_failed",
