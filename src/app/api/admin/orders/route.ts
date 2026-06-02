@@ -69,11 +69,6 @@ type OrderRow = {
   payment_status_source?: "stripe" | "order_fallback" | "missing_intent" | null;
   fulfillment_status?: string | null;
   admin_notes?: string | null;
-  needs_review?: boolean | null;
-  verified?: boolean | null;
-  passive_verified?: boolean | null;
-  doctor_confirmed?: boolean | null;
-  blocked?: boolean | null;
 };
 
 type AbandonedOrderRow = OrderRow & {

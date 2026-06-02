@@ -16,21 +16,12 @@ const FULFILLMENT_STATUSES = [
   "cancelled",
 ] as const;
 
-const VERIFICATION_FLAGS = [
-  "needs_review",
-  "verified",
-  "passive_verified",
-  "doctor_confirmed",
-  "blocked",
-] as const;
-
 type FulfillmentStatus = (typeof FULFILLMENT_STATUSES)[number];
-type VerificationFlag = (typeof VERIFICATION_FLAGS)[number];
 
 type PatchBody = {
   fulfillment_status?: unknown;
   admin_notes?: unknown;
-} & Partial<Record<VerificationFlag, unknown>>;
+};
 
 function isFulfillmentStatus(value: unknown): value is FulfillmentStatus {
   return FULFILLMENT_STATUSES.includes(value as FulfillmentStatus);
@@ -79,19 +70,6 @@ export async function PATCH(
     }
 
     update.admin_notes = body.admin_notes;
-  }
-
-  for (const flag of VERIFICATION_FLAGS) {
-    if (!(flag in body)) continue;
-
-    if (typeof body[flag] !== "boolean") {
-      return NextResponse.json(
-        { error: `Invalid ${flag} value` },
-        { status: 400 },
-      );
-    }
-
-    update[flag] = body[flag];
   }
 
   if (Object.keys(update).length === 0) {

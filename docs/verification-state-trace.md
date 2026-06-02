@@ -29,7 +29,7 @@ Dashboard consumers:
 - Copied order text: `Verify: {verification.label}`
 - NEXT ACTION: `getNextAction(order)` reads the same `getVerificationState(order)` result
 
-Quarantined fields:
+Retired dashboard checkbox fields:
 
 - `needs_review`
 - `verified`
@@ -37,7 +37,7 @@ Quarantined fields:
 - `doctor_confirmed`
 - `blocked`
 
-Those fields are still persisted and functional through Advanced Overrides, but they no longer drive the main verification badge or NEXT ACTION.
+The Phase 2 audit treated these as persisted UI-only overrides. A Phase 3 production trace found that the live `orders` row for the Victoria West order does not include any of these columns. The dashboard no longer renders the Advanced Overrides checkbox controls and the admin PATCH route no longer writes these fields.
 
 ## Display Mapping
 
@@ -62,10 +62,14 @@ Those fields are still persisted and functional through Advanced Overrides, but 
 - Doctor verification completion: `/api/verification/complete` writes `verified` or `rejected`.
 - Manual verification endpoint: `/api/orders/[id]/verify` writes `verified` or `altered`.
 - Admin override route: `/api/admin/orders/[id]` writes only the five checkbox flags, not `verification_status`.
+- Phase 3 update: `/api/admin/orders/[id]` no longer writes checkbox flags because the live schema does not contain those columns.
 
 ## Where It Is Read
 
 - Dashboard badge and NEXT ACTION now read `getVerificationState(order)`.
+- `getVerificationState(order)` now treats irreversible downstream evidence as operational verification when `verification_status` is stale:
+  - Stripe/admin `payment_status=captured`.
+  - `fulfillment_status=ordered`, `shipped`, or `completed`.
 - Capture route `/api/orders/[id]/capture` currently allows capture only when `verification_status` is `verified` or `altered`.
 - Passive verification cron reads `verification_status=pending`.
 - Checkout/customer pages and ops flags still have their own reads outside this dashboard pass.
@@ -76,9 +80,19 @@ Those fields are still persisted and functional through Advanced Overrides, but 
 - The dashboard previously let `blocked=true` display as blocked even though backend verification/capture jobs did not know about that block.
 - Shipped/completed orders previously displayed verification as `CLOSED`, which could hide an actual `verification_status` conflict. The dashboard now displays the real verification state.
 - Backend capture still recognizes only `verified` and `altered`, while the recommended future state machine includes `passive_verified` and `doctor_confirmed`. If those values exist on authorized orders, they need a state migration or capture-gate update before they can be fully authoritative.
+- Victoria West real-order trace:
+  - Local row: `verification_status=pending`, `status=authorized`, `fulfillment_status=ordered`, `capture_amount_cents=10199`, `rx_status=uploaded`, `rx_upload_path=null`, structured `rx` present.
+  - Stripe PaymentIntent: `succeeded`, `amount_received=10199`, `amount_capturable=0`.
+  - The dashboard showed `Verification: Pending` and `NEXT ACTION: Verify prescription` because it trusted stale `verification_status` before checking captured payment and vendor-order progress.
+  - Correct operational result after Phase 3: `Verification: Verified`, `NEXT ACTION: Await shipment`.
+- Production schema drift:
+  - The Victoria row has no `needs_review`, `verified`, `passive_verified`, `doctor_confirmed`, or `blocked` columns.
+  - The `doctor_confirmed` production error was caused by the Advanced Overrides checkbox attempting to PATCH a column that does not exist.
 
 ## UI Lies Removed
 
 - Main verification badge no longer claims `Verified`, `Passive Verified`, `Doctor Confirmed`, or `Blocked` from checkbox booleans alone.
 - Main verification badge no longer says `CLOSED` just because fulfillment is shipped/completed.
 - Unknown legacy verification values no longer get rendered as a confident terminal status.
+- Stale `verification_status=pending` no longer overrides captured payment or vendor-order progress.
+- The dashboard no longer sends missing checkbox columns in admin PATCH requests.
