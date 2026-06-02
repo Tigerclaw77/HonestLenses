@@ -84,6 +84,12 @@ type Order = {
   left_box_count?: number | null;
   od_box_count?: number | null;
   os_box_count?: number | null;
+  adjusted_right_box_count?: number | null;
+  adjusted_left_box_count?: number | null;
+  adjusted_total_box_count?: number | null;
+  order_quantity_adjustment_reason?: OrderQuantityAdjustmentReason | string | null;
+  order_quantity_adjusted_by?: string | null;
+  order_quantity_adjusted_at?: string | null;
 
   created_at?: string;
   updated_at?: string | null;
@@ -141,6 +147,13 @@ type CaptureAdjustmentReason =
   | "Customer service accommodation"
   | "Other";
 
+type OrderQuantityAdjustmentReason =
+  | "Quantity correction"
+  | "Customer requested change"
+  | "Prescription correction"
+  | "Inventory adjustment"
+  | "Other";
+
 type BadgeTone =
   | "good"
   | "warning"
@@ -167,6 +180,15 @@ type CaptureAdjustmentModalState = {
   authorizedAmountCents: number;
   amount: string;
   reason: CaptureAdjustmentReason;
+  error: string | null;
+};
+
+type OrderQuantityAdjustmentModalState = {
+  orderId: string;
+  patientName: string;
+  rightBoxes: string;
+  leftBoxes: string;
+  reason: OrderQuantityAdjustmentReason;
   error: string | null;
 };
 
@@ -273,11 +295,27 @@ const CAPTURE_ADJUSTMENT_REASONS: CaptureAdjustmentReason[] = [
   "Other",
 ];
 
+const ORDER_QUANTITY_ADJUSTMENT_REASONS: OrderQuantityAdjustmentReason[] = [
+  "Quantity correction",
+  "Customer requested change",
+  "Prescription correction",
+  "Inventory adjustment",
+  "Other",
+];
+
 function isCaptureAdjustmentReason(
   value: unknown,
 ): value is CaptureAdjustmentReason {
   return CAPTURE_ADJUSTMENT_REASONS.includes(
     value as CaptureAdjustmentReason,
+  );
+}
+
+function isOrderQuantityAdjustmentReason(
+  value: unknown,
+): value is OrderQuantityAdjustmentReason {
+  return ORDER_QUANTITY_ADJUSTMENT_REASONS.includes(
+    value as OrderQuantityAdjustmentReason,
   );
 }
 
@@ -306,7 +344,7 @@ function formatBoxCount(count: number): string {
   return `${count} ${count === 1 ? "box" : "boxes"}`;
 }
 
-function formatFulfillmentQuantity(order: Order): string {
+function formatSubmittedOrderQuantity(order: Order): string {
   const right = finiteCount(order.right_box_count ?? order.od_box_count);
   const left = finiteCount(order.left_box_count ?? order.os_box_count);
   const sideTotal =
@@ -332,6 +370,48 @@ function formatFulfillmentQuantity(order: Order): string {
   return sideLabel
     ? `${formatBoxCount(total)} (${sideLabel})`
     : formatBoxCount(total);
+}
+
+function hasAdjustedOrderQuantity(order: Order): boolean {
+  return (
+    finiteCount(order.adjusted_right_box_count) !== null &&
+    finiteCount(order.adjusted_left_box_count) !== null &&
+    finiteCount(order.adjusted_total_box_count) !== null
+  );
+}
+
+function formatAdjustedOrderQuantity(order: Order): string {
+  const right = finiteCount(order.adjusted_right_box_count);
+  const left = finiteCount(order.adjusted_left_box_count);
+  const total = finiteCount(order.adjusted_total_box_count);
+
+  if (right === null || left === null || total === null) {
+    return "Corrected quantity pending";
+  }
+
+  const expectedTotal = right + left;
+  const sideLabel = `OD ${right} / OS ${left}`;
+
+  if (expectedTotal !== total) {
+    return `${formatBoxCount(total)} (${sideLabel}; count conflict)`;
+  }
+
+  return `${formatBoxCount(total)} (${sideLabel})`;
+}
+
+function formatOrderQuantitySummary(order: Order): string {
+  if (!hasAdjustedOrderQuantity(order)) return formatSubmittedOrderQuantity(order);
+
+  return `Corrected quantity: ${formatAdjustedOrderQuantity(
+    order,
+  )} | Submitted quantity: ${formatSubmittedOrderQuantity(order)}`;
+}
+
+function parseBoxCountInput(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const count = Number(trimmed);
+  return Number.isSafeInteger(count) ? count : null;
 }
 
 function displayNameFromLensIdentifier(
@@ -1584,9 +1664,18 @@ function PaymentAdjustmentPanel({
           <div style={{ fontWeight: 800 }}>{formatMoney(captureAmount)}</div>
         </div>
 
+        {hasAdjustedOrderQuantity(order) && (
+          <div>
+            <div style={{ opacity: 0.68 }}>Corrected Quantity</div>
+            <div style={{ fontWeight: 800 }}>
+              {formatAdjustedOrderQuantity(order)}
+            </div>
+          </div>
+        )}
+
         <div>
           <div style={{ opacity: 0.68 }}>Submitted Quantity</div>
-          <div style={{ fontWeight: 800 }}>{formatFulfillmentQuantity(order)}</div>
+          <div style={{ fontWeight: 800 }}>{formatSubmittedOrderQuantity(order)}</div>
         </div>
 
         <div>
@@ -1639,7 +1728,7 @@ function PaymentAdjustmentPanel({
           }}
         >
           Capture amount is lower than authorization by {formatMoney(lowerBy)}.
-          Submitted quantity remains {formatFulfillmentQuantity(order)}.
+          Capture amount and corrected order quantity are tracked separately.
         </div>
       )}
 
@@ -1654,6 +1743,95 @@ function PaymentAdjustmentPanel({
         })}
       >
         Adjust Capture Amount
+      </button>
+    </div>
+  );
+}
+
+function OrderQuantityAdjustmentPanel({
+  order,
+  onAdjust,
+}: {
+  order: Order;
+  onAdjust: () => void;
+}) {
+  const hasAdjustment = hasAdjustedOrderQuantity(order);
+  const adjustedBy = order.order_quantity_adjusted_by?.trim() || null;
+  const adjustedByIsEmail = Boolean(adjustedBy?.includes("@"));
+
+  return (
+    <div style={{ ...mutedPanelStyle(), marginBottom: 12 }}>
+      <div style={{ fontWeight: 900, marginBottom: 8 }}>
+        ORDER QUANTITY ADJUSTMENT
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+          gap: 8,
+        }}
+      >
+        <div>
+          <div style={{ opacity: 0.68 }}>Submitted Quantity</div>
+          <div style={{ fontWeight: 800 }}>{formatSubmittedOrderQuantity(order)}</div>
+        </div>
+
+        <div>
+          <div style={{ opacity: 0.68 }}>Corrected Quantity</div>
+          <div style={{ fontWeight: 800 }}>
+            {hasAdjustment ? formatAdjustedOrderQuantity(order) : "-"}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ opacity: 0.68 }}>Reason</div>
+          <div>{order.order_quantity_adjustment_reason ?? "-"}</div>
+        </div>
+
+        <div>
+          <div style={{ opacity: 0.68 }}>Adjusted By</div>
+          {adjustedBy ? (
+            adjustedByIsEmail ? (
+              <a href={`mailto:${adjustedBy}`} style={{ color: "#67e8f9" }}>
+                {adjustedBy}
+              </a>
+            ) : (
+              <div>{adjustedBy}</div>
+            )
+          ) : (
+            <div>-</div>
+          )}
+        </div>
+
+        <div>
+          <div style={{ opacity: 0.68 }}>Adjusted At</div>
+          <div>{formatDateTime(order.order_quantity_adjusted_at)}</div>
+        </div>
+      </div>
+
+      {hasAdjustment && (
+        <div
+          style={{
+            marginTop: 10,
+            color: "#fde68a",
+            fontWeight: 700,
+          }}
+        >
+          Corrected from submitted quantity. Original submitted quantity remains{" "}
+          {formatSubmittedOrderQuantity(order)}.
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={onAdjust}
+        style={buttonStyle({
+          marginTop: 10,
+          background: "rgba(20,184,166,0.22)",
+        })}
+      >
+        Adjust Order Quantity
       </button>
     </div>
   );
@@ -1674,6 +1852,8 @@ export default function AdminOrdersPage() {
   const [notesModal, setNotesModal] = useState<NotesModalState | null>(null);
   const [captureAdjustmentModal, setCaptureAdjustmentModal] =
     useState<CaptureAdjustmentModalState | null>(null);
+  const [orderQuantityAdjustmentModal, setOrderQuantityAdjustmentModal] =
+    useState<OrderQuantityAdjustmentModalState | null>(null);
   const [rxImageModal, setRxImageModal] = useState<RxImageModalState | null>(
     null,
   );
@@ -2065,6 +2245,120 @@ export default function AdminOrdersPage() {
     }
   }
 
+  function openOrderQuantityAdjustment(order: Order, patientName: string) {
+    const reason = isOrderQuantityAdjustmentReason(
+      order.order_quantity_adjustment_reason,
+    )
+      ? order.order_quantity_adjustment_reason
+      : "Quantity correction";
+
+    const right =
+      finiteCount(order.adjusted_right_box_count) ??
+      finiteCount(order.right_box_count ?? order.od_box_count) ??
+      0;
+    const left =
+      finiteCount(order.adjusted_left_box_count) ??
+      finiteCount(order.left_box_count ?? order.os_box_count) ??
+      0;
+
+    setOrderQuantityAdjustmentModal({
+      orderId: order.id,
+      patientName,
+      rightBoxes: String(right),
+      leftBoxes: String(left),
+      reason,
+      error: null,
+    });
+  }
+
+  async function saveOrderQuantityAdjustment() {
+    if (!orderQuantityAdjustmentModal) return;
+
+    const rightBoxes = parseBoxCountInput(
+      orderQuantityAdjustmentModal.rightBoxes,
+    );
+    const leftBoxes = parseBoxCountInput(
+      orderQuantityAdjustmentModal.leftBoxes,
+    );
+
+    if (rightBoxes === null) {
+      setOrderQuantityAdjustmentModal((current) =>
+        current
+          ? {
+              ...current,
+              error:
+                "Right Eye Boxes must be an integer greater than or equal to 0.",
+            }
+          : current,
+      );
+      return;
+    }
+
+    if (leftBoxes === null) {
+      setOrderQuantityAdjustmentModal((current) =>
+        current
+          ? {
+              ...current,
+              error:
+                "Left Eye Boxes must be an integer greater than or equal to 0.",
+            }
+          : current,
+      );
+      return;
+    }
+
+    if (rightBoxes + leftBoxes <= 0) {
+      setOrderQuantityAdjustmentModal((current) =>
+        current
+          ? {
+              ...current,
+              error: "Corrected order quantity must be at least 1 box.",
+            }
+          : current,
+      );
+      return;
+    }
+
+    setSavingOrderId(orderQuantityAdjustmentModal.orderId);
+    setAdminError(null);
+
+    try {
+      const res = await fetch("/api/admin/orders/adjust-order-quantity", {
+        method: "POST",
+        headers: await authHeaders(),
+        credentials: "same-origin",
+        body: JSON.stringify({
+          orderId: orderQuantityAdjustmentModal.orderId,
+          adjusted_right_box_count: rightBoxes,
+          adjusted_left_box_count: leftBoxes,
+          reason: orderQuantityAdjustmentModal.reason,
+        }),
+      });
+
+      const json = await readAdminApiPayload(res);
+
+      if (!res.ok) {
+        const message = adminApiErrorMessage(
+          json,
+          "Order quantity adjustment failed.",
+        );
+        setOrderQuantityAdjustmentModal((current) =>
+          current ? { ...current, error: message } : current,
+        );
+        return;
+      }
+
+      await fetchData();
+      setOrderQuantityAdjustmentModal(null);
+      setAdminNotice({
+        tone: "success",
+        message: "Order quantity adjustment saved.",
+      });
+    } finally {
+      setSavingOrderId(null);
+    }
+  }
+
   async function openRxImage(order: Order, patientName: string) {
     if (!order.rx_upload_path) return;
 
@@ -2449,7 +2743,7 @@ export default function AdminOrdersPage() {
         order.shipping_cents ?? 0,
       )}`,
       `Lens: ${getOrderLensDisplayName(order)}`,
-      `Boxes: ${formatFulfillmentQuantity(order)}`,
+      `Quantity: ${formatOrderQuantitySummary(order)}`,
       `RX OD: ${rx.od}`,
       `RX OS: ${rx.os}`,
       `Expires: ${rx.exp ?? "-"}`,
@@ -2656,7 +2950,11 @@ export default function AdminOrdersPage() {
           const isOpen = expanded === o.id;
           const isRxOpen = rxExpanded === o.id;
 
-          const boxDisplay = formatFulfillmentQuantity(o);
+          const submittedQuantityDisplay = formatSubmittedOrderQuantity(o);
+          const adjustedQuantityDisplay = hasAdjustedOrderQuantity(o)
+            ? formatAdjustedOrderQuantity(o)
+            : null;
+          const boxDisplay = formatOrderQuantitySummary(o);
 
           return (
             <div
@@ -2938,7 +3236,18 @@ export default function AdminOrdersPage() {
                         Order Summary
                       </div>
                       <div>Ordered: {lensDisplay}</div>
-                      <div>Submitted quantity: {boxDisplay}</div>
+                      {adjustedQuantityDisplay ? (
+                        <>
+                          <div>
+                            Corrected quantity: {adjustedQuantityDisplay}
+                          </div>
+                          <div>
+                            Submitted quantity: {submittedQuantityDisplay}
+                          </div>
+                        </>
+                      ) : (
+                        <div>Submitted quantity: {submittedQuantityDisplay}</div>
+                      )}
                       <div>
                         Authorized: {formatMoney(o.total_amount_cents)}
                       </div>
@@ -3036,6 +3345,16 @@ export default function AdminOrdersPage() {
                       {rx.exp && <div>Rx exp: {rx.exp}</div>}
                     </div>
                   </div>
+
+                  <OrderQuantityAdjustmentPanel
+                    order={o}
+                    onAdjust={() =>
+                      openOrderQuantityAdjustment(
+                        o,
+                        customerName,
+                      )
+                    }
+                  />
 
                   <PaymentAdjustmentPanel
                     order={o}
@@ -3311,6 +3630,10 @@ export default function AdminOrdersPage() {
                 .filter(Boolean)
                 .join(", ");
               const nextAction = getNextAction(o);
+              const adjustedQuantityDisplay = hasAdjustedOrderQuantity(o)
+                ? formatAdjustedOrderQuantity(o)
+                : null;
+              const submittedQuantityDisplay = formatSubmittedOrderQuantity(o);
               const rx = parseRx(o);
 
               return (
@@ -3431,7 +3754,18 @@ export default function AdminOrdersPage() {
                             Rx / Fulfillment
                           </div>
                           <div>{getOrderLensDisplayName(o)}</div>
-                          <div>{formatFulfillmentQuantity(o)}</div>
+                          {adjustedQuantityDisplay ? (
+                            <>
+                              <div>
+                                Corrected quantity: {adjustedQuantityDisplay}
+                              </div>
+                              <div>
+                                Submitted quantity: {submittedQuantityDisplay}
+                              </div>
+                            </>
+                          ) : (
+                            <div>Submitted quantity: {submittedQuantityDisplay}</div>
+                          )}
                           <div>
                             {o.shipping_method === "express"
                               ? "Express"
@@ -3765,6 +4099,169 @@ export default function AdminOrdersPage() {
                 onClick={confirmPermanentDelete}
               >
                 Delete permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {orderQuantityAdjustmentModal && (
+        <div
+          onClick={() => setOrderQuantityAdjustmentModal(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 52,
+            background: "rgba(2,6,23,0.78)",
+            display: "grid",
+            placeItems: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(560px, 100%)",
+              ...mutedPanelStyle(),
+              background: "#0f172a",
+            }}
+          >
+            <div style={{ fontWeight: 900, marginBottom: 4 }}>
+              Adjust Order Quantity
+            </div>
+            <div
+              style={{
+                color: "rgba(226,232,240,0.72)",
+                fontSize: 13,
+                marginBottom: 12,
+              }}
+            >
+              {orderQuantityAdjustmentModal.patientName}
+            </div>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              <label style={{ display: "grid", gap: 5, fontWeight: 700 }}>
+                Right Eye Boxes
+                <input
+                  value={orderQuantityAdjustmentModal.rightBoxes}
+                  inputMode="numeric"
+                  onChange={(e) =>
+                    setOrderQuantityAdjustmentModal((current) =>
+                      current
+                        ? {
+                            ...current,
+                            rightBoxes: e.target.value,
+                            error: null,
+                          }
+                        : current,
+                    )
+                  }
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    borderRadius: 6,
+                    border: "1px solid rgba(148,163,184,0.35)",
+                    background: "rgba(2,6,23,0.75)",
+                    color: "inherit",
+                    padding: "9px 10px",
+                  }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 5, fontWeight: 700 }}>
+                Left Eye Boxes
+                <input
+                  value={orderQuantityAdjustmentModal.leftBoxes}
+                  inputMode="numeric"
+                  onChange={(e) =>
+                    setOrderQuantityAdjustmentModal((current) =>
+                      current
+                        ? {
+                            ...current,
+                            leftBoxes: e.target.value,
+                            error: null,
+                          }
+                        : current,
+                    )
+                  }
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    borderRadius: 6,
+                    border: "1px solid rgba(148,163,184,0.35)",
+                    background: "rgba(2,6,23,0.75)",
+                    color: "inherit",
+                    padding: "9px 10px",
+                  }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 5, fontWeight: 700 }}>
+                Reason
+                <select
+                  value={orderQuantityAdjustmentModal.reason}
+                  onChange={(e) => {
+                    const reason = e.target.value;
+                    if (!isOrderQuantityAdjustmentReason(reason)) return;
+                    setOrderQuantityAdjustmentModal((current) =>
+                      current
+                        ? {
+                            ...current,
+                            reason,
+                            error: null,
+                          }
+                        : current,
+                    );
+                  }}
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    borderRadius: 6,
+                    border: "1px solid rgba(148,163,184,0.35)",
+                    background: "rgba(2,6,23,0.75)",
+                    color: "inherit",
+                    padding: "9px 10px",
+                  }}
+                >
+                  {ORDER_QUANTITY_ADJUSTMENT_REASONS.map((reason) => (
+                    <option key={reason} value={reason}>
+                      {reason}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {orderQuantityAdjustmentModal.error && (
+                <div style={{ color: "#fca5a5", fontWeight: 700 }}>
+                  {orderQuantityAdjustmentModal.error}
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+                marginTop: 14,
+              }}
+            >
+              <button
+                style={buttonStyle()}
+                onClick={() => setOrderQuantityAdjustmentModal(null)}
+              >
+                Cancel
+              </button>
+              <button
+                style={buttonStyle({ background: "rgba(20,184,166,0.25)" })}
+                onClick={saveOrderQuantityAdjustment}
+                disabled={
+                  savingOrderId === orderQuantityAdjustmentModal.orderId
+                }
+              >
+                {savingOrderId === orderQuantityAdjustmentModal.orderId
+                  ? "Saving..."
+                  : "Save Adjustment"}
               </button>
             </div>
           </div>
