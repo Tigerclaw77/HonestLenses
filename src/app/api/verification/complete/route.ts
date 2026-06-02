@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseServer } from "@/lib/supabase-server";
+import { getCaptureAmountCents } from "@/lib/payments/captureAmount";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -22,7 +23,11 @@ export async function POST(req: Request) {
   }
 
   if (result === "verified") {
-    await stripe.paymentIntents.capture(order.payment_intent_id);
+    const amountToCapture = getCaptureAmountCents(order);
+
+    await stripe.paymentIntents.capture(order.payment_intent_id, {
+      amount_to_capture: amountToCapture,
+    });
 
     await supabaseServer.from("orders").update({
       verification_status: "verified",

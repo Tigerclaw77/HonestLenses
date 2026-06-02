@@ -7,6 +7,7 @@ import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { captureServerEvent } from "@/lib/posthog/server";
+import { getCaptureAmountCents } from "@/lib/payments/captureAmount";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -147,13 +148,28 @@ export async function POST(req: Request) {
 
   if (isUploaded && intent.status === "requires_capture") {
     try {
-      const capturedIntent = await stripe.paymentIntents.capture(intent.id);
+      const amountToCapture = getCaptureAmountCents({
+        id: orderId,
+        total_amount_cents:
+          typeof orderRaw.total_amount_cents === "number"
+            ? orderRaw.total_amount_cents
+            : null,
+        capture_amount_cents:
+          typeof orderRaw.capture_amount_cents === "number"
+            ? orderRaw.capture_amount_cents
+            : null,
+      });
+
+      const capturedIntent = await stripe.paymentIntents.capture(intent.id, {
+        amount_to_capture: amountToCapture,
+      });
 
       console.log("Stripe capture success", {
         orderId,
         paymentIntentId: capturedIntent.id,
         status: capturedIntent.status,
         amount: capturedIntent.amount_received,
+        amountToCapture,
       });
     } catch (err) {
       console.error("Stripe capture failed", {
