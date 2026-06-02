@@ -69,11 +69,6 @@ type Order = {
   stripe_payment_intent_status?: string | null;
   payment_status_source?: string | null;
   admin_notes?: string | null;
-  needs_review?: boolean | null;
-  verified?: boolean | null;
-  passive_verified?: boolean | null;
-  doctor_confirmed?: boolean | null;
-  blocked?: boolean | null;
 
   total_amount_cents?: number | null;
   capture_amount_cents?: number | null;
@@ -118,6 +113,10 @@ type Order = {
 
   patient_name?: string | null;
   patient_full_name?: string | null;
+  patient_first_name?: string | null;
+  patient_middle_name?: string | null;
+  patient_last_name?: string | null;
+  rx_patient_name?: string | null;
 
   payment_intent_id?: string | null;
   abandoned_checkout?: AbandonedCheckoutClassification;
@@ -133,13 +132,6 @@ type FulfillmentStatus =
   | "completed"
   | "hold"
   | "cancelled";
-
-type VerificationFlag =
-  | "needs_review"
-  | "verified"
-  | "passive_verified"
-  | "doctor_confirmed"
-  | "blocked";
 
 type CaptureAdjustmentReason =
   | "Quantity correction"
@@ -271,14 +263,6 @@ const RECENT_SHIPPED_DAYS = 7;
 const STALE_INACTIVE_DAYS = 7;
 const RECENT_ACTIVITY_DAYS = 7;
 const MATERIAL_ACTIVITY_DIFF_MS = 5 * 60 * 1000;
-
-const VERIFICATION_FLAGS: { key: VerificationFlag; label: string }[] = [
-  { key: "needs_review", label: "Needs review" },
-  { key: "verified", label: "Verified" },
-  { key: "passive_verified", label: "Passive verified" },
-  { key: "doctor_confirmed", label: "Doctor confirmed" },
-  { key: "blocked", label: "Blocked" },
-];
 
 const CAPTURE_ADJUSTMENT_REASONS: CaptureAdjustmentReason[] = [
   "Quantity correction",
@@ -491,6 +475,52 @@ function formatAge(hours?: number | null): string {
   return `${Math.round(hours / 24)}d`;
 }
 
+function compactName(
+  ...parts: Array<string | null | undefined>
+): string {
+  return parts
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizedName(value?: string | null): string {
+  return (value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function namesDiffer(a?: string | null, b?: string | null): boolean {
+  const left = normalizedName(a);
+  const right = normalizedName(b);
+  return Boolean(left && right && left !== right);
+}
+
+function getPatientName(order: Order): string {
+  return (
+    order.patient_name?.trim() ||
+    order.patient_full_name?.trim() ||
+    order.rx_patient_name?.trim() ||
+    compactName(
+      order.patient_first_name,
+      order.patient_middle_name,
+      order.patient_last_name,
+    )
+  );
+}
+
+function getShippingName(order: Order): string {
+  return compactName(order.shipping_first_name, order.shipping_last_name);
+}
+
+function getCustomerName(order: Order): string {
+  return getShippingName(order) || getPatientName(order) || "Unknown customer";
+}
+
+function orderSupportsAdminNotes(order: Order): boolean {
+  return Object.prototype.hasOwnProperty.call(order, "admin_notes");
+}
+
 function abandonedReasonLabel(reason: AbandonedCheckoutReason): string {
   const labels: Record<AbandonedCheckoutReason, string> = {
     abandoned_no_payment_intent: "No payment intent",
@@ -516,15 +546,6 @@ function rxModeLabel(mode?: AbandonedCheckoutClassification["rxMode"]): string {
 
 function labelizeStatus(status: string): string {
   return status.replace(/_/g, " ").toUpperCase();
-}
-
-function titleizeStatus(status: string): string {
-  return status
-    .replace(/_/g, " ")
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(" ");
 }
 
 function isFulfillmentStatus(value: unknown): value is FulfillmentStatus {
@@ -563,11 +584,18 @@ function normalizedRxStatus(order: Order): string {
 }
 
 function displayRxStatus(order: Order): string {
-  const status = normalizedRxStatus(order).trim().toLowerCase();
-  if (status === "uploaded" || status === "file_available") {
-    return "File available";
+  const source = getRxSourceState(order);
+
+  if (source.hasUpload) return "Rx File Available";
+  if (source.status === "manual_entry") return "Manual Prescription Entered";
+  if (source.status === "doctor_verification") {
+    return "Prescription Verification Requested";
   }
-  return titleizeStatus(status);
+  if (source.hasRxEvidence || normalizedRxStatus(order) !== "none") {
+    return "Prescription Information Available";
+  }
+
+  return "Prescription Information Missing";
 }
 
 function orderHasRx(order: Order): boolean {
@@ -656,7 +684,6 @@ function getActionability(order: Order): {
   if (payment !== "captured") reasons.push("capture");
   if (orderVerificationBlocked(order)) reasons.push("verification blocked");
   if (!orderHasRx(order)) reasons.push("rx missing");
-  if (order.needs_review) reasons.push("review");
   if (!orderVerificationComplete(order)) reasons.push("verification");
   if (
     order.shipping_method === "express" &&
@@ -1797,11 +1824,6 @@ export default function AdminOrdersPage() {
         Order,
         | "fulfillment_status"
         | "admin_notes"
-        | "needs_review"
-        | "verified"
-        | "passive_verified"
-        | "doctor_confirmed"
-        | "blocked"
       >
     >,
   ): Promise<boolean> {
@@ -1844,16 +1866,6 @@ export default function AdminOrdersPage() {
     newStatus: FulfillmentStatus,
   ) {
     await updateAdminOrder(orderId, { fulfillment_status: newStatus });
-  }
-
-  async function updateVerificationFlag(
-    orderId: string,
-    key: VerificationFlag,
-    value: boolean,
-  ) {
-    await updateAdminOrder(orderId, {
-      [key]: value,
-    } as Partial<Pick<Order, VerificationFlag>>);
   }
 
   function openNotes(order: Order, patientName: string) {
@@ -2359,16 +2371,15 @@ export default function AdminOrdersPage() {
   }
 
   function copyOrderText(order: Order, rx: ReturnType<typeof parseRx>): void {
-    const patientName =
-      order.patient_name ||
-      order.patient_full_name ||
-      `${order.shipping_first_name ?? ""} ${order.shipping_last_name ?? ""}`.trim();
+    const customerName = getCustomerName(order);
+    const patientName = getPatientName(order);
     const payment = paymentStatus(order);
     const verification = verificationSummary(order);
 
     const text = [
       `Order: ${order.id}`,
-      `Customer: ${patientName}`,
+      `Customer: ${customerName}`,
+      namesDiffer(patientName, customerName) ? `Patient: ${patientName}` : null,
       `Payment: ${payment.label}`,
       `Fulfillment: ${normalizedFulfillmentStatus(order)}`,
       `Verify: ${verification.label}`,
@@ -2383,7 +2394,7 @@ export default function AdminOrdersPage() {
       `RX OS: ${rx.os}`,
       `Expires: ${rx.exp ?? "-"}`,
       `Dr: ${order.prescriber_name ?? "-"}`,
-      `Ship to: ${order.shipping_first_name ?? ""} ${order.shipping_last_name ?? ""}`,
+      `Ship to: ${customerName}`,
       order.shipping_address1,
       order.shipping_address2,
       `${order.shipping_city}, ${order.shipping_state} ${order.shipping_zip}`,
@@ -2419,7 +2430,7 @@ export default function AdminOrdersPage() {
     {
       key: "action_required",
       title: "Action Required",
-      description: "Payment, Rx, verification, blocked, express, or manual attention.",
+      description: "Payment, Rx, verification, blocked, or express handling.",
       orders: sortSectionOrders(actionRequiredOrders),
     },
     {
@@ -2577,22 +2588,9 @@ export default function AdminOrdersPage() {
           const nextFulfillment = nextFulfillmentStatus(fulfillment);
           const previousFulfillment = previousFulfillmentStatus(fulfillment);
 
-          const patientName =
-            o.patient_name ||
-            o.patient_full_name ||
-            `${o.shipping_first_name ?? ""} ${
-              o.shipping_last_name ?? ""
-            }`.trim();
-
-          const shippingName = `${o.shipping_first_name ?? ""} ${
-            o.shipping_last_name ?? ""
-          }`.trim();
-
-          const customerName =
-            shippingName || patientName || "Unknown customer";
-          const showPatientName = Boolean(
-            patientName && patientName !== customerName,
-          );
+          const patientName = getPatientName(o);
+          const customerName = getCustomerName(o);
+          const showPatientName = namesDiffer(patientName, customerName);
 
           const isOpen = expanded === o.id;
           const isRxOpen = rxExpanded === o.id;
@@ -2694,24 +2692,6 @@ export default function AdminOrdersPage() {
                         Patient: {patientName}
                       </div>
                     )}
-                    <div style={{ marginTop: 5 }}>
-                      {o.shipping_phone ? (
-                        <CopyableValue value={o.shipping_phone}>
-                          Phone: {o.shipping_phone}
-                        </CopyableValue>
-                      ) : (
-                        <span style={{ opacity: 0.58 }}>Phone: -</span>
-                      )}
-                    </div>
-                    <div style={{ marginTop: 3 }}>
-                      {o.shipping_email ? (
-                        <CopyableValue value={o.shipping_email}>
-                          Email: {o.shipping_email}
-                        </CopyableValue>
-                      ) : (
-                        <span style={{ opacity: 0.58 }}>Email: -</span>
-                      )}
-                    </div>
                     <div style={{ marginTop: 6 }}>
                       <CopyableValue value={o.shipping_address1} />
                     </div>
@@ -2735,6 +2715,24 @@ export default function AdminOrdersPage() {
                         </span>
                       )}
                       <CopyableValue value={o.shipping_zip} />
+                    </div>
+                    <div style={{ marginTop: 6 }}>
+                      {o.shipping_phone ? (
+                        <CopyableValue value={o.shipping_phone}>
+                          Phone: {o.shipping_phone}
+                        </CopyableValue>
+                      ) : (
+                        <span style={{ opacity: 0.58 }}>Phone: -</span>
+                      )}
+                    </div>
+                    <div style={{ marginTop: 3 }}>
+                      {o.shipping_email ? (
+                        <CopyableValue value={o.shipping_email}>
+                          Email: {o.shipping_email}
+                        </CopyableValue>
+                      ) : (
+                        <span style={{ opacity: 0.58 }}>Email: -</span>
+                      )}
                     </div>
                   </div>
 
@@ -3031,7 +3029,7 @@ export default function AdminOrdersPage() {
                         </button>
                       )}
 
-                      {fulfillment === "completed" && (
+                      {fulfillment === "completed" && orderSupportsAdminNotes(o) && (
                         <button
                           type="button"
                           onClick={(e) => {
@@ -3078,37 +3076,21 @@ export default function AdminOrdersPage() {
 
                       {savingOrderId === o.id && <span>Saving...</span>}
                     </div>
-
-                    <details>
-                      <summary
-                        style={{
-                          cursor: "pointer",
-                          fontWeight: 800,
-                          color: "rgba(226,232,240,0.9)",
-                        }}
-                      >
-                        Advanced Overrides
-                      </summary>
-                      <div style={{ marginTop: 10 }}>
-                        <VerificationControls
-                          order={o}
-                          onToggle={updateVerificationFlag}
-                        />
-                      </div>
-                    </details>
                   </div>
 
                   <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openNotes(o, customerName);
-                      }}
-                      onClickCapture={(e) => e.stopPropagation()}
-                      style={buttonStyle()}
-                    >
-                      Notes
-                    </button>
+                    {orderSupportsAdminNotes(o) && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openNotes(o, customerName);
+                        }}
+                        onClickCapture={(e) => e.stopPropagation()}
+                        style={buttonStyle()}
+                      >
+                        Notes
+                      </button>
+                    )}
 
                     <button
                       onClick={(e) => {
@@ -3995,40 +3977,5 @@ export default function AdminOrdersPage() {
         </div>
       )}
     </main>
-  );
-}
-
-function VerificationControls({
-  order,
-  onToggle,
-}: {
-  order: Order;
-  onToggle: (orderId: string, key: VerificationFlag, value: boolean) => void;
-}) {
-  return (
-    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-      {VERIFICATION_FLAGS.map((flag) => (
-        <label
-          key={flag.key}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "5px 8px",
-            border: "1px solid rgba(148,163,184,0.25)",
-            borderRadius: 6,
-            background: "rgba(15,23,42,0.4)",
-            cursor: "pointer",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={Boolean(order[flag.key])}
-            onChange={(e) => onToggle(order.id, flag.key, e.target.checked)}
-          />
-          {flag.label}
-        </label>
-      ))}
-    </div>
   );
 }

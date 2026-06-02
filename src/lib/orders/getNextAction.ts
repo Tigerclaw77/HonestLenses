@@ -44,11 +44,6 @@ export type Order = {
   archived?: boolean | null;
   archived_at?: string | null;
   stripe_payment_intent_status?: string | null;
-  needs_review?: boolean | null;
-  verified?: boolean | null;
-  passive_verified?: boolean | null;
-  doctor_confirmed?: boolean | null;
-  blocked?: boolean | null;
 };
 
 export type VerificationLifecycleStatus =
@@ -199,6 +194,18 @@ function normalizeFulfillmentStatus(order: Order): FulfillmentStatus {
   return "review";
 }
 
+function hasDownstreamVerificationEvidence(order: Order): boolean {
+  const payment = normalizePaymentStatus(order);
+  const fulfillment = normalizeFulfillmentStatus(order);
+
+  return (
+    payment === "captured" ||
+    fulfillment === "ordered" ||
+    fulfillment === "shipped" ||
+    fulfillment === "completed"
+  );
+}
+
 export function getPaymentState(order: Order): PaymentState {
   const status = normalizePaymentStatus(order);
 
@@ -314,6 +321,18 @@ export function getVerificationState(order: Order): VerificationState {
     };
   }
 
+  if (hasDownstreamVerificationEvidence(order)) {
+    return {
+      status: "verified",
+      label: "Verified",
+      severity: "success",
+      complete: true,
+      blocked: false,
+      requiresReview: false,
+      rawStatus,
+    };
+  }
+
   if (!rawStatus || rawStatus === "pending") {
     return {
       status: "pending",
@@ -344,10 +363,12 @@ export function getRxSourceState(order: Order): RxSourceState {
   const hasPrescriber = hasPrescriberPath(order);
   const hasOcrDetail =
     order.rx_status === "ocr_complete" || order.rx_status === "ocr_failed";
+  const hasLegacyPrescriptionDetail =
+    order.rx_status === "uploaded" ||
+    order.rx_status === "valid" ||
+    order.rx_status === "expired" ||
+    order.rx_status === "ocr_complete";
   const hasOcrSource = rawSource === "ocr" || rawSource === "ocr_upload";
-  const hasUploadSource =
-    rawSource === "upload" || rawSource === "uploaded_file";
-
   if (hasUpload && (hasOcrSource || hasOcrDetail)) {
     return {
       status: "ocr_upload",
@@ -362,7 +383,7 @@ export function getRxSourceState(order: Order): RxSourceState {
   if (hasUpload) {
     return {
       status: "uploaded_file",
-      label: hasUploadSource ? "Uploaded File" : "Rx File Available",
+      label: "Rx File Available",
       hasUpload,
       hasStructuredRx: hasStructured,
       hasPrescriberPath: hasPrescriber,
@@ -399,7 +420,18 @@ export function getRxSourceState(order: Order): RxSourceState {
       hasUpload,
       hasStructuredRx: hasStructured,
       hasPrescriberPath: hasPrescriber,
-      hasRxEvidence: false,
+      hasRxEvidence: hasLegacyPrescriptionDetail,
+    };
+  }
+
+  if (hasLegacyPrescriptionDetail) {
+    return {
+      status: "unknown_legacy",
+      label: "Unknown Legacy Rx",
+      hasUpload,
+      hasStructuredRx: hasStructured,
+      hasPrescriberPath: hasPrescriber,
+      hasRxEvidence: true,
     };
   }
 
