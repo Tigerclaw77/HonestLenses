@@ -334,6 +334,34 @@ function formatFulfillmentQuantity(order: Order): string {
     : formatBoxCount(total);
 }
 
+function displayNameFromLensIdentifier(
+  identifier?: string | null,
+  sku?: string | null,
+): string | null {
+  const value = identifier?.trim();
+  if (!value) return null;
+
+  const skuForPack = /_\d+$/.test(value) ? value : (sku ?? null);
+  const coreId = value.replace(/_\d+$/, "");
+  const candidates = [coreId, value];
+
+  for (const candidate of candidates) {
+    const displayName = getLensDisplayName(candidate, skuForPack);
+    if (displayName !== "Unknown Lens") return displayName;
+  }
+
+  return null;
+}
+
+function formatLensIdentifier(
+  identifier?: string | null,
+  sku?: string | null,
+): string | null {
+  const value = identifier?.trim();
+  if (!value) return null;
+  return displayNameFromLensIdentifier(value, sku) ?? value;
+}
+
 function formatMoneyInput(cents?: number | null): string {
   return typeof cents === "number" ? (cents / 100).toFixed(2) : "";
 }
@@ -1199,28 +1227,45 @@ function formatCollapsedRxLine(order: Order): string[] {
   return [od, os].filter((line): line is string => Boolean(line));
 }
 
+function getEyeLensDisplayName(
+  order: Order,
+  eye: RxEye | null | undefined,
+  details = fullRxDetails(order),
+): string {
+  return (
+    displayNameFromLensIdentifier(eye?.coreId, order.sku ?? null) ??
+    formatLensIdentifier(eye?.brand, order.sku ?? null) ??
+    formatLensIdentifier(eye?.brand_raw, order.sku ?? null) ??
+    formatLensIdentifier(details.brand, order.sku ?? null) ??
+    formatLensIdentifier(order.rx_lens_brand, order.sku ?? null) ??
+    formatLensIdentifier(order.sku, order.sku ?? null) ??
+    "Lens pending"
+  );
+}
+
 function getOrderLensDisplayName(order: Order): string {
   const details = fullRxDetails(order);
   const rightCoreId = details.rx?.right?.coreId ?? null;
   const leftCoreId = details.rx?.left?.coreId ?? null;
-  const displayFromCore = (coreId: string): string | null => {
-    const displayName = getLensDisplayName(coreId, order.sku ?? null);
-    return displayName === "Unknown Lens" ? null : displayName;
-  };
 
   if (rightCoreId && leftCoreId && rightCoreId !== leftCoreId) {
-    const rightName = displayFromCore(rightCoreId) ?? rightCoreId;
-    const leftName = displayFromCore(leftCoreId) ?? leftCoreId;
+    const rightName = getEyeLensDisplayName(order, details.rx?.right, details);
+    const leftName = getEyeLensDisplayName(order, details.rx?.left, details);
     return `OD ${rightName} / OS ${leftName}`;
   }
 
   const coreId = rightCoreId ?? leftCoreId;
   if (coreId) {
-    const displayName = displayFromCore(coreId);
+    const displayName = displayNameFromLensIdentifier(coreId, order.sku ?? null);
     if (displayName) return displayName;
   }
 
-  return details.brand ?? order.rx_lens_brand ?? order.sku ?? "Lens pending";
+  return (
+    formatLensIdentifier(details.brand, order.sku ?? null) ??
+    formatLensIdentifier(order.rx_lens_brand, order.sku ?? null) ??
+    formatLensIdentifier(order.sku, order.sku ?? null) ??
+    "Lens pending"
+  );
 }
 
 function copyToClipboard(value?: string | null): void {
@@ -1255,29 +1300,36 @@ function adminApiErrorMessage(
     .join(" ");
 }
 
-function parseRx(rxRaw: string | RxData | null): {
+function parseRx(order: Order): {
   od: string;
   os: string;
   exp: string | null;
 } {
   try {
-    const rx = parseRxObject(rxRaw);
+    const details = fullRxDetails(order);
+    const rx = details.rx;
 
     const od = rx?.right;
     const os = rx?.left;
 
     const formatEye = (eye?: RxEye | null) => {
       if (!eye) return "-";
-      const parts = [eye.coreId ?? "", `SPH ${formatRxNumber(eye.sphere, 2)}`];
+      const parts = [
+        getEyeLensDisplayName(order, eye, details),
+        `SPH ${formatRxNumber(eye.sphere ?? eye.sph, 2)}`,
+      ];
       if (hasValue(eye.cylinder))
         parts.push(`CYL ${formatRxNumber(eye.cylinder, 2)}`);
       if (hasValue(eye.cyl)) parts.push(`CYL ${formatRxNumber(eye.cyl, 2)}`);
       if (hasValue(eye.axis)) parts.push(`AX ${eye.axis}`);
+      if (hasValue(eye.ax)) parts.push(`AX ${eye.ax}`);
       if (hasValue(eye.add)) parts.push(`ADD ${formatRxNumber(eye.add, 2)}`);
       if (hasValue(eye.base_curve))
         parts.push(`BC ${formatRxNumber(eye.base_curve, 1)}`);
       if (hasValue(eye.baseCurve))
         parts.push(`BC ${formatRxNumber(eye.baseCurve, 1)}`);
+      if (hasValue(eye.bc))
+        parts.push(`BC ${formatRxNumber(eye.bc, 1)}`);
       if (hasValue(eye.diameter))
         parts.push(`DIA ${formatRxNumber(eye.diameter, 1)}`);
       if (hasValue(eye.dia)) parts.push(`DIA ${formatRxNumber(eye.dia, 1)}`);
@@ -1329,29 +1381,34 @@ function RxDetailsPanel({ order }: { order: Order }) {
             <thead>
               <tr>
                 <th style={cellStyle}>Eye</th>
+                <th style={cellStyle}>Lens</th>
                 <th style={cellStyle}>Sphere</th>
                 <th style={cellStyle}>Cyl</th>
                 <th style={cellStyle}>Axis</th>
                 <th style={cellStyle}>Add</th>
                 <th style={cellStyle}>BC</th>
                 <th style={cellStyle}>DIA</th>
-                <th style={cellStyle}>Brand</th>
               </tr>
             </thead>
             <tbody>
               {rows.map(({ label, eye }) => (
                 <tr key={label}>
                   <td style={cellStyle}>{label}</td>
-                  <td style={cellStyle}>{eyeValue(eye, ["sphere"], "power")}</td>
+                  <td style={cellStyle}>
+                    {getEyeLensDisplayName(order, eye, details)}
+                  </td>
+                  <td style={cellStyle}>
+                    {eyeValue(eye, ["sphere", "sph"], "power")}
+                  </td>
                   <td style={cellStyle}>
                     {eyeValue(eye, ["cylinder", "cyl"], "power")}
                   </td>
-                  <td style={cellStyle}>{eyeValue(eye, ["axis"])}</td>
+                  <td style={cellStyle}>{eyeValue(eye, ["axis", "ax"])}</td>
                   <td style={cellStyle}>{eyeValue(eye, ["add"], "power")}</td>
                   <td style={cellStyle}>
                     {eyeValueWithRootFallback(
                       eye,
-                      ["base_curve", "baseCurve"],
+                      ["base_curve", "baseCurve", "bc"],
                       details.rx,
                       ["base_curve", "baseCurve"],
                       "curve",
@@ -1365,9 +1422,6 @@ function RxDetailsPanel({ order }: { order: Order }) {
                       ["diameter", "dia"],
                       "curve",
                     )}
-                  </td>
-                  <td style={cellStyle}>
-                    {valueText(eye?.brand ?? eye?.brand_raw ?? details.brand)}
                   </td>
                 </tr>
               ))}
@@ -1377,7 +1431,7 @@ function RxDetailsPanel({ order }: { order: Order }) {
           <div style={{ marginTop: 8 }}>
             Expiration date: {valueText(details.expires)}
           </div>
-          {details.brand && <div>Brand: {details.brand}</div>}
+          <div>Lens: {getOrderLensDisplayName(order)}</div>
         </>
       ) : details.raw ? (
         <>
@@ -1521,13 +1575,18 @@ function PaymentAdjustmentPanel({
         }}
       >
         <div>
-          <div style={{ opacity: 0.68 }}>Authorized Amount</div>
+          <div style={{ opacity: 0.68 }}>Authorized</div>
           <div style={{ fontWeight: 800 }}>{formatMoney(authorizedAmount)}</div>
         </div>
 
         <div>
-          <div style={{ opacity: 0.68 }}>Capture Amount</div>
+          <div style={{ opacity: 0.68 }}>Capture</div>
           <div style={{ fontWeight: 800 }}>{formatMoney(captureAmount)}</div>
+        </div>
+
+        <div>
+          <div style={{ opacity: 0.68 }}>Submitted Quantity</div>
+          <div style={{ fontWeight: 800 }}>{formatFulfillmentQuantity(order)}</div>
         </div>
 
         <div>
@@ -1580,6 +1639,7 @@ function PaymentAdjustmentPanel({
           }}
         >
           Capture amount is lower than authorization by {formatMoney(lowerBy)}.
+          Submitted quantity remains {formatFulfillmentQuantity(order)}.
         </div>
       )}
 
@@ -2388,7 +2448,7 @@ export default function AdminOrdersPage() {
       `Shipping: ${order.shipping_method ?? "standard"} | ${formatMoney(
         order.shipping_cents ?? 0,
       )}`,
-      `SKU: ${order.sku ?? "-"}`,
+      `Lens: ${getOrderLensDisplayName(order)}`,
       `Boxes: ${formatFulfillmentQuantity(order)}`,
       `RX OD: ${rx.od}`,
       `RX OS: ${rx.os}`,
@@ -2571,7 +2631,7 @@ export default function AdminOrdersPage() {
                 style={{ display: "flex", flexDirection: "column", gap: 10 }}
               >
                 {section.orders.map((o) => {
-          const rx = parseRx(o.rx);
+          const rx = parseRx(o);
           const rxStatus = displayRxStatus(o);
           const rxSource = getRxSourceState(o);
           const payment = paymentStatus(o);
@@ -2584,6 +2644,7 @@ export default function AdminOrdersPage() {
           const captureState = paymentCaptureSummary(o);
           const rxLines = formatCollapsedRxLine(o);
           const lensDisplay = getOrderLensDisplayName(o);
+          const nextAction = getNextAction(o);
           const isHighlighted = highlightedOrderIds.has(o.id);
           const nextFulfillment = nextFulfillmentStatus(fulfillment);
           const previousFulfillment = previousFulfillmentStatus(fulfillment);
@@ -2783,6 +2844,10 @@ export default function AdminOrdersPage() {
                       shipping {formatMoney(o.shipping_cents ?? 0)}
                     </div>
 
+                    <div style={{ marginTop: 5, fontWeight: 800 }}>
+                      Next: {nextAction.label}
+                    </div>
+
                     <div
                       style={{
                         display: "flex",
@@ -2870,40 +2935,65 @@ export default function AdminOrdersPage() {
                   >
                     <div style={mutedPanelStyle()}>
                       <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                        Order Summary
+                      </div>
+                      <div>Ordered: {lensDisplay}</div>
+                      <div>Submitted quantity: {boxDisplay}</div>
+                      <div>
+                        Authorized: {formatMoney(o.total_amount_cents)}
+                      </div>
+                      <div>
+                        Capture:{" "}
+                        {formatMoney(effectiveCaptureAmountCents(o))}
+                      </div>
+                      <div>Next: {nextAction.label}</div>
+                    </div>
+
+                    <div style={mutedPanelStyle()}>
+                      <div style={{ fontWeight: 800, marginBottom: 6 }}>
                         Customer / Shipping
                       </div>
-                      {o.shipping_phone && (
-                        <div>
-                          <CopyableValue value={o.shipping_phone}>
-                            Phone: {o.shipping_phone}
-                          </CopyableValue>
-                        </div>
+                      <div>Customer: {customerName}</div>
+                      {showPatientName && (
+                        <div>Patient: {patientName}</div>
                       )}
-                      {o.shipping_email && (
-                        <div>
-                          <CopyableValue value={o.shipping_email}>
-                            Email: {o.shipping_email}
-                          </CopyableValue>
-                        </div>
-                      )}
-                      <div>
-                        Ship to: {customerName}
-                      </div>
-                      <div>{o.shipping_address1 ?? "-"}</div>
+                      <div style={{ marginTop: 6 }}>{o.shipping_address1 ?? "-"}</div>
                       {o.shipping_address2 && <div>{o.shipping_address2}</div>}
                       <div>
                         {[o.shipping_city, o.shipping_state, o.shipping_zip]
                           .filter(Boolean)
                           .join(", ")}
                       </div>
+                      <div style={{ marginTop: 6 }}>
+                        {o.shipping_phone ? (
+                          <CopyableValue value={o.shipping_phone}>
+                            Phone: {o.shipping_phone}
+                          </CopyableValue>
+                        ) : (
+                          "Phone: -"
+                        )}
+                      </div>
+                      <div>
+                        {o.shipping_email ? (
+                          <CopyableValue value={o.shipping_email}>
+                            Email: {o.shipping_email}
+                          </CopyableValue>
+                        ) : (
+                          "Email: -"
+                        )}
+                      </div>
                     </div>
 
                     <div style={mutedPanelStyle()}>
                       <div style={{ fontWeight: 800, marginBottom: 6 }}>
-                        Payment / Stripe
+                        Payment
                       </div>
                       <div>Status: {payment.label}</div>
-                      <div>Total: {formatMoney(o.total_amount_cents)}</div>
+                      <div>Authorized: {formatMoney(o.total_amount_cents)}</div>
+                      <div>
+                        Capture:{" "}
+                        {formatMoney(effectiveCaptureAmountCents(o))}
+                      </div>
                       <div>
                         Shipping:{" "}
                         {o.shipping_method === "express"
@@ -2919,10 +3009,7 @@ export default function AdminOrdersPage() {
                         </div>
                       )}
                       {o.stripe_payment_intent_status && (
-                        <div>Stripe: {o.stripe_payment_intent_status}</div>
-                      )}
-                      {o.payment_status_source && (
-                        <div>Source: {o.payment_status_source}</div>
+                        <div>Stripe status: {o.stripe_payment_intent_status}</div>
                       )}
                     </div>
 
@@ -2942,7 +3029,6 @@ export default function AdminOrdersPage() {
                       <div>
                         <CopyableValue value={o.id}>Order: {o.id}</CopyableValue>
                       </div>
-                      <div>Backend: {labelizeStatus(o.status)}</div>
                       <div>Created: {formatDateTime(o.created_at)}</div>
                       <div>Updated: {formatDateTime(o.updated_at)}</div>
                       <div>Rx source: {rxSource.label}</div>
@@ -3215,14 +3301,17 @@ export default function AdminOrdersPage() {
               const status = archiveOrderStatus(o);
               const isOpen = expanded === o.id;
               const dateTime = formatOrderCreatedDate(o);
-              const patientName =
-                o.patient_name ||
-                o.patient_full_name ||
-                `${o.shipping_first_name ?? ""} ${
-                  o.shipping_last_name ?? ""
-                }`.trim() ||
-                "Unknown customer";
-              const rx = parseRx(o.rx);
+              const customerName = getCustomerName(o);
+              const patientName = getPatientName(o);
+              const showPatientName = namesDiffer(patientName, customerName);
+              const addressLine = [o.shipping_address1, o.shipping_address2]
+                .filter(Boolean)
+                .join(", ");
+              const cityLine = [o.shipping_city, o.shipping_state, o.shipping_zip]
+                .filter(Boolean)
+                .join(", ");
+              const nextAction = getNextAction(o);
+              const rx = parseRx(o);
 
               return (
                 <div key={o.id}>
@@ -3232,12 +3321,12 @@ export default function AdminOrdersPage() {
                     aria-expanded={isOpen}
                     style={{
                       width: "100%",
-                      minHeight: 34,
+                      minHeight: 68,
                       display: "grid",
                       gridTemplateColumns:
-                        "92px minmax(160px, 1fr) 100px 150px 80px",
+                        "92px minmax(260px, 1fr) 100px 150px 80px",
                       gap: 10,
-                      alignItems: "center",
+                      alignItems: "start",
                       border: "1px solid rgba(148,163,184,0.14)",
                       borderRadius: 8,
                       background: isOpen
@@ -3251,16 +3340,33 @@ export default function AdminOrdersPage() {
                     }}
                   >
                     <span style={{ fontWeight: 800 }}>{dateTime.date}</span>
-                    <span
-                      style={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {patientName}
+                    <span>
+                      <span style={{ display: "block", fontWeight: 800 }}>
+                        {customerName}
+                      </span>
+                      {showPatientName && (
+                        <span style={{ display: "block", opacity: 0.78 }}>
+                          Patient: {patientName}
+                        </span>
+                      )}
+                      <span style={{ display: "block", opacity: 0.78 }}>
+                        {addressLine || "-"}
+                      </span>
+                      <span style={{ display: "block", opacity: 0.78 }}>
+                        {cityLine || "-"}
+                      </span>
+                      <span style={{ display: "block", opacity: 0.78 }}>
+                        Phone: {o.shipping_phone ?? "-"} | Email:{" "}
+                        {o.shipping_email ?? "-"}
+                      </span>
                     </span>
-                    <span>{formatMoney(o.total_amount_cents)}</span>
+                    <span>
+                      {hasCaptureAdjustment(o)
+                        ? `Capture ${formatMoney(
+                            effectiveCaptureAmountCents(o),
+                          )} / Auth ${formatMoney(o.total_amount_cents)}`
+                        : formatMoney(o.total_amount_cents)}
+                    </span>
                     <span style={badgeStyle(status.tone)}>{status.label}</span>
                     <span style={{ textAlign: "right", opacity: 0.7 }}>
                       {isOpen ? "Hide" : "Details"}
@@ -3291,7 +3397,11 @@ export default function AdminOrdersPage() {
                             Order
                           </div>
                           <div>Status: {status.label}</div>
-                          <div>Total: {formatMoney(o.total_amount_cents)}</div>
+                          <div>Authorized: {formatMoney(o.total_amount_cents)}</div>
+                          <div>
+                            Capture:{" "}
+                            {formatMoney(effectiveCaptureAmountCents(o))}
+                          </div>
                           <div>
                             Payment: {paymentStatus(o).label}
                           </div>
@@ -3299,19 +3409,21 @@ export default function AdminOrdersPage() {
                             Fulfillment:{" "}
                             {labelizeStatus(normalizedFulfillmentStatus(o))}
                           </div>
+                          <div>Next: {nextAction.label}</div>
                         </div>
 
                         <div>
                           <div style={{ fontWeight: 800, marginBottom: 4 }}>
                             Customer
                           </div>
-                          <div>{patientName}</div>
-                          <div>{o.shipping_email ?? "-"}</div>
-                          <div>
-                            {[o.shipping_city, o.shipping_state, o.shipping_zip]
-                              .filter(Boolean)
-                              .join(", ") || "-"}
+                          <div>Customer: {customerName}</div>
+                          {showPatientName && <div>Patient: {patientName}</div>}
+                          <div style={{ marginTop: 4 }}>{addressLine || "-"}</div>
+                          <div>{cityLine || "-"}</div>
+                          <div style={{ marginTop: 4 }}>
+                            Phone: {o.shipping_phone ?? "-"}
                           </div>
+                          <div>Email: {o.shipping_email ?? "-"}</div>
                         </div>
 
                         <div>

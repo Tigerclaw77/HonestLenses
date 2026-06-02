@@ -41,6 +41,36 @@ export async function POST(req: Request) {
       order.payment_intent_id,
     );
 
+    if (intent.status === "succeeded") {
+      const { data: updatedOrder, error: updateError } = await supabaseServer
+        .from("orders")
+        .update({
+          status: "captured",
+          verification_status: "verified",
+          verification_passed: true,
+          verification_completed_at: now,
+        })
+        .eq("id", order.id)
+        .eq("payment_intent_id", order.payment_intent_id)
+        .select("id")
+        .maybeSingle();
+
+      if (updateError || !updatedOrder) {
+        console.warn("Skipping - captured status sync failed", {
+          orderId: order.id,
+          error: updateError?.message ?? "No order row matched",
+        });
+        continue;
+      }
+
+      await supabaseServer.from("order_events").insert({
+        order_id: order.id,
+        event_type: "verification_passive_already_captured",
+        actor: "system",
+      });
+      continue;
+    }
+
     if (intent.status !== "requires_capture") {
       console.log("Skipping - not capturable", {
         orderId: order.id,
@@ -64,7 +94,7 @@ export async function POST(req: Request) {
       amount_to_capture: amountToCapture,
     });
 
-    await supabaseServer
+    const { data: updatedOrder, error: updateError } = await supabaseServer
       .from("orders")
       .update({
         status: "captured",
@@ -72,7 +102,18 @@ export async function POST(req: Request) {
         verification_passed: true,
         verification_completed_at: now,
       })
-      .eq("id", order.id);
+      .eq("id", order.id)
+      .eq("payment_intent_id", order.payment_intent_id)
+      .select("id")
+      .maybeSingle();
+
+    if (updateError || !updatedOrder) {
+      console.warn("Skipping - captured status update failed", {
+        orderId: order.id,
+        error: updateError?.message ?? "No order row matched",
+      });
+      continue;
+    }
 
     await supabaseServer.from("order_events").insert({
       order_id: order.id,
