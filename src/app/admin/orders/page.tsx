@@ -4,6 +4,13 @@ import { useCallback, useEffect, useState, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase-client";
 import { getLensDisplayName } from "@/lib/cart/display";
+import {
+  getNextAction,
+  getPaymentState,
+  getRxSourceState,
+  getVerificationState,
+  type PaymentLifecycleStatus,
+} from "@/lib/orders/getNextAction";
 
 /* =========================
    Types
@@ -76,10 +83,12 @@ type Order = {
   shipping_cents?: number | null;
   shipping_method?: "standard" | "express" | null;
   sku?: string;
-  box_count?: number;
-  total_box_count?: number;
-  od_box_count?: number;
-  os_box_count?: number;
+  box_count?: number | null;
+  total_box_count?: number | null;
+  right_box_count?: number | null;
+  left_box_count?: number | null;
+  od_box_count?: number | null;
+  os_box_count?: number | null;
 
   created_at?: string;
   updated_at?: string | null;
@@ -114,7 +123,7 @@ type Order = {
   abandoned_checkout?: AbandonedCheckoutClassification;
 };
 
-type PaymentStatus = "authorized" | "captured" | "refunded" | "failed";
+type PaymentStatus = PaymentLifecycleStatus;
 
 type FulfillmentStatus =
   | "review"
@@ -148,12 +157,6 @@ type BadgeTone =
   | "info"
   | "capture"
   | "refund";
-
-type DerivedOrderStage = {
-  stage: "READY" | "WAITING" | "ACTION" | "ORDERED" | "SHIPPED" | "COMPLETE";
-  awaiting: string;
-  tone: BadgeTone;
-};
 
 type OrderOperationalBucket =
   | "action_required"
@@ -309,6 +312,42 @@ function formatSignedMoney(cents?: number | null): string {
 
   const prefix = cents < 0 ? "-" : "+";
   return `${prefix}${formatMoney(Math.abs(cents))}`;
+}
+
+function finiteCount(value?: number | null): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function formatBoxCount(count: number): string {
+  return `${count} ${count === 1 ? "box" : "boxes"}`;
+}
+
+function formatFulfillmentQuantity(order: Order): string {
+  const right = finiteCount(order.right_box_count ?? order.od_box_count);
+  const left = finiteCount(order.left_box_count ?? order.os_box_count);
+  const sideTotal =
+    right !== null && left !== null
+      ? right + left
+      : right !== null
+        ? right
+        : left;
+  const storedTotal = finiteCount(order.total_box_count ?? order.box_count);
+  const total = storedTotal ?? sideTotal;
+
+  if (total === null) return "Quantity pending";
+
+  const sideLabel =
+    right !== null || left !== null
+      ? `OD ${right ?? "-"} / OS ${left ?? "-"}`
+      : null;
+
+  if (sideLabel && sideTotal !== null && storedTotal !== null && sideTotal !== storedTotal) {
+    return `${formatBoxCount(storedTotal)} (${sideLabel}; count conflict)`;
+  }
+
+  return sideLabel
+    ? `${formatBoxCount(total)} (${sideLabel})`
+    : formatBoxCount(total);
 }
 
 function formatMoneyInput(cents?: number | null): string {
@@ -479,16 +518,13 @@ function labelizeStatus(status: string): string {
   return status.replace(/_/g, " ").toUpperCase();
 }
 
-function isVerified(status?: string | null): boolean {
-  return [
-    "verified",
-    "auto_verified",
-    "manual_verified",
-    "ocr_verified",
-    "upload_verified",
-    "passive_verified",
-    "doctor_confirmed",
-  ].includes(status ?? "");
+function titleizeStatus(status: string): string {
+  return status
+    .replace(/_/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
 }
 
 function isFulfillmentStatus(value: unknown): value is FulfillmentStatus {
@@ -507,47 +543,15 @@ function normalizedFulfillmentStatus(order: Order): FulfillmentStatus {
 }
 
 function normalizedPaymentStatus(order: Order): PaymentStatus {
-  if (
-    order.payment_status === "authorized" ||
-    order.payment_status === "captured" ||
-    order.payment_status === "refunded" ||
-    order.payment_status === "failed"
-  ) {
-    return order.payment_status;
-  }
-
-  if (
-    order.status === "captured" ||
-    order.status === "paid" ||
-    order.status === "shipped" ||
-    order.status === "completed"
-  ) {
-    return "captured";
-  }
-
-  if (order.status === "refunded") return "refunded";
-  if (order.status === "cancelled" || order.status === "failed") {
-    return "failed";
-  }
-
-  return order.payment_intent_id ? "authorized" : "failed";
+  return getPaymentState(order).status;
 }
 
 function orderVerificationComplete(order: Order): boolean {
-  return Boolean(
-    order.verified ||
-      order.passive_verified ||
-      order.doctor_confirmed ||
-      isVerified(order.verification_status),
-  );
+  return getVerificationState(order).complete;
 }
 
 function orderVerificationBlocked(order: Order): boolean {
-  return Boolean(
-    order.blocked ||
-      order.verification_status === "blocked" ||
-      order.verification_status === "rejected",
-  );
+  return getVerificationState(order).blocked;
 }
 
 function compareOperationalPriority(a: Order, b: Order): number {
@@ -555,62 +559,49 @@ function compareOperationalPriority(a: Order, b: Order): number {
 }
 
 function normalizedRxStatus(order: Order): string {
-  return order.rx_status ?? (order.rx_upload_path ? "uploaded" : "none");
+  return order.rx_status ?? (order.rx_upload_path ? "file_available" : "none");
+}
+
+function displayRxStatus(order: Order): string {
+  const status = normalizedRxStatus(order).trim().toLowerCase();
+  if (status === "uploaded" || status === "file_available") {
+    return "File available";
+  }
+  return titleizeStatus(status);
 }
 
 function orderHasRx(order: Order): boolean {
-  const rxStatus = normalizedRxStatus(order);
-  return (
-    Boolean(order.rx_upload_path) ||
-    rxStatus === "uploaded" ||
-    rxStatus === "ocr_complete"
-  );
+  return getRxSourceState(order).hasRxEvidence;
 }
 
-function verificationPath(order: Order): { label: string; tone: BadgeTone } {
-  if (orderHasRx(order)) return { label: "AUTO (Rx uploaded)", tone: "good" };
-  if (order.prescriber_name)
-    return { label: "DOCTOR REQUIRED", tone: "warning" };
-  return { label: "BLOCKED", tone: "blocked" };
-}
-
-function paymentStatus(order: Order): { label: string; tone: BadgeTone } {
-  const status = normalizedPaymentStatus(order);
-
+function paymentTone(status: PaymentStatus): BadgeTone {
   const tones: Record<PaymentStatus, BadgeTone> = {
+    draft: "info",
     authorized: "warning",
     captured: "capture",
     refunded: "refund",
+    cancelled: "blocked",
     failed: "blocked",
   };
 
-  return { label: labelizeStatus(status), tone: tones[status] };
+  return tones[status];
 }
 
-function rxTone(order: Order): BadgeTone {
-  return normalizedRxStatus(order) === "none" ? "warning" : "good";
+function paymentStatus(order: Order): { label: string; tone: BadgeTone } {
+  const payment = getPaymentState(order);
+
+  return { label: payment.label, tone: paymentTone(payment.status) };
 }
 
 function verificationSummary(order: Order): { label: string; tone: BadgeTone } {
-  if (orderVerificationBlocked(order)) return { label: "BLOCKED", tone: "blocked" };
-  if (order.verified) return { label: "VERIFIED", tone: "good" };
-  if (order.passive_verified)
-    return { label: "PASSIVE VERIFIED", tone: "good" };
-  if (order.doctor_confirmed)
-    return { label: "DOCTOR CONFIRMED", tone: "good" };
-  if (order.needs_review || order.verification_status === "requires_review") {
-    return { label: "NEEDS REVIEW", tone: "warning" };
-  }
-  if (isVerified(order.verification_status)) {
-    return {
-      label: labelizeStatus(order.verification_status ?? "verified"),
-      tone: "good",
-    };
-  }
-  if (!order.verification_status || order.verification_status === "pending") {
-    return { label: "PENDING", tone: "warning" };
-  }
-  return { label: labelizeStatus(order.verification_status), tone: "blocked" };
+  const verification = getVerificationState(order);
+  const tone = verification.blocked
+    ? "blocked"
+    : verification.severity === "success"
+      ? "good"
+      : verification.severity;
+
+  return { label: verification.label, tone };
 }
 
 function fulfillmentTone(status: FulfillmentStatus): BadgeTone {
@@ -619,38 +610,6 @@ function fulfillmentTone(status: FulfillmentStatus): BadgeTone {
   if (status === "hold") return "warning";
   if (status === "cancelled") return "blocked";
   return "neutral";
-}
-
-function deriveOperationalReadiness(order: Order): {
-  ready: boolean;
-  label: string;
-  tone: BadgeTone;
-  reasons: string[];
-} {
-  const operational = getOperationalStatus(order);
-  const actionability = getActionability(order);
-  const ready = operational.stage === "READY";
-
-  if (ready) {
-    return {
-      ready,
-      label: "READY TO ORDER",
-      tone: operational.tone,
-      reasons: actionability.reasons,
-    };
-  }
-
-  const label =
-    operational.awaiting === "No action"
-      ? operational.stage
-      : `${operational.stage}: ${operational.awaiting.toUpperCase()}`;
-
-  return {
-    ready,
-    label,
-    tone: operational.tone,
-    reasons: actionability.reasons,
-  };
 }
 
 function isOperationallyComplete(order: Order): boolean {
@@ -664,77 +623,14 @@ function getVerificationStatus(order: Order): {
   label: string;
   tone: BadgeTone;
 } {
-  if (isOperationallyComplete(order)) {
-    return {
-      complete: true,
-      blocked: false,
-      label: "CLOSED",
-      tone: "neutral",
-    };
-  }
-
+  const verification = getVerificationState(order);
   const summary = verificationSummary(order);
   return {
-    complete: orderVerificationComplete(order),
-    blocked: orderVerificationBlocked(order),
+    complete: verification.complete,
+    blocked: verification.blocked,
     label: summary.label,
     tone: summary.tone,
   };
-}
-
-function getOperationalStatus(order: Order): DerivedOrderStage {
-  const payment = normalizedPaymentStatus(order);
-  const fulfillment = normalizedFulfillmentStatus(order);
-
-  if (fulfillment === "completed") {
-    return { stage: "COMPLETE", awaiting: "No action", tone: "good" };
-  }
-
-  if (fulfillment === "shipped") {
-    return { stage: "SHIPPED", awaiting: "Completion", tone: "good" };
-  }
-
-  if (fulfillment === "ordered") {
-    return { stage: "ORDERED", awaiting: "Shipment", tone: "info" };
-  }
-
-  if (fulfillment === "cancelled") {
-    return { stage: "ACTION", awaiting: "Cancelled review", tone: "blocked" };
-  }
-
-  if (fulfillment === "hold") {
-    return { stage: "ACTION", awaiting: "Hold resolution", tone: "warning" };
-  }
-
-  if (payment === "failed" || payment === "refunded") {
-    return { stage: "ACTION", awaiting: "Payment fix", tone: "blocked" };
-  }
-
-  if (payment !== "captured") {
-    return { stage: "WAITING", awaiting: "Capture", tone: "warning" };
-  }
-
-  if (orderVerificationBlocked(order)) {
-    return {
-      stage: "ACTION",
-      awaiting: "Verification unblock",
-      tone: "blocked",
-    };
-  }
-
-  if (!orderHasRx(order)) {
-    return { stage: "ACTION", awaiting: "Rx", tone: "warning" };
-  }
-
-  if (order.needs_review) {
-    return { stage: "ACTION", awaiting: "Manual review", tone: "warning" };
-  }
-
-  if (!orderVerificationComplete(order)) {
-    return { stage: "WAITING", awaiting: "Verification", tone: "warning" };
-  }
-
-  return { stage: "READY", awaiting: "Manufacturer order", tone: "good" };
 }
 
 function getActionability(order: Order): {
@@ -750,7 +646,13 @@ function getActionability(order: Order): {
   const fulfillment = normalizedFulfillmentStatus(order);
 
   if (fulfillment === "hold") reasons.push("hold");
-  if (payment === "failed" || payment === "refunded") reasons.push(payment);
+  if (
+    payment === "failed" ||
+    payment === "refunded" ||
+    payment === "cancelled"
+  ) {
+    reasons.push(payment);
+  }
   if (payment !== "captured") reasons.push("capture");
   if (orderVerificationBlocked(order)) reasons.push("verification blocked");
   if (!orderHasRx(order)) reasons.push("rx missing");
@@ -769,14 +671,8 @@ function getActionability(order: Order): {
 }
 
 function paymentCaptureSummary(order: Order): { label: string; tone: BadgeTone } {
-  const payment = normalizedPaymentStatus(order);
-
-  if (payment === "captured") return { label: "Captured", tone: "capture" };
-  if (payment === "authorized") {
-    return { label: "Awaiting capture", tone: "warning" };
-  }
-  if (payment === "refunded") return { label: "Refunded", tone: "refund" };
-  return { label: "Payment failed", tone: "blocked" };
+  const payment = getPaymentState(order);
+  return { label: payment.label, tone: paymentTone(payment.status) };
 }
 
 function nextFulfillmentStatus(status: FulfillmentStatus): FulfillmentStatus | null {
@@ -862,7 +758,9 @@ function isArchiveOrder(order: Order): boolean {
   if (fulfillment === "completed" || fulfillment === "cancelled") return true;
   if (fulfillment === "shipped") return !isRecentlyShipped(order);
   if (
-    (payment === "failed" || payment === "refunded") &&
+    (payment === "failed" ||
+      payment === "refunded" ||
+      payment === "cancelled") &&
     !isWithinDays(order, STALE_INACTIVE_DAYS)
   ) {
     return true;
@@ -891,6 +789,7 @@ function archiveOrderStatus(order: Order): { label: string; tone: BadgeTone } {
 
   if (payment === "failed") return { label: "PAYMENT FAILED", tone: "blocked" };
   if (payment === "refunded") return { label: "REFUNDED", tone: "refund" };
+  if (payment === "cancelled") return { label: "PAYMENT CANCELLED", tone: "blocked" };
   if (fulfillment === "cancelled") return { label: "CANCELLED", tone: "blocked" };
   if (fulfillment === "completed") return { label: "COMPLETED", tone: "good" };
   if (fulfillment === "shipped") return { label: "SHIPPED", tone: "good" };
@@ -911,23 +810,6 @@ function mergeOrderLists(
   const byId = new Map(current.map((order) => [order.id, order]));
   restored.forEach((order) => byId.set(order.id, order));
   return [...byId.values()].sort(sort);
-}
-
-function compactTimeline(order: Order): { label: string; tone: BadgeTone }[] {
-  const payment = normalizedPaymentStatus(order);
-  const verification = getVerificationStatus(order);
-  const fulfillment = normalizedFulfillmentStatus(order);
-  const complete = isOperationallyComplete(order);
-
-  return [
-    { label: `Payment ${payment}`, tone: paymentStatus(order).tone },
-    {
-      label: complete ? "Rx closed" : orderHasRx(order) ? "Rx ready" : "Rx missing",
-      tone: complete ? "neutral" : rxTone(order),
-    },
-    { label: `Verification ${verification.label.toLowerCase()}`, tone: verification.tone },
-    { label: `Fulfillment ${fulfillment.replace(/_/g, " ")}`, tone: fulfillmentTone(fulfillment) },
-  ];
 }
 
 function badgeStyle(tone: BadgeTone): CSSProperties {
@@ -974,6 +856,35 @@ function buttonStyle(extra?: CSSProperties): CSSProperties {
     color: "inherit",
     cursor: "pointer",
     ...extra,
+  };
+}
+
+function nextActionBannerStyle(severity: "info" | "warning" | "success"): CSSProperties {
+  const colors = {
+    info: {
+      background: "rgba(37,99,235,0.16)",
+      border: "rgba(147,197,253,0.45)",
+      color: "#bfdbfe",
+    },
+    warning: {
+      background: "rgba(245,158,11,0.16)",
+      border: "rgba(251,191,36,0.55)",
+      color: "#fde68a",
+    },
+    success: {
+      background: "rgba(34,197,94,0.14)",
+      border: "rgba(134,239,172,0.45)",
+      color: "#bbf7d0",
+    },
+  }[severity];
+
+  return {
+    border: `1px solid ${colors.border}`,
+    borderRadius: 8,
+    background: colors.background,
+    color: colors.color,
+    padding: "12px 14px",
+    marginBottom: 10,
   };
 }
 
@@ -1471,18 +1382,33 @@ function CopyableValue({
   children?: ReactNode;
   style?: CSSProperties;
 }) {
-  if (!value) return null;
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const text = value?.trim();
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  if (!text) return null;
 
   return (
     <button
       type="button"
-      title={`Copy ${value}`}
+      title={`Copy ${text}`}
       onClick={(e) => {
         e.stopPropagation();
-        copyToClipboard(value);
+        copyToClipboard(text);
+        setCopied(true);
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        timeoutRef.current = setTimeout(() => setCopied(false), 1000);
       }}
       style={{
-        display: "inline",
+        display: "inline-flex",
+        alignItems: "baseline",
+        gap: 6,
         padding: 0,
         border: "none",
         background: "transparent",
@@ -1495,8 +1421,43 @@ function CopyableValue({
         ...style,
       }}
     >
-      {children ?? value}
+      <span>{children ?? text}</span>
+      <span
+        aria-live="polite"
+        style={{
+          color: "#86efac",
+          fontSize: 11,
+          fontWeight: 800,
+          opacity: copied ? 1 : 0,
+          transition: "opacity 180ms ease",
+          whiteSpace: "nowrap",
+        }}
+      >
+        Copied {"\u2713"}
+      </span>
     </button>
+  );
+}
+
+function NextActionBanner({ order }: { order: Order }) {
+  const nextAction = getNextAction(order);
+
+  return (
+    <div style={nextActionBannerStyle(nextAction.severity)}>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 900,
+          textTransform: "uppercase",
+          color: "rgba(255,255,255,0.72)",
+        }}
+      >
+        NEXT ACTION
+      </div>
+      <div style={{ marginTop: 2, fontSize: 20, fontWeight: 900 }}>
+        {nextAction.label}
+      </div>
+    </div>
   );
 }
 
@@ -2402,22 +2363,22 @@ export default function AdminOrdersPage() {
       order.patient_name ||
       order.patient_full_name ||
       `${order.shipping_first_name ?? ""} ${order.shipping_last_name ?? ""}`.trim();
+    const payment = paymentStatus(order);
+    const verification = verificationSummary(order);
 
     const text = [
       `Order: ${order.id}`,
       `Customer: ${patientName}`,
-      `Payment: ${normalizedPaymentStatus(order)}`,
+      `Payment: ${payment.label}`,
       `Fulfillment: ${normalizedFulfillmentStatus(order)}`,
-      `Verify: ${verificationSummary(order).label}`,
+      `Verify: ${verification.label}`,
       `Authorized Amount: ${formatMoney(order.total_amount_cents)}`,
       `Capture Amount: ${formatMoney(effectiveCaptureAmountCents(order))}`,
       `Shipping: ${order.shipping_method ?? "standard"} | ${formatMoney(
         order.shipping_cents ?? 0,
       )}`,
       `SKU: ${order.sku ?? "-"}`,
-      `Boxes: OD ${order.od_box_count ?? order.box_count ?? "-"} | OS ${
-        order.os_box_count ?? order.box_count ?? "-"
-      } | Total ${order.total_box_count ?? order.box_count ?? "-"}`,
+      `Boxes: ${formatFulfillmentQuantity(order)}`,
       `RX OD: ${rx.od}`,
       `RX OS: ${rx.os}`,
       `Expires: ${rx.exp ?? "-"}`,
@@ -2600,17 +2561,15 @@ export default function AdminOrdersPage() {
               >
                 {section.orders.map((o) => {
           const rx = parseRx(o.rx);
-          const rxStatus = normalizedRxStatus(o);
+          const rxStatus = displayRxStatus(o);
+          const rxSource = getRxSourceState(o);
           const payment = paymentStatus(o);
           const verification = getVerificationStatus(o);
           const fulfillment = normalizedFulfillmentStatus(o);
-          const path = verificationPath(o);
           const dateTime = formatOrderCreatedDate(o);
           const activityLabel = shouldShowRecentActivity(o)
             ? formatOrderActivityDate(o)
             : null;
-          const derivedStage = getOperationalStatus(o);
-          const actionability = getActionability(o);
           const captureState = paymentCaptureSummary(o);
           const rxLines = formatCollapsedRxLine(o);
           const lensDisplay = getOrderLensDisplayName(o);
@@ -2629,32 +2588,16 @@ export default function AdminOrdersPage() {
             o.shipping_last_name ?? ""
           }`.trim();
 
-          const sameName = patientName === shippingName;
-
-          const flags = isOperationallyComplete(o)
-            ? []
-            : [
-                !sameName ? "Name mismatch" : null,
-                !o.prescriber_name &&
-                normalizedPaymentStatus(o) === "authorized"
-                  ? "No prescriber"
-                  : null,
-                !o.rx_upload_path && !o.prescriber_name
-                  ? "No verification path"
-                  : null,
-                ...actionability.reasons,
-              ].filter((flag): flag is string => Boolean(flag));
+          const customerName =
+            shippingName || patientName || "Unknown customer";
+          const showPatientName = Boolean(
+            patientName && patientName !== customerName,
+          );
 
           const isOpen = expanded === o.id;
           const isRxOpen = rxExpanded === o.id;
 
-          const odBoxes = o.od_box_count ?? o.box_count ?? "-";
-          const osBoxes = o.os_box_count ?? o.box_count ?? "-";
-          const totalBoxes = o.total_box_count ?? o.box_count ?? "-";
-          const boxDisplay =
-            odBoxes === osBoxes
-              ? `${odBoxes} bx`
-              : `OD ${odBoxes} / OS ${osBoxes} (${totalBoxes} total)`;
+          const boxDisplay = formatFulfillmentQuantity(o);
 
           return (
             <div
@@ -2710,19 +2653,6 @@ export default function AdminOrdersPage() {
                         {activityLabel}
                       </div>
                     )}
-                    <div style={{ marginTop: 8 }}>
-                      <span style={badgeStyle(derivedStage.tone)}>
-                        {derivedStage.stage}
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        marginTop: 6,
-                        color: "rgba(226,232,240,0.78)",
-                      }}
-                    >
-                      Awaiting {derivedStage.awaiting}
-                    </div>
                     {o.shipping_method === "express" && (
                       <div
                         style={{
@@ -2753,12 +2683,35 @@ export default function AdminOrdersPage() {
                   </div>
 
                   <div>
-                    <div style={{ fontWeight: 800, fontSize: 13 }}>
-                      {patientName || shippingName || "Unknown customer"}
+                    <div style={{ opacity: 0.64, fontSize: 11 }}>
+                      Customer
                     </div>
-                    {!sameName && shippingName && (
-                      <div style={{ opacity: 0.72 }}>Ship: {shippingName}</div>
+                    <div style={{ fontWeight: 800, fontSize: 13 }}>
+                      {customerName}
+                    </div>
+                    {showPatientName && (
+                      <div style={{ marginTop: 2, opacity: 0.76 }}>
+                        Patient: {patientName}
+                      </div>
                     )}
+                    <div style={{ marginTop: 5 }}>
+                      {o.shipping_phone ? (
+                        <CopyableValue value={o.shipping_phone}>
+                          Phone: {o.shipping_phone}
+                        </CopyableValue>
+                      ) : (
+                        <span style={{ opacity: 0.58 }}>Phone: -</span>
+                      )}
+                    </div>
+                    <div style={{ marginTop: 3 }}>
+                      {o.shipping_email ? (
+                        <CopyableValue value={o.shipping_email}>
+                          Email: {o.shipping_email}
+                        </CopyableValue>
+                      ) : (
+                        <span style={{ opacity: 0.58 }}>Email: -</span>
+                      )}
+                    </div>
                     <div style={{ marginTop: 6 }}>
                       <CopyableValue value={o.shipping_address1} />
                     </div>
@@ -2783,11 +2736,6 @@ export default function AdminOrdersPage() {
                       )}
                       <CopyableValue value={o.shipping_zip} />
                     </div>
-                    {o.shipping_email && (
-                      <div style={{ marginTop: 3 }}>
-                        <CopyableValue value={o.shipping_email} />
-                      </div>
-                    )}
                   </div>
 
                   <div>
@@ -2859,7 +2807,7 @@ export default function AdminOrdersPage() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            openRxImage(o, patientName || "Unknown customer");
+                            openRxImage(o, customerName);
                           }}
                           style={buttonStyle({ fontSize: 12 })}
                         >
@@ -2889,10 +2837,11 @@ export default function AdminOrdersPage() {
                   style={{
                     marginTop: 12,
                     fontSize: 13,
-                    opacity: 0.85,
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
+                  <NextActionBanner order={o} />
+
                   <div
                     style={{
                       display: "flex",
@@ -2904,32 +2853,13 @@ export default function AdminOrdersPage() {
                     <span style={badgeStyle(payment.tone)}>
                       Payment: {payment.label}
                     </span>
-                    <span
-                      style={badgeStyle(
-                        isOperationallyComplete(o) ? "neutral" : rxTone(o),
-                      )}
-                    >
-                      Rx: {isOperationallyComplete(o) ? "closed" : rxStatus}
-                    </span>
-                    {!isOperationallyComplete(o) && (
-                      <span style={badgeStyle(path.tone)}>
-                        Path: {path.label}
-                      </span>
-                    )}
                     <span style={badgeStyle(verification.tone)}>
                       Verification: {verification.label}
                     </span>
                     <span style={badgeStyle(fulfillmentTone(fulfillment))}>
                       Fulfillment: {labelizeStatus(fulfillment)}
                     </span>
-                    {flags.map((flag) => (
-                      <span key={flag} style={badgeStyle("warning")}>
-                        {flag}
-                      </span>
-                    ))}
                   </div>
-
-                  <OperationalTimeline order={o} />
 
                   <div
                     style={{
@@ -2944,10 +2874,22 @@ export default function AdminOrdersPage() {
                       <div style={{ fontWeight: 800, marginBottom: 6 }}>
                         Customer / Shipping
                       </div>
-                      {o.shipping_phone && <div>Phone: {o.shipping_phone}</div>}
-                      {o.shipping_email && <div>Email: {o.shipping_email}</div>}
+                      {o.shipping_phone && (
+                        <div>
+                          <CopyableValue value={o.shipping_phone}>
+                            Phone: {o.shipping_phone}
+                          </CopyableValue>
+                        </div>
+                      )}
+                      {o.shipping_email && (
+                        <div>
+                          <CopyableValue value={o.shipping_email}>
+                            Email: {o.shipping_email}
+                          </CopyableValue>
+                        </div>
+                      )}
                       <div>
-                        Ship to: {shippingName || patientName || "Unknown"}
+                        Ship to: {customerName}
                       </div>
                       <div>{o.shipping_address1 ?? "-"}</div>
                       {o.shipping_address2 && <div>{o.shipping_address2}</div>}
@@ -2962,7 +2904,7 @@ export default function AdminOrdersPage() {
                       <div style={{ fontWeight: 800, marginBottom: 6 }}>
                         Payment / Stripe
                       </div>
-                      <div>Status: {normalizedPaymentStatus(o)}</div>
+                      <div>Status: {payment.label}</div>
                       <div>Total: {formatMoney(o.total_amount_cents)}</div>
                       <div>
                         Shipping:{" "}
@@ -2971,7 +2913,13 @@ export default function AdminOrdersPage() {
                           : "Standard"}{" "}
                         {formatMoney(o.shipping_cents ?? 0)}
                       </div>
-                      {o.payment_intent_id && <div>PI: {o.payment_intent_id}</div>}
+                      {o.payment_intent_id && (
+                        <div>
+                          <CopyableValue value={o.payment_intent_id}>
+                            PI: {o.payment_intent_id}
+                          </CopyableValue>
+                        </div>
+                      )}
                       {o.stripe_payment_intent_status && (
                         <div>Stripe: {o.stripe_payment_intent_status}</div>
                       )}
@@ -2993,12 +2941,14 @@ export default function AdminOrdersPage() {
                       <div style={{ fontWeight: 800, marginBottom: 6 }}>
                         Internal / Audit
                       </div>
-                      <div>Order: {o.id}</div>
+                      <div>
+                        <CopyableValue value={o.id}>Order: {o.id}</CopyableValue>
+                      </div>
                       <div>Backend: {labelizeStatus(o.status)}</div>
                       <div>Created: {formatDateTime(o.created_at)}</div>
                       <div>Updated: {formatDateTime(o.updated_at)}</div>
-                      <div>Rx status: {rxStatus}</div>
-                      <div>Rx source: {o.rx_source ?? "-"}</div>
+                      <div>Rx source: {rxSource.label}</div>
+                      <div>Rx detail: {rxStatus}</div>
                       {rx.exp && <div>Rx exp: {rx.exp}</div>}
                     </div>
                   </div>
@@ -3008,7 +2958,7 @@ export default function AdminOrdersPage() {
                     onAdjust={() =>
                       openCaptureAdjustment(
                         o,
-                        patientName || "Unknown customer",
+                        customerName,
                       )
                     }
                   />
@@ -3016,12 +2966,12 @@ export default function AdminOrdersPage() {
                   {o.rx_upload_path && (
                     <div style={{ ...mutedPanelStyle(), marginBottom: 12 }}>
                       <div style={{ fontWeight: 800, marginBottom: 6 }}>
-                        Uploaded Rx Image
+                        Rx Image
                       </div>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          openRxImage(o, patientName || "Unknown customer");
+                          openRxImage(o, customerName);
                         }}
                         style={buttonStyle()}
                       >
@@ -3088,7 +3038,7 @@ export default function AdminOrdersPage() {
                             e.stopPropagation();
                             startReturnRefund(
                               o,
-                              patientName || "Unknown customer",
+                              customerName,
                             );
                           }}
                           style={buttonStyle({
@@ -3129,17 +3079,30 @@ export default function AdminOrdersPage() {
                       {savingOrderId === o.id && <span>Saving...</span>}
                     </div>
 
-                    <VerificationControls
-                      order={o}
-                      onToggle={updateVerificationFlag}
-                    />
+                    <details>
+                      <summary
+                        style={{
+                          cursor: "pointer",
+                          fontWeight: 800,
+                          color: "rgba(226,232,240,0.9)",
+                        }}
+                      >
+                        Advanced Overrides
+                      </summary>
+                      <div style={{ marginTop: 10 }}>
+                        <VerificationControls
+                          order={o}
+                          onToggle={updateVerificationFlag}
+                        />
+                      </div>
+                    </details>
                   </div>
 
                   <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        openNotes(o, patientName || "Unknown customer");
+                        openNotes(o, customerName);
                       }}
                       onClickCapture={(e) => e.stopPropagation()}
                       style={buttonStyle()}
@@ -3348,7 +3311,7 @@ export default function AdminOrdersPage() {
                           <div>Status: {status.label}</div>
                           <div>Total: {formatMoney(o.total_amount_cents)}</div>
                           <div>
-                            Payment: {normalizedPaymentStatus(o)}
+                            Payment: {paymentStatus(o).label}
                           </div>
                           <div>
                             Fulfillment:{" "}
@@ -3374,9 +3337,7 @@ export default function AdminOrdersPage() {
                             Rx / Fulfillment
                           </div>
                           <div>{getOrderLensDisplayName(o)}</div>
-                          <div>
-                            {o.total_box_count ?? o.box_count ?? "-"} boxes
-                          </div>
+                          <div>{formatFulfillmentQuantity(o)}</div>
                           <div>
                             {o.shipping_method === "express"
                               ? "Express"
@@ -4034,62 +3995,6 @@ export default function AdminOrdersPage() {
         </div>
       )}
     </main>
-  );
-}
-
-function OperationalTimeline({ order }: { order: Order }) {
-  const readiness = deriveOperationalReadiness(order);
-  const timeline = compactTimeline(order);
-
-  return (
-    <div style={{ ...mutedPanelStyle(), marginTop: 10 }}>
-      <div
-        style={{
-          display: "flex",
-          gap: 6,
-          flexWrap: "wrap",
-          marginBottom: 8,
-        }}
-      >
-        <span style={badgeStyle(readiness.tone)}>{readiness.label}</span>
-        {readiness.reasons.slice(1, 4).map((reason) => (
-          <span key={reason} style={badgeStyle("neutral")}>
-            {reason.toUpperCase()}
-          </span>
-        ))}
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-          gap: 8,
-        }}
-      >
-        {timeline.map((step) => (
-          <div
-            key={step.label}
-            style={{
-              borderTop: `3px solid ${
-                step.tone === "blocked"
-                  ? "#ef4444"
-                  : step.tone === "warning"
-                    ? "#f59e0b"
-                    : step.tone === "capture"
-                      ? "#14b8a6"
-                      : "#22c55e"
-              }`,
-              paddingTop: 6,
-              color: "rgba(226,232,240,0.9)",
-              fontSize: 12,
-              minWidth: 0,
-            }}
-          >
-            {step.label}
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }
 
