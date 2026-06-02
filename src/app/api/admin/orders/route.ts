@@ -55,6 +55,10 @@ type OrderRow = {
   prescriber_phone?: string | null;
   shipping_email?: string | null;
   total_amount_cents?: number | null;
+  capture_amount_cents?: number | null;
+  capture_adjustment_reason?: string | null;
+  capture_adjusted_by?: string | null;
+  capture_adjusted_at?: string | null;
   shipping_cents?: number | null;
   shipping_method?: string | null;
   archived?: boolean | null;

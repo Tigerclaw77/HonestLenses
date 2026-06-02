@@ -68,7 +68,11 @@ type Order = {
   doctor_confirmed?: boolean | null;
   blocked?: boolean | null;
 
-  total_amount_cents?: number;
+  total_amount_cents?: number | null;
+  capture_amount_cents?: number | null;
+  capture_adjustment_reason?: CaptureAdjustmentReason | string | null;
+  capture_adjusted_by?: string | null;
+  capture_adjusted_at?: string | null;
   shipping_cents?: number | null;
   shipping_method?: "standard" | "express" | null;
   sku?: string;
@@ -128,6 +132,14 @@ type VerificationFlag =
   | "doctor_confirmed"
   | "blocked";
 
+type CaptureAdjustmentReason =
+  | "Quantity correction"
+  | "Prescription correction"
+  | "Shipping adjustment"
+  | "Inventory adjustment"
+  | "Customer service accommodation"
+  | "Other";
+
 type BadgeTone =
   | "good"
   | "warning"
@@ -152,6 +164,15 @@ type NotesModalState = {
   orderId: string;
   patientName: string;
   notes: string;
+};
+
+type CaptureAdjustmentModalState = {
+  orderId: string;
+  patientName: string;
+  authorizedAmountCents: number;
+  amount: string;
+  reason: CaptureAdjustmentReason;
+  error: string | null;
 };
 
 type RxImageModalState = {
@@ -215,6 +236,7 @@ type OptimisticOrdersSnapshot = {
 type AdminApiPayload = {
   error?: string;
   code?: string;
+  order?: Order;
   needsAction?: Order[];
   stalled?: Order[];
   pipeline?: Order[];
@@ -255,13 +277,86 @@ const VERIFICATION_FLAGS: { key: VerificationFlag; label: string }[] = [
   { key: "blocked", label: "Blocked" },
 ];
 
+const CAPTURE_ADJUSTMENT_REASONS: CaptureAdjustmentReason[] = [
+  "Quantity correction",
+  "Prescription correction",
+  "Shipping adjustment",
+  "Inventory adjustment",
+  "Customer service accommodation",
+  "Other",
+];
+
+function isCaptureAdjustmentReason(
+  value: unknown,
+): value is CaptureAdjustmentReason {
+  return CAPTURE_ADJUSTMENT_REASONS.includes(
+    value as CaptureAdjustmentReason,
+  );
+}
+
 /* =========================
    Helpers
 ========================= */
 
-function formatMoney(cents?: number): string {
+function formatMoney(cents?: number | null): string {
   if (typeof cents !== "number") return "-";
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+function formatSignedMoney(cents?: number | null): string {
+  if (typeof cents !== "number") return "-";
+  if (cents === 0) return "$0.00";
+
+  const prefix = cents < 0 ? "-" : "+";
+  return `${prefix}${formatMoney(Math.abs(cents))}`;
+}
+
+function formatMoneyInput(cents?: number | null): string {
+  return typeof cents === "number" ? (cents / 100).toFixed(2) : "";
+}
+
+function parseDollarAmountToCents(value: string): number | null {
+  const normalized = value.trim().replace(/^\$/, "");
+
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return null;
+
+  const [dollars, cents = ""] = normalized.split(".");
+  const dollarsCents = Number(dollars) * 100;
+  const fractionalCents = Number(cents.padEnd(2, "0"));
+  const totalCents = dollarsCents + fractionalCents;
+
+  return Number.isSafeInteger(totalCents) ? totalCents : null;
+}
+
+function effectiveCaptureAmountCents(order: Order): number | undefined {
+  if (typeof order.capture_amount_cents === "number") {
+    return order.capture_amount_cents;
+  }
+
+  return typeof order.total_amount_cents === "number"
+    ? order.total_amount_cents
+    : undefined;
+}
+
+function captureDifferenceCents(order: Order): number | null {
+  const captureAmount = effectiveCaptureAmountCents(order);
+
+  if (
+    typeof captureAmount !== "number" ||
+    typeof order.total_amount_cents !== "number"
+  ) {
+    return null;
+  }
+
+  return captureAmount - order.total_amount_cents;
+}
+
+function hasCaptureAdjustment(order: Order): boolean {
+  return (
+    typeof order.capture_amount_cents === "number" &&
+    typeof order.total_amount_cents === "number" &&
+    order.capture_amount_cents !== order.total_amount_cents
+  );
 }
 
 function formatDateTime(value?: string | null): string {
@@ -1405,6 +1500,117 @@ function CopyableValue({
   );
 }
 
+function PaymentAdjustmentPanel({
+  order,
+  onAdjust,
+}: {
+  order: Order;
+  onAdjust: () => void;
+}) {
+  const authorizedAmount = order.total_amount_cents;
+  const captureAmount = effectiveCaptureAmountCents(order);
+  const difference = captureDifferenceCents(order);
+  const lowerBy =
+    typeof difference === "number" && difference < 0
+      ? Math.abs(difference)
+      : null;
+  const adjustedBy = order.capture_adjusted_by?.trim() || null;
+  const adjustedByIsEmail = Boolean(adjustedBy?.includes("@"));
+  const canAdjust =
+    typeof authorizedAmount === "number" && authorizedAmount > 0;
+
+  return (
+    <div style={{ ...mutedPanelStyle(), marginBottom: 12 }}>
+      <div style={{ fontWeight: 900, marginBottom: 8 }}>
+        PAYMENT ADJUSTMENT
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+          gap: 8,
+        }}
+      >
+        <div>
+          <div style={{ opacity: 0.68 }}>Authorized Amount</div>
+          <div style={{ fontWeight: 800 }}>{formatMoney(authorizedAmount)}</div>
+        </div>
+
+        <div>
+          <div style={{ opacity: 0.68 }}>Capture Amount</div>
+          <div style={{ fontWeight: 800 }}>{formatMoney(captureAmount)}</div>
+        </div>
+
+        <div>
+          <div style={{ opacity: 0.68 }}>Difference</div>
+          <div
+            style={{
+              fontWeight: 800,
+              color:
+                typeof difference === "number" && difference < 0
+                  ? "#fcd34d"
+                  : "inherit",
+            }}
+          >
+            {formatSignedMoney(difference)}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ opacity: 0.68 }}>Reason</div>
+          <div>{order.capture_adjustment_reason ?? "-"}</div>
+        </div>
+
+        <div>
+          <div style={{ opacity: 0.68 }}>Adjusted By</div>
+          {adjustedBy ? (
+            adjustedByIsEmail ? (
+              <a href={`mailto:${adjustedBy}`} style={{ color: "#67e8f9" }}>
+                {adjustedBy}
+              </a>
+            ) : (
+              <div>{adjustedBy}</div>
+            )
+          ) : (
+            <div>-</div>
+          )}
+        </div>
+
+        <div>
+          <div style={{ opacity: 0.68 }}>Adjusted At</div>
+          <div>{formatDateTime(order.capture_adjusted_at)}</div>
+        </div>
+      </div>
+
+      {lowerBy !== null && (
+        <div
+          style={{
+            marginTop: 10,
+            color: "#fde68a",
+            fontWeight: 700,
+          }}
+        >
+          Capture amount is lower than authorization by {formatMoney(lowerBy)}.
+        </div>
+      )}
+
+      <button
+        type="button"
+        disabled={!canAdjust}
+        onClick={onAdjust}
+        style={buttonStyle({
+          marginTop: 10,
+          background: "rgba(20,184,166,0.22)",
+          opacity: canAdjust ? 1 : 0.5,
+        })}
+      >
+        Adjust Capture Amount
+      </button>
+    </div>
+  );
+}
+
 /* =========================
    Component
 ========================= */
@@ -1418,6 +1624,8 @@ export default function AdminOrdersPage() {
     Record<string, RecoveryEmailDraft>
   >({});
   const [notesModal, setNotesModal] = useState<NotesModalState | null>(null);
+  const [captureAdjustmentModal, setCaptureAdjustmentModal] =
+    useState<CaptureAdjustmentModalState | null>(null);
   const [rxImageModal, setRxImageModal] = useState<RxImageModalState | null>(
     null,
   );
@@ -1716,6 +1924,112 @@ export default function AdminOrdersPage() {
       admin_notes: notesModal.notes,
     });
     if (ok) setNotesModal(null);
+  }
+
+  function openCaptureAdjustment(order: Order, patientName: string) {
+    if (
+      typeof order.total_amount_cents !== "number" ||
+      order.total_amount_cents <= 0
+    ) {
+      setAdminError("Order is missing a valid authorized amount.");
+      return;
+    }
+
+    const captureAmount =
+      effectiveCaptureAmountCents(order) ?? order.total_amount_cents;
+    const reason = isCaptureAdjustmentReason(order.capture_adjustment_reason)
+      ? order.capture_adjustment_reason
+      : "Quantity correction";
+
+    setCaptureAdjustmentModal({
+      orderId: order.id,
+      patientName,
+      authorizedAmountCents: order.total_amount_cents,
+      amount: formatMoneyInput(captureAmount),
+      reason,
+      error: null,
+    });
+  }
+
+  async function saveCaptureAdjustment() {
+    if (!captureAdjustmentModal) return;
+
+    const amountCents = parseDollarAmountToCents(
+      captureAdjustmentModal.amount,
+    );
+
+    if (amountCents === null) {
+      setCaptureAdjustmentModal((current) =>
+        current
+          ? {
+              ...current,
+              error: "Use dollars and cents, for example 101.99.",
+            }
+          : current,
+      );
+      return;
+    }
+
+    if (amountCents <= 0) {
+      setCaptureAdjustmentModal((current) =>
+        current
+          ? { ...current, error: "Capture amount must be greater than $0.00." }
+          : current,
+      );
+      return;
+    }
+
+    if (amountCents > captureAdjustmentModal.authorizedAmountCents) {
+      setCaptureAdjustmentModal((current) =>
+        current
+          ? {
+              ...current,
+              error: `Capture amount cannot exceed the authorized amount of ${formatMoney(
+                current.authorizedAmountCents,
+              )}.`,
+            }
+          : current,
+      );
+      return;
+    }
+
+    setSavingOrderId(captureAdjustmentModal.orderId);
+    setAdminError(null);
+
+    try {
+      const res = await fetch("/api/admin/orders/adjust-capture-amount", {
+        method: "POST",
+        headers: await authHeaders(),
+        credentials: "same-origin",
+        body: JSON.stringify({
+          orderId: captureAdjustmentModal.orderId,
+          capture_amount_cents: amountCents,
+          reason: captureAdjustmentModal.reason,
+        }),
+      });
+
+      const json = await readAdminApiPayload(res);
+
+      if (!res.ok) {
+        const message = adminApiErrorMessage(
+          json,
+          "Capture amount adjustment failed.",
+        );
+        setCaptureAdjustmentModal((current) =>
+          current ? { ...current, error: message } : current,
+        );
+        return;
+      }
+
+      await fetchData();
+      setCaptureAdjustmentModal(null);
+      setAdminNotice({
+        tone: "success",
+        message: "Capture amount adjustment saved.",
+      });
+    } finally {
+      setSavingOrderId(null);
+    }
   }
 
   async function openRxImage(order: Order, patientName: string) {
@@ -2095,7 +2409,8 @@ export default function AdminOrdersPage() {
       `Payment: ${normalizedPaymentStatus(order)}`,
       `Fulfillment: ${normalizedFulfillmentStatus(order)}`,
       `Verify: ${verificationSummary(order).label}`,
-      `Amount: ${formatMoney(order.total_amount_cents)}`,
+      `Authorized Amount: ${formatMoney(order.total_amount_cents)}`,
+      `Capture Amount: ${formatMoney(effectiveCaptureAmountCents(order))}`,
       `Shipping: ${order.shipping_method ?? "standard"} | ${formatMoney(
         order.shipping_cents ?? 0,
       )}`,
@@ -2162,6 +2477,19 @@ export default function AdminOrdersPage() {
     selectedAbandonedCount > 0 &&
     selectedAbandonedOrders.every(canPermanentlyDelete);
   const pendingAbandonedCount = pendingAbandonedOrderIds.size;
+  const captureAdjustmentPreviewCents = captureAdjustmentModal
+    ? parseDollarAmountToCents(captureAdjustmentModal.amount)
+    : null;
+  const captureAdjustmentDifference =
+    captureAdjustmentModal && captureAdjustmentPreviewCents !== null
+      ? captureAdjustmentPreviewCents -
+        captureAdjustmentModal.authorizedAmountCents
+      : null;
+  const captureAdjustmentLowerBy =
+    typeof captureAdjustmentDifference === "number" &&
+    captureAdjustmentDifference < 0
+      ? Math.abs(captureAdjustmentDifference)
+      : null;
 
   return (
     <main style={{ padding: 20 }} onClick={requestNotificationPermission}>
@@ -2475,7 +2803,11 @@ export default function AdminOrdersPage() {
                         {captureState.label}
                       </span>
                       <span style={{ opacity: 0.72 }}>
-                        {formatMoney(o.total_amount_cents)}
+                        {hasCaptureAdjustment(o)
+                          ? `Capture ${formatMoney(
+                              effectiveCaptureAmountCents(o),
+                            )} / Auth ${formatMoney(o.total_amount_cents)}`
+                          : formatMoney(o.total_amount_cents)}
                       </span>
                     </div>
 
@@ -2670,6 +3002,16 @@ export default function AdminOrdersPage() {
                       {rx.exp && <div>Rx exp: {rx.exp}</div>}
                     </div>
                   </div>
+
+                  <PaymentAdjustmentPanel
+                    order={o}
+                    onAdjust={() =>
+                      openCaptureAdjustment(
+                        o,
+                        patientName || "Unknown customer",
+                      )
+                    }
+                  />
 
                   {o.rx_upload_path && (
                     <div style={{ ...mutedPanelStyle(), marginBottom: 12 }}>
@@ -3368,6 +3710,157 @@ export default function AdminOrdersPage() {
                 onClick={confirmPermanentDelete}
               >
                 Delete permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {captureAdjustmentModal && (
+        <div
+          onClick={() => setCaptureAdjustmentModal(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 52,
+            background: "rgba(2,6,23,0.78)",
+            display: "grid",
+            placeItems: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(560px, 100%)",
+              ...mutedPanelStyle(),
+              background: "#0f172a",
+            }}
+          >
+            <div style={{ fontWeight: 900, marginBottom: 4 }}>
+              Adjust Capture Amount
+            </div>
+            <div
+              style={{
+                color: "rgba(226,232,240,0.72)",
+                fontSize: 13,
+                marginBottom: 12,
+              }}
+            >
+              {captureAdjustmentModal.patientName}
+            </div>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              <div>
+                <div style={{ opacity: 0.68 }}>Authorized Amount</div>
+                <div style={{ fontWeight: 800 }}>
+                  {formatMoney(captureAdjustmentModal.authorizedAmountCents)}
+                </div>
+              </div>
+
+              <label style={{ display: "grid", gap: 5, fontWeight: 700 }}>
+                New Capture Amount ($)
+                <input
+                  value={captureAdjustmentModal.amount}
+                  inputMode="decimal"
+                  onChange={(e) =>
+                    setCaptureAdjustmentModal((current) =>
+                      current
+                        ? {
+                            ...current,
+                            amount: e.target.value,
+                            error: null,
+                          }
+                        : current,
+                    )
+                  }
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    borderRadius: 6,
+                    border: "1px solid rgba(148,163,184,0.35)",
+                    background: "rgba(2,6,23,0.75)",
+                    color: "inherit",
+                    padding: "9px 10px",
+                  }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 5, fontWeight: 700 }}>
+                Reason
+                <select
+                  value={captureAdjustmentModal.reason}
+                  onChange={(e) => {
+                    const reason = e.target.value;
+                    if (!isCaptureAdjustmentReason(reason)) return;
+                    setCaptureAdjustmentModal((current) =>
+                      current
+                        ? {
+                            ...current,
+                            reason,
+                            error: null,
+                          }
+                        : current,
+                    );
+                  }}
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    borderRadius: 6,
+                    border: "1px solid rgba(148,163,184,0.35)",
+                    background: "rgba(2,6,23,0.75)",
+                    color: "inherit",
+                    padding: "9px 10px",
+                  }}
+                >
+                  {CAPTURE_ADJUSTMENT_REASONS.map((reason) => (
+                    <option key={reason} value={reason}>
+                      {reason}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div>
+                Difference: {formatSignedMoney(captureAdjustmentDifference)}
+              </div>
+
+              {captureAdjustmentLowerBy !== null && (
+                <div style={{ color: "#fde68a", fontWeight: 700 }}>
+                  Capture amount is lower than authorization by{" "}
+                  {formatMoney(captureAdjustmentLowerBy)}.
+                </div>
+              )}
+
+              {captureAdjustmentModal.error && (
+                <div style={{ color: "#fca5a5", fontWeight: 700 }}>
+                  {captureAdjustmentModal.error}
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+                marginTop: 14,
+              }}
+            >
+              <button
+                style={buttonStyle()}
+                onClick={() => setCaptureAdjustmentModal(null)}
+              >
+                Cancel
+              </button>
+              <button
+                style={buttonStyle({ background: "rgba(20,184,166,0.25)" })}
+                onClick={saveCaptureAdjustment}
+                disabled={savingOrderId === captureAdjustmentModal.orderId}
+              >
+                {savingOrderId === captureAdjustmentModal.orderId
+                  ? "Saving..."
+                  : "Save Adjustment"}
               </button>
             </div>
           </div>

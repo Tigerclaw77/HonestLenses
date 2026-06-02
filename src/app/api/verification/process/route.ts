@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseServer } from "@/lib/supabase-server";
+import { getCaptureAmountCents } from "@/lib/payments/captureAmount";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -48,7 +49,20 @@ export async function POST(req: Request) {
       continue;
     }
 
-    await stripe.paymentIntents.capture(order.payment_intent_id);
+    let amountToCapture: number;
+    try {
+      amountToCapture = getCaptureAmountCents(order);
+    } catch (err) {
+      console.warn("Skipping - invalid capture amount", {
+        orderId: order.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      continue;
+    }
+
+    await stripe.paymentIntents.capture(order.payment_intent_id, {
+      amount_to_capture: amountToCapture,
+    });
 
     await supabaseServer
       .from("orders")
