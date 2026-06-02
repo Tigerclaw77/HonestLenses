@@ -86,18 +86,27 @@ export async function POST(req: Request) {
   }
 
   // 5️⃣ Mark order paid
-  const { error: updateError } = await supabaseServer
+  const { data: updatedOrder, error: updateError } = await supabaseServer
     .from("orders")
     .update({
-      status: "paid",
-      paid_at: new Date().toISOString(),
+      status: "captured",
     })
     .eq("id", order.id)
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .eq("payment_intent_id", order.payment_intent_id)
+    .select("id")
+    .maybeSingle();
 
   if (updateError) {
     return NextResponse.json(
       { error: updateError.message },
+      { status: 500 }
+    );
+  }
+
+  if (!updatedOrder) {
+    return NextResponse.json(
+      { error: "Order state update did not match any rows" },
       { status: 500 }
     );
   }

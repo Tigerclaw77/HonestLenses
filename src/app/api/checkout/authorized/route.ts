@@ -177,6 +177,15 @@ export async function POST(req: Request) {
         paymentIntentId,
         error: err,
       });
+      return NextResponse.json(
+        {
+          error:
+            err instanceof Error
+              ? err.message
+              : "Stripe capture failed",
+        },
+        { status: 400 },
+      );
     }
   }
 
@@ -189,16 +198,24 @@ export async function POST(req: Request) {
     verification_status: isUploaded ? "auto_verified" : "pending",
   };
 
-  const { error: updateError } = await supabaseServer
+  const { data: updatedRows, error: updateError } = await supabaseServer
     .from("orders")
     .update(updatePayload)
     .eq("id", orderId)
     .eq("user_id", user.id)
+    .eq("payment_intent_id", paymentIntentId)
     .in("status", ["draft", "authorized"])
     .select("id");
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+
+  if (!updatedRows?.length) {
+    return NextResponse.json(
+      { error: "Order state update did not match any rows" },
+      { status: 500 },
+    );
   }
 
   /* =========================

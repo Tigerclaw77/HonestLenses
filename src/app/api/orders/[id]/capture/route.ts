@@ -80,9 +80,18 @@ export async function POST(
   }
 
   try {
-    await stripe.paymentIntents.capture(order.payment_intent_id, {
-      amount_to_capture: amountToCapture,
-    });
+    const intent = await stripe.paymentIntents.retrieve(order.payment_intent_id);
+
+    if (intent.status === "requires_capture") {
+      await stripe.paymentIntents.capture(order.payment_intent_id, {
+        amount_to_capture: amountToCapture,
+      });
+    } else if (intent.status !== "succeeded") {
+      return NextResponse.json(
+        { error: `PaymentIntent is not capturable (status: ${intent.status})` },
+        { status: 400 }
+      );
+    }
   } catch (err: unknown) {
     if (err instanceof Stripe.errors.StripeError) {
       return NextResponse.json(
@@ -94,17 +103,27 @@ export async function POST(
   }
 
   // 5️⃣ Advance order state
-  const { error: updateError } = await supabaseServer
+  const { data: updatedOrder, error: updateError } = await supabaseServer
     .from("orders")
     .update({
       status: "captured",
     })
     .eq("id", orderId)
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .eq("payment_intent_id", order.payment_intent_id)
+    .select("id")
+    .maybeSingle();
 
   if (updateError) {
     return NextResponse.json(
       { error: updateError.message },
+      { status: 500 }
+    );
+  }
+
+  if (!updatedOrder) {
+    return NextResponse.json(
+      { error: "Order state update did not match any rows" },
       { status: 500 }
     );
   }
