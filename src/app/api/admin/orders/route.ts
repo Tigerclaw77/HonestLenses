@@ -80,7 +80,13 @@ type AbandonedOrderRow = OrderRow & {
   abandoned_checkout: AbandonedCheckoutClassification;
 };
 
-type PaymentStatus = "authorized" | "captured" | "refunded" | "failed";
+type PaymentStatus =
+  | "draft"
+  | "authorized"
+  | "captured"
+  | "refunded"
+  | "cancelled"
+  | "failed";
 
 /* =========================
    Helpers
@@ -133,6 +139,8 @@ function isActionableOrder(o: OrderRow): boolean {
 }
 
 function fallbackPaymentStatus(order: OrderRow): PaymentStatus {
+  if (order.status === "draft" && !order.payment_intent_id) return "draft";
+
   if (
     order.status === "captured" ||
     order.status === "paid" ||
@@ -142,8 +150,9 @@ function fallbackPaymentStatus(order: OrderRow): PaymentStatus {
     return "captured";
   }
   if (order.status === "refunded") return "refunded";
-  if (order.status === "cancelled" || order.status === "failed") return "failed";
-  return order.payment_intent_id ? "authorized" : "failed";
+  if (order.status === "cancelled") return "cancelled";
+  if (order.status === "failed") return "failed";
+  return order.payment_intent_id ? "authorized" : "draft";
 }
 
 function statusFromStripeIntent(intent: Stripe.PaymentIntent): PaymentStatus {
@@ -158,6 +167,7 @@ function statusFromStripeIntent(intent: Stripe.PaymentIntent): PaymentStatus {
 
   if (intent.status === "succeeded") return "captured";
   if (intent.status === "requires_capture") return "authorized";
+  if (intent.status === "canceled") return "cancelled";
 
   return "failed";
 }
