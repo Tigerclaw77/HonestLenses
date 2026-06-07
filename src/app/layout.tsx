@@ -1,7 +1,6 @@
 import "../styles/globals.css";
 import "../styles/cart.css";
 
-import DeviceModeGate from "@/components/security/DeviceModeGate";
 import { HonestPostHogProvider } from "@/lib/posthog/PostHogProvider";
 
 export const metadata = {
@@ -21,7 +20,6 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <HonestPostHogProvider>
-          <DeviceModeGate />
           {children}
         </HonestPostHogProvider>
       </body>
