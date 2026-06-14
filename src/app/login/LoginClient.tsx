@@ -103,6 +103,10 @@ export default function LoginClient() {
 
         {message && <p className="hl-login-message">{message}</p>}
 
+        <div className="hl-login-recovery">
+          <a href="/resume-order">Resume an Order</a>
+        </div>
+
         <div className="hl-login-footer">
           Secure • Prescription Verified • Optometrist-Owned
         </div>
@@ -226,6 +230,21 @@ export default function LoginClient() {
           margin-top: 18px;
           font-size: 14px;
           color: rgba(148, 163, 184, 0.85);
+        }
+
+        .hl-login-recovery {
+          margin-top: 20px;
+          font-size: 14px;
+        }
+
+        .hl-login-recovery a {
+          color: #c4b5fd;
+          text-decoration: none;
+          font-weight: 650;
+        }
+
+        .hl-login-recovery a:hover {
+          color: #ddd6fe;
         }
 
         .hl-login-footer {

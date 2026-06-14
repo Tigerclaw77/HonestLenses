@@ -287,7 +287,11 @@ export default function ShippingPage() {
 
           {error && <p className="error-text col-12">{error}</p>}
 
-          <button type="submit" disabled={submitting} className="submit-btn">
+          <button
+            type="submit"
+            disabled={submitting}
+            className="primary-btn submit-btn"
+          >
             {submitting ? "Saving..." : "Continue to Payment"}
           </button>
 
@@ -334,14 +338,9 @@ export default function ShippingPage() {
 
           .submit-btn {
             grid-column: span 12;
+            width: 100%;
             margin-top: 24px;
-            padding: 18px;
-            border-radius: 12px;
-            font-weight: 800;
-            background: linear-gradient(90deg,#2563eb,#1d4ed8);
-            color: white;
-            border: none;
-            cursor: pointer;
+            font-size: 1rem;
           }
 
           .submit-btn:disabled {
