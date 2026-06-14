@@ -27,6 +27,69 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
+function parseStrictParts(
+  year: number,
+  month: number,
+  day: number,
+): Date | null {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day)
+  ) {
+    return null;
+  }
+
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > daysInMonth(year, month)) return null;
+
+  return new Date(year, month - 1, day);
+}
+
+function parseIsoDate(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  return parseStrictParts(Number(match[1]), Number(match[2]), Number(match[3]));
+}
+
+function parseDisplayDate(value: string): { date: Date; iso: string } | null {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+  if (!match) return null;
+
+  const monthText = match[1];
+  const dayText = match[2];
+  const yearText = match[3];
+  const date = parseStrictParts(
+    Number(yearText),
+    Number(monthText),
+    Number(dayText),
+  );
+
+  if (!date) return null;
+
+  return {
+    date,
+    iso: `${yearText}-${monthText}-${dayText}`,
+  };
+}
+
+function formatInputValue(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 8);
+  const month = digits.slice(0, 2);
+  const day = digits.slice(2, 4);
+  const year = digits.slice(4, 8);
+
+  let formatted = month;
+  if (digits.length > 2) formatted += `/${day}`;
+  if (digits.length > 4) formatted += `/${year}`;
+  return formatted;
+}
+
 export default function ExpirationDatePicker({
   value,
   onChange,
@@ -36,8 +99,8 @@ export default function ExpirationDatePicker({
   const [pos, setPos] = useState<CalendarPos | null>(null);
   const [month, setMonth] = useState<Date>(() => {
     if (value) {
-      const d = new Date(`${value}T00:00:00`);
-      if (!isNaN(d.getTime())) {
+      const d = parseIsoDate(value);
+      if (d) {
         return new Date(d.getFullYear(), d.getMonth(), 1);
       }
     }
@@ -47,6 +110,7 @@ export default function ExpirationDatePicker({
   });
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const skipNextValueSyncRef = useRef(false);
 
   // “today” normalized to local midnight (avoids time drift)
   const today = useMemo(() => {
@@ -55,7 +119,7 @@ export default function ExpirationDatePicker({
   }, []);
 
   const selectedDate = useMemo(() => {
-    return value ? new Date(value + "T00:00:00") : null;
+    return value ? parseIsoDate(value) : null;
   }, [value]);
 
   // Build a 6-week grid (42 cells) starting Sunday (US style)
@@ -143,7 +207,8 @@ export default function ExpirationDatePicker({
 
     const formatted = format(d, "yyyy-MM-dd");
 
-    setTypedValue(""); // ADD THIS
+    setTypedValue(format(d, "MM/dd/yyyy"));
+    skipNextValueSyncRef.current = true;
     onChange(formatted);
     setOpen(false);
   }
@@ -159,23 +224,35 @@ export default function ExpirationDatePicker({
   const [typedValue, setTypedValue] = useState(() => {
     if (!value) return "";
 
-    const parsed = new Date(`${value}T00:00:00`);
-    if (isNaN(parsed.getTime())) return "";
+    const parsed = parseIsoDate(value);
+    if (!parsed) return "";
 
     return format(parsed, "MM/dd/yyyy");
   });
 
   useEffect(() => {
+    if (skipNextValueSyncRef.current) {
+      skipNextValueSyncRef.current = false;
+      return;
+    }
+
     if (!value) {
       setTypedValue("");
       return;
     }
 
-    const parsed = new Date(`${value}T00:00:00`);
-    if (isNaN(parsed.getTime())) return;
+    const parsed = parseIsoDate(value);
+    if (!parsed) return;
 
     setTypedValue(format(parsed, "MM/dd/yyyy"));
   }, [value]);
+
+  function emitValue(nextValue: string) {
+    if (nextValue !== value) {
+      skipNextValueSyncRef.current = true;
+    }
+    onChange(nextValue);
+  }
 
   const displayValue = typedValue;
 
@@ -190,68 +267,30 @@ export default function ExpirationDatePicker({
           placeholder="MM/DD/YYYY"
           onClick={toggle}
           onChange={(e) => {
-            const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
-
-            let m = "";
-            let d = "";
-            let y = "";
-
-            if (digits.length === 5) {
-              // M DD YY
-              m = digits[0].padStart(2, "0");
-              d = digits.slice(1, 3);
-              y = `20${digits.slice(3, 5)}`;
-            } else if (digits.length === 6) {
-              // MM DD YY
-              m = digits.slice(0, 2);
-              d = digits.slice(2, 4);
-              y = `20${digits.slice(4, 6)}`;
-            } else if (digits.length === 8) {
-              // MM DD YYYY
-              m = digits.slice(0, 2);
-              d = digits.slice(2, 4);
-              y = digits.slice(4, 8);
-            } else {
-              // progressive formatting
-              if (digits.length >= 1) m = digits.slice(0, 2);
-              if (digits.length >= 3) d = digits.slice(2, 4);
-              if (digits.length >= 5) y = digits.slice(4);
-            }
-
-            let formatted = m;
-
-            if (d) formatted += `/${d}`;
-            if (y) formatted += `/${y}`;
-
+            const formatted = formatInputValue(e.target.value);
             setTypedValue(formatted);
 
-            if (m.length === 2 && d.length === 2 && y.length === 4) {
-              const iso = `${y}-${m}-${d}`;
-              const parsed = new Date(`${iso}T00:00:00`);
-
-              if (!isNaN(parsed.getTime())) {
-                onChange(iso);
-                setMonth(new Date(parsed.getFullYear(), parsed.getMonth(), 1));
+            if (formatted.length === 10) {
+              const parsed = parseDisplayDate(formatted);
+              emitValue(parsed?.iso ?? "");
+              if (parsed) {
+                setMonth(
+                  new Date(
+                    parsed.date.getFullYear(),
+                    parsed.date.getMonth(),
+                    1,
+                  ),
+                );
               }
+            } else if (value) {
+              emitValue("");
             }
           }}
           onBlur={() => {
             if (!typedValue) return;
 
-            const parts = typedValue.split("/");
-
-            if (parts.length !== 3) return;
-
-            const [m, d, y] = parts;
-
-            if (y.length !== 4) return;
-
-            const iso = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
-            const parsed = new Date(`${iso}T00:00:00`);
-
-            if (isNaN(parsed.getTime())) return;
-
-            onChange(iso);
+            const parsed = parseDisplayDate(typedValue);
+            emitValue(parsed?.iso ?? "");
           }}
           className={`rx-input ${hasError ? "rx-error" : ""}`}
           style={{

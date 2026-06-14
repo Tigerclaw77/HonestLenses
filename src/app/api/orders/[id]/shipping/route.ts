@@ -2,7 +2,11 @@ console.log("Shipping route hit");
 
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
-import { getUserFromRequest } from "@/lib/get-user-from-request";
+import {
+  canAccessOrder,
+  getOrderAccess,
+  hasOrderAccessContext,
+} from "@/lib/order-access";
 
 type ShippingBody = {
   shipping_first_name?: string;
@@ -21,13 +25,34 @@ export async function POST(
   req: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const user = await getUserFromRequest(req);
-  if (!user) {
+  const access = await getOrderAccess(req);
+  if (!hasOrderAccessContext(access)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { id: orderId } = await context.params;
   const body = (await req.json()) as ShippingBody;
+
+  const { data: order, error: orderError } = await supabaseServer
+    .from("orders")
+    .select("id, user_id, status")
+    .eq("id", orderId)
+    .maybeSingle();
+
+  if (orderError || !order) {
+    return NextResponse.json({ error: "Order not found." }, { status: 404 });
+  }
+
+  if (!canAccessOrder(access, order)) {
+    return NextResponse.json({ error: "Order not authorized." }, { status: 403 });
+  }
+
+  if (order.status !== "draft") {
+    return NextResponse.json(
+      { error: "Order not found or not editable." },
+      { status: 404 },
+    );
+  }
 
   // You said you are NOT collecting phone from shipping
   // so we ignore shipping_phone even if it is present.
@@ -49,7 +74,6 @@ export async function POST(
     .from("orders")
     .update(update)
     .eq("id", orderId)
-    .eq("user_id", user.id)
     .eq("status", "draft")
     .select("id")
     .maybeSingle();

@@ -3,12 +3,16 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseServer } from "../../../../lib/supabase-server";
-import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 import { POSTHOG_EVENTS } from "../../../../lib/posthog/events";
 import {
   captureServerEvent,
   captureServerException,
 } from "../../../../lib/posthog/server";
+import {
+  canAccessOrder,
+  getOrderAccess,
+  hasOrderAccessContext,
+} from "@/lib/order-access";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -58,14 +62,14 @@ export async function POST(req: Request) {
        1️⃣ Auth
     ========================= */
 
-    const user = await getUserFromRequest(req);
+    const access = await getOrderAccess(req);
 
-    if (!user) {
+    if (!hasOrderAccessContext(access)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    userId = user.id;
-    console.log("CHECKOUT USER ID:", user.id);
+    userId = access.distinctId;
+    console.log("CHECKOUT USER ID:", access.userId);
 
     /* =========================
        2️⃣ Parse body (GET order_id)
@@ -106,7 +110,6 @@ export async function POST(req: Request) {
         payment_intent_id
       `)
       .eq("id", orderId)
-      .eq("user_id", user.id)
       .eq("status", "draft")
       .maybeSingle();
 
@@ -120,6 +123,13 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "No draft order found." },
         { status: 400 }
+      );
+    }
+
+    if (!canAccessOrder(access, order)) {
+      return NextResponse.json(
+        { error: "Order not authorized." },
+        { status: 403 }
       );
     }
 
@@ -157,8 +167,7 @@ export async function POST(req: Request) {
           await supabaseServer
             .from("orders")
             .update({ payment_intent_id: null })
-            .eq("id", order.id)
-            .eq("user_id", user.id);
+            .eq("id", order.id);
 
         } else {
           if (existing.amount !== order.total_amount_cents) {
@@ -168,7 +177,8 @@ export async function POST(req: Request) {
                 amount: order.total_amount_cents,
                 metadata: {
                   order_id: order.id,
-                  user_id: user.id,
+                  user_id: access.userId ?? "",
+                  checkout_actor: access.userId ? "user" : "guest",
                   shipping_method: order.shipping_method ?? "standard",
                   shipping_cents: String(order.shipping_cents ?? 0),
                 },
@@ -190,8 +200,7 @@ export async function POST(req: Request) {
         await supabaseServer
           .from("orders")
           .update({ payment_intent_id: null })
-          .eq("id", order.id)
-          .eq("user_id", user.id);
+          .eq("id", order.id);
       }
     }
 
@@ -206,7 +215,8 @@ export async function POST(req: Request) {
       automatic_payment_methods: { enabled: true },
       metadata: {
         order_id: order.id,
-        user_id: user.id,
+        user_id: access.userId ?? "",
+        checkout_actor: access.userId ? "user" : "guest",
         shipping_method: order.shipping_method ?? "standard",
         shipping_cents: String(order.shipping_cents ?? 0),
       },
@@ -231,7 +241,6 @@ export async function POST(req: Request) {
         payment_intent_id: intent.id,
       })
       .eq("id", order.id)
-      .eq("user_id", user.id)
       .eq("status", "draft");
 
     if (updateError) {
@@ -243,7 +252,7 @@ export async function POST(req: Request) {
 
     await captureServerEvent({
       event: POSTHOG_EVENTS.PAYMENT_INTENT_CREATED,
-      distinctId: user.id,
+      distinctId: access.distinctId,
       request: req,
       properties: {
         order_id: order.id,

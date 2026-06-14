@@ -27,7 +27,6 @@ import {
   captureClientError,
   recordRecentUserAction,
 } from "@/lib/telemetry/clientErrors";
-import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 
 import {
   formatBC,
@@ -795,11 +794,17 @@ export default function RxForm({
     expires,
   ]);
 
-  async function getOrCreateDraftOrder(accessToken: string): Promise<string> {
+  function optionalAuthHeaders(accessToken?: string | null): HeadersInit {
+    return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+  }
+
+  async function getOrCreateDraftOrder(
+    accessToken?: string | null,
+  ): Promise<string> {
     console.log("🟦 [RxForm] getOrCreateDraftOrder: checking /api/cart");
 
     const cartRes = await fetch("/api/cart", {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: optionalAuthHeaders(accessToken),
       cache: "no-store",
     });
 
@@ -824,7 +829,7 @@ export default function RxForm({
 
     const orderRes = await fetch("/api/orders", {
       method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: optionalAuthHeaders(accessToken),
       cache: "no-store",
     });
 
@@ -1011,24 +1016,11 @@ export default function RxForm({
         data: { session },
       } = await supabase.auth.getSession();
 
-      let accessToken = session?.access_token;
+      let accessToken = session?.access_token ?? null;
 
       if (!accessToken && process.env.NODE_ENV === "development") {
         console.log("🟨 DEV MODE: using local token");
         accessToken = "dev-local-token";
-      }
-
-      if (!accessToken) {
-        const next = window.location.pathname + window.location.search;
-        void trackFunnelEvent(POSTHOG_EVENTS.LOGIN_REDIRECT_STARTED, {
-          reason: "rx_entry_requires_auth",
-          next_route: next,
-          verification_mode: mode,
-          has_right_lens: Boolean(rightcoreId || rightLensNotListed),
-          has_left_lens: Boolean(leftcoreId || leftLensNotListed),
-        });
-        router.replace(`/login?next=${encodeURIComponent(next)}`);
-        return;
       }
 
       console.log("STEP 1: starting draft order creation");
@@ -1157,7 +1149,7 @@ export default function RxForm({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
+          ...optionalAuthHeaders(accessToken),
         },
         body: JSON.stringify(rx),
         cache: "no-store",
@@ -1182,8 +1174,8 @@ export default function RxForm({
       const resolveRes = await fetch("/api/cart/resolve", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
+          ...optionalAuthHeaders(accessToken),
         },
         body: JSON.stringify({ order_id: finalOrderId }),
         cache: "no-store",

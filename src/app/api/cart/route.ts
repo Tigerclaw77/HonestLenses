@@ -1,8 +1,8 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { getUserFromRequest } from "../../../lib/get-user-from-request";
 import { supabaseServer } from "@/lib/supabase-server";
+import { getOrderAccess, hasOrderAccessContext } from "@/lib/order-access";
 
 /* =========================
    Types
@@ -48,16 +48,16 @@ function isRxData(value: unknown): value is RxData {
 export async function GET(req: Request) {
   console.log("CART ROUTE HIT");
 
-  const user = await getUserFromRequest(req);
-  console.log("CART USER:", user?.id);
+  const access = await getOrderAccess(req);
+  console.log("CART USER:", access.userId);
 
-  if (!user) {
+  if (!hasOrderAccessContext(access)) {
     return NextResponse.json({ hasCart: false, order: null });
   }
 
   const TWO_HOURS_MS = 1000 * 60 * 60 * 2;
 
-  const { data: orders, error } = await supabaseServer
+  let query = supabaseServer
     .from("orders")
     .select(
       `
@@ -79,10 +79,17 @@ export async function GET(req: Request) {
   payment_intent_id
 `,
     )
-    .eq("user_id", user.id)
     .eq("status", "draft")
     .is("payment_intent_id", null)
     .order("created_at", { ascending: false });
+
+  if (access.guestOrderId) {
+    query = query.eq("id", access.guestOrderId);
+  } else if (access.userId) {
+    query = query.eq("user_id", access.userId);
+  }
+
+  const { data: orders, error } = await query;
 
   console.log("RAW ORDERS:", orders, error);
 
@@ -92,7 +99,7 @@ export async function GET(req: Request) {
   }
 
   if (!orders || orders.length === 0) {
-    console.log("NO DRAFT ORDERS FOUND FOR USER:", user.id);
+    console.log("NO DRAFT ORDERS FOUND FOR USER:", access.userId);
     return NextResponse.json({ hasCart: false, order: null });
   }
 
@@ -141,7 +148,7 @@ export async function GET(req: Request) {
   }
 
   if (!validOrder) {
-    console.log("NO VALID DRAFT FOUND FOR USER:", user.id);
+    console.log("NO VALID DRAFT FOUND FOR USER:", access.userId);
 
     return NextResponse.json({
       hasCart: false,

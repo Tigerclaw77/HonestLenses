@@ -2,8 +2,12 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabase-server";
-import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 import { sendVerificationEmail } from "../../../../lib/email";
+import {
+  canAccessOrder,
+  getOrderAccess,
+  hasOrderAccessContext,
+} from "@/lib/order-access";
 
 function isVerifiedLike(v: unknown): boolean {
   if (typeof v !== "string") return false;
@@ -15,20 +19,30 @@ export async function POST(req: Request) {
     /* =========================
        1️⃣ Auth
     ========================= */
-    const user = await getUserFromRequest(req);
+    const access = await getOrderAccess(req);
 
-    if (!user) {
+    if (!hasOrderAccessContext(access)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    const rawBody = await req.json().catch(() => null);
+    const requestedOrderId =
+      rawBody &&
+      typeof rawBody === "object" &&
+      "orderId" in rawBody &&
+      typeof (rawBody as { orderId?: unknown }).orderId === "string"
+        ? (rawBody as { orderId: string }).orderId
+        : null;
 
     /* =========================
        2️⃣ Load most recent pending order
     ========================= */
-    const { data: order, error: orderError } = await supabaseServer
+    let orderQuery = supabaseServer
       .from("orders")
       .select(
         `
         id,
+        user_id,
         status,
         verification_status,
         verification_sent_at,
@@ -55,9 +69,18 @@ export async function POST(req: Request) {
         prescriber_timezone
       `,
       )
-      .eq("user_id", user.id)
       .in("status", ["pending", "authorized"])
-      .order("created_at", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (requestedOrderId) {
+      orderQuery = orderQuery.eq("id", requestedOrderId);
+    } else if (access.guestOrderId) {
+      orderQuery = orderQuery.eq("id", access.guestOrderId);
+    } else if (access.userId) {
+      orderQuery = orderQuery.eq("user_id", access.userId);
+    }
+
+    const { data: order, error: orderError } = await orderQuery
       .limit(1)
       .maybeSingle();
 
@@ -66,6 +89,10 @@ export async function POST(req: Request) {
         { error: "No pending order found" },
         { status: 400 },
       );
+    }
+
+    if (!canAccessOrder(access, order)) {
+      return NextResponse.json({ error: "Order not authorized" }, { status: 403 });
     }
 
     // ✅ Never downgrade verified orders

@@ -77,11 +77,15 @@ export function isResolveOkFlat(value: unknown): value is ResolveOkFlat {
    API calls
 ========================= */
 
+function authHeaders(accessToken?: string | null): HeadersInit {
+  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+}
+
 export async function fetchCart(
-  accessToken: string,
+  accessToken?: string | null,
 ): Promise<CartOrder | null> {
   const res = await fetch("/api/cart", {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: authHeaders(accessToken),
     cache: "no-store",
   });
 
@@ -98,7 +102,7 @@ export async function fetchCart(
 }
 
 export async function resolveCart(
-  accessToken: string,
+  accessToken?: string | null,
   body?: {
     right_box_count?: number;
     left_box_count?: number;
@@ -108,7 +112,7 @@ export async function resolveCart(
   const res = await fetch("/api/cart/resolve", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      ...authHeaders(accessToken),
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     cache: "no-store",

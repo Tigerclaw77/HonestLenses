@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import RxForm, { type RxDraft } from "@/components/RxForm";
-import { supabase } from "@/lib/supabase-client";
 import { resolveBrand } from "@/lib/resolveBrand";
 import { lenses } from "@/LensCore";
 import { POSTHOG_EVENTS } from "@/lib/posthog/client";
@@ -34,23 +33,6 @@ function toStringSafe(val: unknown): string {
   return val != null ? String(val) : "";
 }
 
-async function getSessionWithRetry(maxAttempts = 4) {
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const {
-      data: { session },
-      error,
-    } = await supabase.auth.getSession();
-
-    if (session || error || attempt === maxAttempts) {
-      return { session, error, attempts: attempt };
-    }
-
-    await new Promise((resolve) => window.setTimeout(resolve, 200));
-  }
-
-  return { session: null, error: null, attempts: maxAttempts };
-}
-
 /* =========================
    COMPONENT
 ========================= */
@@ -74,24 +56,8 @@ export default function ConfirmClient() {
       try {
         setLoading(true);
 
-        const { session, error: sessionError, attempts } =
-          await getSessionWithRetry();
-
-        if (!session?.access_token) {
-          void trackFunnelEvent(POSTHOG_EVENTS.UPLOAD_RESUME_AFTER_AUTH, {
-            resumed: false,
-            reason: sessionError?.message ?? "missing_session_on_confirm",
-            attempts,
-            order_id: orderId,
-          });
-          throw new Error("No auth session found");
-        }
-
         const res = await fetch(`/api/orders/${orderId}`, {
           cache: "no-store",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
         });
 
         if (!res.ok) {
@@ -182,7 +148,6 @@ export default function ConfirmClient() {
         void trackFunnelEvent(POSTHOG_EVENTS.UPLOAD_RESUME_AFTER_AUTH, {
           resumed: true,
           stage: "confirm_loaded",
-          attempts,
           order_id: orderId,
           has_right_lens: Boolean(draft.right.coreId),
           has_left_lens: Boolean(draft.left.coreId),

@@ -53,8 +53,19 @@ export function isEyeTouched(d: {
 export function isValidFutureExpiration(value: string): boolean {
   if (!value) return false;
 
-  const parsed = new Date(value);
-  if (isNaN(parsed.getTime())) return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  if (month < 1 || month > 12) return false;
+
+  const maxDay = new Date(year, month, 0).getDate();
+  if (day < 1 || day > maxDay) return false;
+
+  const parsed = new Date(year, month - 1, day);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
