@@ -17,6 +17,7 @@ export default function Footer() {
         <Link href="/returns">Returns</Link>
         <Link href="/guides">Guides</Link>
         <Link href="/verification">Prescription Verification</Link>
+        <Link href="/resume-order">Resume an Order</Link>
         <Link href="/contact">Contact</Link>
       </nav>
     </footer>

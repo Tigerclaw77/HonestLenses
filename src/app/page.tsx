@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
 import FindDoctorModal from "../components/FindDoctorModal";
+import OrderRecoveryBanner from "../components/OrderRecoveryBanner";
 import ShopIntentModal from "../components/ShopIntentModal";
 import { POSTHOG_EVENTS } from "@/lib/posthog/client";
 import { recordRecentUserAction } from "@/lib/telemetry/clientErrors";
@@ -39,6 +40,7 @@ export default function HomePage() {
     <main>
       {/* HEADER */}
       <Header variant="home" onShopIntent={() => setIsShopIntentOpen(true)} />
+      <OrderRecoveryBanner />
 
       {/* ==================================================
           HERO

@@ -167,8 +167,10 @@
 
 .hl-checkout-cta {
   width: 100%;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  min-height: 58px;
+  margin-top: 1.35rem;
+  font-size: 1rem;
+  letter-spacing: 0;
 }
 
 .hl-rx-color {

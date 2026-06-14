@@ -111,6 +111,7 @@ export async function GET(req: Request) {
 
   const recentOrders = orders.filter((o) => {
     if (!o?.created_at) return false;
+    if (access.guestOrderId && o.id === access.guestOrderId) return true;
 
     const timestamp = o.updated_at ?? o.created_at;
     const age = now - new Date(timestamp).getTime();

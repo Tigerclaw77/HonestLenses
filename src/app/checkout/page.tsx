@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { loadStripe } from "@stripe/stripe-js";
+import type { StripePaymentElementOptions } from "@stripe/stripe-js";
 import {
   Elements,
   PaymentElement,
@@ -25,6 +26,29 @@ import {
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!,
 );
+
+const stripeAppearance = {
+  theme: "stripe",
+  variables: {
+    colorPrimary: "#6d28d9",
+    colorText: "#0f172a",
+    colorDanger: "#dc2626",
+    borderRadius: "10px",
+    spacingUnit: "4px",
+    fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif',
+  },
+} as const;
+
+const paymentElementOptions: StripePaymentElementOptions = {
+  business: { name: "Honest Lenses" },
+  layout: {
+    type: "accordion",
+    defaultCollapsed: false,
+    radios: true,
+    spacedAccordionItems: true,
+  },
+  paymentMethodOrder: ["card", "link", "affirm", "cashapp", "amazon_pay"],
+};
 
 /* =========================
    Types
@@ -264,7 +288,7 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
           borderRadius: 12,
         }}
       >
-        <PaymentElement />
+        <PaymentElement options={paymentElementOptions} />
       </div>
 
       {error && (
@@ -282,20 +306,7 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
 
       <button
         disabled={!stripe || submitting}
-        style={{
-          marginTop: 28,
-          width: "100%",
-          padding: "18px",
-          borderRadius: 12,
-          fontWeight: 800,
-          fontSize: 16,
-          background: "linear-gradient(90deg,#2563eb,#1d4ed8)",
-          color: "#fff",
-          border: "none",
-          cursor: "pointer",
-          boxShadow: "0 6px 18px rgba(37,99,235,0.35)",
-          transition: "all 0.15s ease",
-        }}
+        className="primary-btn checkout-pay-cta"
       >
         {submitting ? "Processing..." : "Place order securely"}
       </button>
@@ -593,7 +604,10 @@ function CheckoutInner() {
             </p>
           </div>
 
-          <Elements stripe={stripePromise} options={{ clientSecret }}>
+          <Elements
+            stripe={stripePromise}
+            options={{ clientSecret, appearance: stripeAppearance }}
+          >
             <CheckoutForm
               order={order}
               mode={mode}
