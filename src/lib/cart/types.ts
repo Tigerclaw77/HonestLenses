@@ -9,6 +9,7 @@ export type RxData = {
 
 export type CartOrder = {
   id: string;
+  status: string;
   rx: RxData | null;
   sku: string | null;
   manufacturer?: string | null;

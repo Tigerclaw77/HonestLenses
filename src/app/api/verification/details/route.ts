@@ -2,11 +2,16 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabase-server";
-import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 import { POSTHOG_EVENTS } from "../../../../lib/posthog/events";
 import { captureServerException } from "../../../../lib/posthog/server";
+import {
+  canAccessOrder,
+  getOrderAccess,
+  hasOrderAccessContext,
+} from "@/lib/order-access";
 
 type Body = {
+  orderId?: string;
   patient_first_name: string;
   patient_middle_name?: string;
   patient_last_name: string;
@@ -41,12 +46,12 @@ export async function POST(req: Request) {
     /* =========================
        1️⃣ Auth
     ========================= */
-    const user = await getUserFromRequest(req);
-    if (!user) {
+    const access = await getOrderAccess(req);
+    if (!hasOrderAccessContext(access)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    userId = user.id;
+    userId = access.distinctId;
 
     /* =========================
        2️⃣ Parse body
@@ -113,12 +118,21 @@ export async function POST(req: Request) {
        (pending no longer used in payment lifecycle)
     ========================= */
 
-    const { data: order, error: orderError } = await supabaseServer
+    let orderQuery = supabaseServer
       .from("orders")
-      .select("id, status")
-      .eq("user_id", user.id)
+      .select("id, user_id, status")
       .eq("status", "authorized")
-      .order("created_at", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (typeof body.orderId === "string" && body.orderId) {
+      orderQuery = orderQuery.eq("id", body.orderId);
+    } else if (access.guestOrderId) {
+      orderQuery = orderQuery.eq("id", access.guestOrderId);
+    } else if (access.userId) {
+      orderQuery = orderQuery.eq("user_id", access.userId);
+    }
+
+    const { data: order, error: orderError } = await orderQuery
       .limit(1)
       .maybeSingle();
 
@@ -127,6 +141,10 @@ export async function POST(req: Request) {
         { error: "No authorized order found" },
         { status: 400 },
       );
+    }
+
+    if (!canAccessOrder(access, order)) {
+      return NextResponse.json({ error: "Order not authorized" }, { status: 403 });
     }
 
     orderIdForTelemetry = order.id;
@@ -163,7 +181,7 @@ export async function POST(req: Request) {
         verification_details_submitted_at: nowIso,
       })
       .eq("id", order.id)
-      .eq("user_id", user.id);
+      .eq("status", "authorized");
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
@@ -181,8 +199,11 @@ export async function POST(req: Request) {
     const sendRes = await fetch(`${baseUrl}/api/verification/send`, {
       method: "POST",
       headers: {
+        "Content-Type": "application/json",
         Authorization: req.headers.get("authorization") || "",
+        Cookie: req.headers.get("cookie") || "",
       },
+      body: JSON.stringify({ orderId: order.id }),
       cache: "no-store",
     });
 
@@ -192,7 +213,7 @@ export async function POST(req: Request) {
       await captureServerException({
         event: POSTHOG_EVENTS.API_ROUTE_FAILED,
         error: new Error(sendBody?.error || "Verification send failed"),
-        distinctId: user.id,
+        distinctId: access.distinctId,
         request: req,
         properties: {
           route: "/api/verification/details",

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase-client";
-import AuthGate from "@/components/AuthGate";
+import { fetchCart } from "@/lib/cart/api";
 import {
   POSTHOG_EVENTS,
   captureClientException,
@@ -107,16 +107,8 @@ export default function ShippingPage() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      if (!session) return;
 
-      const { data } = await supabase
-        .from("orders")
-        .select("id, status")
-        .eq("user_id", session.user.id)
-        .eq("status", "draft")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const data = await fetchCart(session?.access_token ?? null);
 
       if (!data) {
         setError("No active cart found.");
@@ -154,7 +146,6 @@ export default function ShippingPage() {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    if (!session) return;
 
     const v = validate();
     if (v) {
@@ -174,7 +165,9 @@ export default function ShippingPage() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
+        ...(session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : {}),
       },
       body: JSON.stringify(form),
     });
@@ -204,8 +197,7 @@ export default function ShippingPage() {
   if (loading) return <main className="content-shell">Loading…</main>;
 
   return (
-    <AuthGate>
-      <main className="content-shell">
+    <main className="content-shell">
         <h1 className="upper content-title">Shipping Information</h1>
         <p style={{ color: "#cbd5e1", lineHeight: 1.6, maxWidth: 760 }}>
           Enter the address where your lenses should be delivered. Shipping
@@ -365,7 +357,6 @@ export default function ShippingPage() {
             text-align: center;
           }
         `}</style>
-      </main>
-    </AuthGate>
+    </main>
   );
 }

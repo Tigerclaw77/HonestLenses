@@ -169,29 +169,13 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
         data: { session },
       } = await supabase.auth.getSession();
 
-      if (!session) {
-        track(POSTHOG_EVENTS.PAYMENT_FAILED, {
-          order_id: order.id,
-          order_status: order.status,
-          verification_mode: mode,
-          stage: "auth_session",
-          error_message: "Session expired.",
-          has_payment_intent: order.has_payment_intent,
-          payment_duration_ms: consumeStepDurationMs(
-            `payment_submit:${order.id}`,
-          ),
-          retry_count: retryCount,
-        });
-        setError("Session expired.");
-        setSubmitting(false);
-        return;
-      }
-
       const markRes = await fetch("/api/checkout/authorized", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
+          ...(session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {}),
         },
         body: JSON.stringify({ orderId: order.id }),
       });
@@ -361,15 +345,19 @@ function CheckoutInner() {
           data: { session },
         } = await supabase.auth.getSession();
 
-        if (!session) throw new Error("Not logged in.");
+        const orderRes = await fetch(`/api/orders/${orderId}`, {
+          cache: "no-store",
+          headers: {
+            ...(session?.access_token
+              ? { Authorization: `Bearer ${session.access_token}` }
+              : {}),
+          },
+        });
 
-        const { data: orderData, error: orderError } = await supabase
-          .from("orders")
-          .select("*")
-          .eq("id", orderId)
-          .single();
+        const orderJson = await orderRes.json().catch(() => ({}));
+        const orderData = orderJson.order;
 
-        if (orderError || !orderData) {
+        if (!orderRes.ok || !orderData) {
           throw new Error("Order not found.");
         }
 
@@ -400,7 +388,9 @@ function CheckoutInner() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
+            ...(session?.access_token
+              ? { Authorization: `Bearer ${session.access_token}` }
+              : {}),
           },
           body: JSON.stringify({ orderId }),
         });

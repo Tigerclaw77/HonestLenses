@@ -33,8 +33,7 @@ type AuthStatus = "checking" | "authenticated" | "anonymous";
 type UploadIntentTrigger =
   | "dropzone"
   | "cta_without_file"
-  | "drop"
-  | "file_selected_without_auth";
+  | "drop";
 
 type PendingUploadIntent = {
   flow?: string;
@@ -234,72 +233,12 @@ function UploadPrescriptionContent() {
     return true;
   }
 
-  function persistPendingUploadIntent(trigger: UploadIntentTrigger) {
-    const intent = JSON.stringify({
-      flow: "rx_upload",
-      route: currentUploadRoute(),
-      right: rightLens,
-      left: leftLens,
-      trigger,
-      at: Date.now(),
-    });
-
-    sessionStorage.setItem(SS_PENDING_UPLOAD_INTENT, intent);
-    localStorage.setItem(LS_PENDING_UPLOAD_INTENT, intent);
-  }
-
   function trackUploadMethodSelected(trigger: UploadIntentTrigger) {
     void trackFunnelEvent(POSTHOG_EVENTS.RX_METHOD_SELECTED, {
       ...selectedLensAnalytics("upload_prescription"),
       verification_mode: "upload",
       trigger,
     });
-  }
-
-  async function redirectToLoginForUpload(trigger: UploadIntentTrigger) {
-    const next = currentUploadRoute();
-    persistPendingUploadIntent(trigger);
-    setFile(null);
-    setError(null);
-    setResumePromptVisible(false);
-
-    void trackFunnelEvent(POSTHOG_EVENTS.RX_UPLOAD_AUTH_REQUIRED, {
-      ...selectedLensAnalytics("rx_upload_auth_required"),
-      reason: "auth_required_before_file_picker",
-      next_route: next,
-      trigger,
-    });
-    void trackFunnelEvent(POSTHOG_EVENTS.LOGIN_REDIRECT_STARTED, {
-      ...selectedLensAnalytics("rx_upload_login_redirect"),
-      reason: "rx_upload_requires_auth_before_file_picker",
-      next_route: next,
-      trigger,
-    });
-
-    router.replace(`/login?next=${encodeURIComponent(next)}`);
-  }
-
-  async function ensureAuthenticatedForUpload(
-    trigger: UploadIntentTrigger,
-  ): Promise<boolean> {
-    if (authStatus === "authenticated") return true;
-
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session) {
-        setAuthStatus("authenticated");
-        return true;
-      }
-    } catch {
-      // Treat session lookup failures as anonymous for this client-side gate.
-    }
-
-    setAuthStatus("anonymous");
-    await redirectToLoginForUpload(trigger);
-    return false;
   }
 
   function openFilePicker(trigger: UploadIntentTrigger) {
@@ -333,23 +272,13 @@ function UploadPrescriptionContent() {
       );
     }
 
-    if (authStatus === "authenticated") {
-      openFilePicker(trigger);
-      return;
-    }
-
-    void ensureAuthenticatedForUpload(trigger).then((allowed) => {
-      if (allowed) openFilePicker(trigger);
-    });
+    openFilePicker(trigger);
   }
 
   function handleDroppedFile(selected: File | null) {
     if (!selected) return;
     trackUploadMethodSelected("drop");
-
-    void ensureAuthenticatedForUpload("drop").then((allowed) => {
-      if (allowed) handleFileSelected(selected);
-    });
+    handleFileSelected(selected);
   }
 
   function validateFile(selected: File): string | null {
@@ -432,9 +361,15 @@ function UploadPrescriptionContent() {
     }
   }
 
-  async function getOrCreateDraftOrder(accessToken: string): Promise<string> {
+  function optionalAuthHeaders(accessToken?: string | null): HeadersInit {
+    return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+  }
+
+  async function getOrCreateDraftOrder(
+    accessToken?: string | null,
+  ): Promise<string> {
     const cartRes = await fetch("/api/cart", {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: optionalAuthHeaders(accessToken),
       cache: "no-store",
     });
 
@@ -447,7 +382,7 @@ function UploadPrescriptionContent() {
 
     const orderRes = await fetch("/api/orders", {
       method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: optionalAuthHeaders(accessToken),
       cache: "no-store",
     });
 
@@ -485,12 +420,9 @@ function UploadPrescriptionContent() {
         data: { session },
       } = await supabase.auth.getSession();
 
-      if (!session) {
-        await redirectToLoginForUpload("file_selected_without_auth");
-        return;
-      }
-
-      const orderId = await getOrCreateDraftOrder(session.access_token);
+      const orderId = await getOrCreateDraftOrder(
+        session?.access_token ?? null,
+      );
 
       localStorage.setItem(LS_ORDER_ID, orderId);
       setCurrentUploadTelemetryState({
@@ -514,9 +446,7 @@ function UploadPrescriptionContent() {
 
       const ocrRes = await fetch(`/api/orders/${orderId}/rx-ocr`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: optionalAuthHeaders(session?.access_token ?? null),
         body: formData,
       });
 
@@ -598,9 +528,7 @@ function UploadPrescriptionContent() {
       ? "Continue to cart"
       : resumePromptVisible
         ? "Continue upload"
-        : authStatus === "anonymous"
-          ? "Sign in to upload"
-          : "Choose prescription file";
+        : "Choose prescription file";
 
   return (
     <>

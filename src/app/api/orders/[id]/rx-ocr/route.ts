@@ -5,6 +5,11 @@ import OpenAI from "openai";
 import { supabaseServer } from "@/lib/supabase-server";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { captureServerEvent, captureServerException } from "@/lib/posthog/server";
+import {
+  canAccessOrder,
+  getOrderAccess,
+  hasOrderAccessContext,
+} from "@/lib/order-access";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
@@ -219,6 +224,29 @@ export async function POST(
   try {
     const { id: orderId } = await context.params;
     orderIdForTelemetry = orderId;
+
+    const access = await getOrderAccess(req);
+    if (!hasOrderAccessContext(access)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { data: order, error: orderError } = await supabaseServer
+      .from("orders")
+      .select("id, user_id, status")
+      .eq("id", orderId)
+      .maybeSingle();
+
+    if (orderError || !order) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    if (!canAccessOrder(access, order)) {
+      return NextResponse.json({ error: "Order not authorized" }, { status: 403 });
+    }
+
+    if (!["draft", "pending", "authorized"].includes(order.status)) {
+      return NextResponse.json({ error: "Order is not editable" }, { status: 400 });
+    }
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;

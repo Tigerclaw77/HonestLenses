@@ -2,7 +2,11 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabase-server";
-import { getUserFromRequest } from "../../../../lib/get-user-from-request";
+import {
+  canAccessOrder,
+  getOrderAccess,
+  hasOrderAccessContext,
+} from "@/lib/order-access";
 import { getPrice } from "../../../../lib/pricing/getPrice";
 import { getSkuBoxDurationMonths } from "../../../../lib/pricing/skuDefaults";
 import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
@@ -161,27 +165,34 @@ function validateResolvedEyeRx(eye: EyeRx | undefined): string[] {
 function parseFlexibleDate(input: string): Date | null {
   if (!input) return null;
 
+  const parseParts = (year: number, month: number, day: number) => {
+    if (month < 1 || month > 12) return null;
+    const maxDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    if (day < 1 || day > maxDay) return null;
+    return new Date(Date.UTC(year, month - 1, day));
+  };
+
   // Case 1: ISO (YYYY-MM-DD)
   const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input);
   if (iso) {
-    return new Date(Date.UTC(+iso[1], +iso[2] - 1, +iso[3]));
+    return parseParts(+iso[1], +iso[2], +iso[3]);
   }
 
   // Case 2: M/D/YYYY or MM/DD/YYYY
   const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(input);
   if (us) {
-    return new Date(Date.UTC(+us[3], +us[1] - 1, +us[2]));
+    return parseParts(+us[3], +us[1], +us[2]);
   }
 
   return null;
 }
 
-function daysUntil(expires: string): number {
+function daysUntil(expires: string): number | null {
   const parsed = parseFlexibleDate(expires);
 
   if (!parsed) {
     console.warn("⚠️ Invalid RX expiration format", { expires });
-    return 365; // 👈 SAFE DEFAULT (treat as valid, not expired)
+    return null;
   }
 
   const now = new Date();
@@ -213,8 +224,8 @@ async function safeJson(req: Request): Promise<unknown> {
 ========================= */
 
 export async function POST(req: Request) {
-  const user = await getUserFromRequest(req);
-  if (!user) {
+  const access = await getOrderAccess(req);
+  if (!hasOrderAccessContext(access)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -244,11 +255,14 @@ export async function POST(req: Request) {
       created_at
     `,
     )
-    .eq("user_id", user.id)
     .eq("status", "draft");
 
   if (body?.order_id) {
     query = query.eq("id", body.order_id);
+  } else if (access.guestOrderId) {
+    query = query.eq("id", access.guestOrderId);
+  } else if (access.userId) {
+    query = query.eq("user_id", access.userId);
   }
 
   query = query.order("created_at", { ascending: false }).limit(1);
@@ -270,6 +284,10 @@ export async function POST(req: Request) {
       { error: "No active draft order." },
       { status: 400 },
     );
+  }
+
+  if (!canAccessOrder(access, order)) {
+    return NextResponse.json({ error: "Order not authorized." }, { status: 403 });
   }
 
   /* =========================
@@ -329,6 +347,13 @@ export async function POST(req: Request) {
   });
 
   const remainingDays = daysUntil(rx.expires);
+
+  if (remainingDays === null) {
+    return NextResponse.json(
+      { error: "Invalid prescription expiration date." },
+      { status: 400 },
+    );
+  }
 
   if (remainingDays < 0) {
     return NextResponse.json(
@@ -392,7 +417,7 @@ export async function POST(req: Request) {
   if (totalBoxes > 0 && totalMonths <= 0) {
     await captureServerEvent({
       event: POSTHOG_EVENTS.SHIPPING_CALCULATION_ERROR,
-      distinctId: user.id,
+      distinctId: access.distinctId,
       request: req,
       properties: {
         order_id: order.id,
@@ -428,7 +453,7 @@ export async function POST(req: Request) {
     await captureServerException({
       event: POSTHOG_EVENTS.API_ROUTE_FAILED,
       error: updateError,
-      distinctId: user.id,
+      distinctId: access.distinctId,
       request: req,
       properties: {
         route: "/api/cart/resolve",

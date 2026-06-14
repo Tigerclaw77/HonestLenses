@@ -2,7 +2,11 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
-import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
+import {
+  canAccessOrder,
+  getOrderAccess,
+  hasOrderAccessContext,
+} from "@/lib/order-access";
 import { resolveDefaultSku } from "../../../../../lib/pricing/resolveDefaultSku";
 import {
   lenses,
@@ -152,8 +156,8 @@ export async function POST(
   /* =========================
      1️⃣ Auth
   ========================= */
-  const user = await getUserFromRequest(req);
-  if (!user) {
+  const access = await getOrderAccess(req);
+  if (!hasOrderAccessContext(access)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -218,9 +222,8 @@ export async function POST(
 
   const { data: order, error: orderError } = await supabaseServer
     .from("orders")
-    .select("id, status, verification_status, rx_source, rx_upload_path")
+    .select("id, user_id, status, verification_status, rx_source, rx_upload_path")
     .eq("id", orderId)
-    .eq("user_id", user.id)
     .single();
 
   if (orderError || !order) {
@@ -250,6 +253,10 @@ export async function POST(
       { error: "Invalid prescription parameters.", details: validationErrors },
       { status: 400 },
     );
+  }
+
+  if (!canAccessOrder(access, order)) {
+    return NextResponse.json({ error: "Order not authorized" }, { status: 403 });
   }
 
   const sanitizedRx = {
@@ -304,7 +311,7 @@ export async function POST(
       prescriber_phone,
     })
     .eq("id", orderId)
-    .eq("user_id", user.id);
+    .eq("status", order.status);
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });

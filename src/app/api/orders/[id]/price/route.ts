@@ -2,7 +2,6 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
-import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
 import { getPrice } from "../../../../../lib/pricing/getPrice";
 import { deriveTotalBoxes, deriveTotalMonths } from "../../../../../lib/shipping";
 import {
@@ -10,10 +9,15 @@ import {
   resolveShipping,
   type ShippingMethod,
 } from "../../../../../lib/shipping/resolveShipping";
+import {
+  canAccessOrder,
+  getOrderAccess,
+  hasOrderAccessContext,
+} from "@/lib/order-access";
 
 type OrderRow = {
   id: string;
-  user_id: string;
+  user_id: string | null;
   status: "draft" | "pending" | string;
   sku: string | null;
   total_box_count: number | null;
@@ -36,8 +40,8 @@ export async function POST(
      1) Auth
   ========================= */
 
-  const user = await getUserFromRequest(request);
-  if (!user) {
+  const access = await getOrderAccess(request);
+  if (!hasOrderAccessContext(access)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -72,9 +76,9 @@ export async function POST(
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  if (order.user_id !== user.id) {
+  if (!canAccessOrder(access, order)) {
     return NextResponse.json(
-      { error: "Order not owned by user" },
+      { error: "Order not authorized" },
       { status: 403 }
     );
   }
@@ -158,8 +162,7 @@ export async function POST(
       total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
       price_reason: pricing.price_reason,
     })
-    .eq("id", order.id)
-    .eq("user_id", user.id);
+    .eq("id", order.id);
 
   if (updateError) {
     return NextResponse.json(

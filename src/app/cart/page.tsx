@@ -6,7 +6,6 @@ import { supabase } from "../../lib/supabase-client";
 
 import Header from "../../components/Header";
 import EyeRow from "../../components/cart/EyeRow";
-import AuthGate from "@/components/AuthGate";
 
 import { fmtPrice } from "../../lib/cart/formatters";
 import { buildQuantityConfig } from "../../lib/cart/quantityConfig";
@@ -87,11 +86,6 @@ export default function CartPage() {
         (cart?.right_box_count ?? 0) + (cart?.left_box_count ?? 0);
       const token = accessToken ?? (DEV_MODE ? DEV_ACCESS_TOKEN : null);
 
-      if (!token) {
-        setError("Session missing. Please log in again.");
-        return;
-      }
-
       setSyncingQty(true);
       setError(null);
 
@@ -143,11 +137,6 @@ export default function CartPage() {
       if (syncingQty || !cart) return;
 
       const token = accessToken ?? (DEV_MODE ? DEV_ACCESS_TOKEN : null);
-
-      if (!token) {
-        setError("Session missing. Please log in again.");
-        return;
-      }
 
       const previousMethod = cart.shipping_method ?? "standard";
       if (previousMethod === nextMethod) return;
@@ -248,14 +237,6 @@ export default function CartPage() {
         }
 
         if (!alive) return;
-
-        if (!token) {
-          setAccessToken(null);
-          setCart(null);
-          setError("Please log in to view your cart.");
-          setLoading(false);
-          return;
-        }
 
         setAccessToken(token);
 
@@ -579,7 +560,7 @@ export default function CartPage() {
     <>
       <Header variant="shop" />
 
-      {DEV_MODE ? cartUI : <AuthGate>{cartUI}</AuthGate>}
+      {cartUI}
     </>
   );
 }

@@ -4,10 +4,14 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { sendEmail } from "../../../../lib/email";
 import { supabaseServer } from "../../../../lib/supabase-server";
-import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { captureServerEvent } from "@/lib/posthog/server";
 import { getCaptureAmountCents } from "@/lib/payments/captureAmount";
+import {
+  canAccessOrder,
+  getOrderAccess,
+  hasOrderAccessContext,
+} from "@/lib/order-access";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -39,9 +43,9 @@ export async function POST(req: Request) {
      1️⃣ Auth
   ========================= */
 
-  const user = await getUserFromRequest(req);
+  const access = await getOrderAccess(req);
 
-  if (!user) {
+  if (!hasOrderAccessContext(access)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -59,12 +63,14 @@ export async function POST(req: Request) {
   const baseQuery = supabaseServer
     .from("orders")
     .select("*")
-    .eq("user_id", user.id)
     .in("status", ["draft", "authorized"]);
 
   const { data: orderRaw, error } = requestedOrderId
     ? await baseQuery.eq("id", requestedOrderId).maybeSingle()
+    : access.guestOrderId
+      ? await baseQuery.eq("id", access.guestOrderId).maybeSingle()
     : await baseQuery
+        .eq("user_id", access.userId ?? "")
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -78,6 +84,15 @@ export async function POST(req: Request) {
       { error: "No checkout order awaiting authorization" },
       { status: 400 },
     );
+  }
+
+  if (
+    !canAccessOrder(
+      access,
+      orderRaw as { id: string | null; user_id?: string | null },
+    )
+  ) {
+    return NextResponse.json({ error: "Order not authorized" }, { status: 403 });
   }
 
   const orderId = getString(orderRaw, "id");
@@ -202,7 +217,6 @@ export async function POST(req: Request) {
     .from("orders")
     .update(updatePayload)
     .eq("id", orderId)
-    .eq("user_id", user.id)
     .eq("payment_intent_id", paymentIntentId)
     .in("status", ["draft", "authorized"])
     .select("id");
@@ -224,7 +238,7 @@ export async function POST(req: Request) {
 
   await captureServerEvent({
     event: POSTHOG_EVENTS.PAYMENT_AUTHORIZED,
-    distinctId: user.id,
+    distinctId: access.distinctId,
     request: req,
     properties: {
       order_id: orderId,
@@ -245,7 +259,7 @@ export async function POST(req: Request) {
 
   await captureServerEvent({
     event: POSTHOG_EVENTS.ORDER_AUTHORIZED,
-    distinctId: user.id,
+    distinctId: access.distinctId,
     request: req,
     properties: {
       order_id: orderId,
@@ -266,7 +280,7 @@ export async function POST(req: Request) {
   if (isUploaded) {
     await captureServerEvent({
       event: POSTHOG_EVENTS.ORDER_CAPTURED,
-      distinctId: user.id,
+      distinctId: access.distinctId,
       request: req,
       properties: {
         order_id: orderId,
@@ -281,6 +295,11 @@ export async function POST(req: Request) {
       },
     });
   }
+
+  const customerEmail =
+    typeof orderRaw.shipping_email === "string" && orderRaw.shipping_email
+      ? orderRaw.shipping_email
+      : access.userEmail;
 
   /* =========================
      Email Admin
@@ -314,7 +333,7 @@ export async function POST(req: Request) {
         <h2>New Order Authorized</h2>
 
         <p><strong>Order ID:</strong> ${orderId}</p>
-        <p><strong>User ID:</strong> ${user.id}</p>
+        <p><strong>Customer:</strong> ${access.userId ?? "Guest checkout"}</p>
         <p><strong>Total:</strong> ${total}</p>
 
         <hr/>
@@ -359,10 +378,10 @@ export async function POST(req: Request) {
      8️⃣ Email Customer
   ========================= */
 
-  if (user.email) {
+  if (customerEmail) {
     try {
       await sendEmail({
-        to: user.email,
+        to: customerEmail,
         subject: "Order received — Honest Lenses",
         html: `
         <h2>Thank you for your order</h2>

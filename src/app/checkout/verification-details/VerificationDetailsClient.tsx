@@ -217,43 +217,27 @@ export default function VerificationDetailsPage() {
           data: { session },
         } = await supabase.auth.getSession();
 
-        if (!session) {
-          const current = window.location.pathname + window.location.search;
-
-          router.replace(`/login?next=${encodeURIComponent(current)}`);
-          return;
-        }
-
         if (!orderId) {
           setError("Missing order id.");
           setLoading(false);
           return;
         }
 
-        setAccessToken(session.access_token);
+        setAccessToken(session?.access_token ?? null);
 
-        const { data: orderData, error: orderError } = await supabase
-          .from("orders")
-          .select(
-            `
-            id,
-            status,
-            total_amount_cents,
-            shipping_first_name,
-            shipping_last_name,
-            shipping_address1,
-            shipping_address2,
-            shipping_city,
-            shipping_state,
-            shipping_zip,
-            verification_status
-          `,
-          )
-          .eq("user_id", session.user.id)
-          .eq("id", orderId)
-          .maybeSingle();
+        const orderRes = await fetch(`/api/orders/${orderId}`, {
+          cache: "no-store",
+          headers: {
+            ...(session?.access_token
+              ? { Authorization: `Bearer ${session.access_token}` }
+              : {}),
+          },
+        });
 
-        if (orderError || !orderData) {
+        const orderJson = await orderRes.json().catch(() => ({}));
+        const orderData = orderJson.order;
+
+        if (!orderRes.ok || !orderData) {
           throw new Error("Order not found.");
         }
 
@@ -319,7 +303,7 @@ export default function VerificationDetailsPage() {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!accessToken || submitting) return;
+    if (submitting) return;
 
     const v = validate();
     if (v) {
@@ -338,6 +322,7 @@ export default function VerificationDetailsPage() {
     setError(null);
 
     const payload = {
+      orderId: order?.id ?? orderId ?? undefined,
       patient_first_name: form.patient_first_name.trim(),
       patient_middle_name: form.patient_middle_name.trim(),
       patient_last_name: form.patient_last_name.trim(),
@@ -360,7 +345,7 @@ export default function VerificationDetailsPage() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
       body: JSON.stringify(payload),
       cache: "no-store",

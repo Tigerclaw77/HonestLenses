@@ -2,7 +2,11 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabase-server";
-import { getUserFromRequest } from "../../../../lib/get-user-from-request";
+import {
+  canAccessOrder,
+  getOrderAccess,
+  hasOrderAccessContext,
+} from "@/lib/order-access";
 
 type OrderRow = {
   id: string;
@@ -13,7 +17,21 @@ type OrderRow = {
   price_reason: string | null;
   rx: unknown;
   rx_ocr_raw: unknown;
-  user_id: string;
+  user_id: string | null;
+  manufacturer: string | null;
+  sku: string | null;
+  shipping_method: string | null;
+  shipping_cents: number | null;
+  payment_intent_id: string | null;
+  rx_upload_path: string | null;
+  rx_source: string | null;
+  shipping_first_name: string | null;
+  shipping_last_name: string | null;
+  shipping_address1: string | null;
+  shipping_address2: string | null;
+  shipping_city: string | null;
+  shipping_state: string | null;
+  shipping_zip: string | null;
 };
 
 export async function GET(
@@ -24,8 +42,8 @@ export async function GET(
      1) Auth
   ========================= */
 
-  const user = await getUserFromRequest(req);
-  if (!user) {
+  const access = await getOrderAccess(req);
+  if (!hasOrderAccessContext(access)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -55,7 +73,21 @@ export async function GET(
       price_reason,
       rx,
       rx_ocr_raw,
-      user_id
+      user_id,
+      manufacturer,
+      sku,
+      shipping_method,
+      shipping_cents,
+      payment_intent_id,
+      rx_upload_path,
+      rx_source,
+      shipping_first_name,
+      shipping_last_name,
+      shipping_address1,
+      shipping_address2,
+      shipping_city,
+      shipping_state,
+      shipping_zip
     `
     )
     .eq("id", orderId)
@@ -65,9 +97,9 @@ export async function GET(
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  if (order.user_id !== user.id) {
+  if (!canAccessOrder(access, order)) {
     return NextResponse.json(
-      { error: "Order not owned by user" },
+      { error: "Order not authorized" },
       { status: 403 }
     );
   }
@@ -82,6 +114,20 @@ export async function GET(
       price_reason: order.price_reason,
       rx: order.rx,
       rx_ocr_raw: order.rx_ocr_raw,
+      manufacturer: order.manufacturer,
+      sku: order.sku,
+      shipping_method: order.shipping_method,
+      shipping_cents: order.shipping_cents,
+      payment_intent_id: order.payment_intent_id,
+      rx_upload_path: order.rx_upload_path,
+      rx_source: order.rx_source,
+      shipping_first_name: order.shipping_first_name,
+      shipping_last_name: order.shipping_last_name,
+      shipping_address1: order.shipping_address1,
+      shipping_address2: order.shipping_address2,
+      shipping_city: order.shipping_city,
+      shipping_state: order.shipping_state,
+      shipping_zip: order.shipping_zip,
     },
   });
 }
