@@ -12,6 +12,7 @@ import {
   useStripe,
   useElements,
 } from "@stripe/react-stripe-js";
+import AbandonmentFeedbackExperiment from "@/components/AbandonmentFeedbackExperiment";
 import { supabase } from "@/lib/supabase-client";
 import {
   POSTHOG_EVENTS,
@@ -22,6 +23,10 @@ import {
   markStepStart,
   track,
 } from "@/lib/posthog/client";
+import {
+  getFeedbackAmountDueCents,
+  normalizeFeedbackCreditCents,
+} from "@/lib/abandonmentFeedback";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!,
@@ -64,6 +69,13 @@ type Order = {
   shipping_cents?: number | null;
   payment_intent_id?: string | null;
   has_payment_intent: boolean;
+  feedback_credit_cents?: number | null;
+  feedback_credit_applied_at?: string | null;
+  feedback_survey_completed_at?: string | null;
+  rx?: unknown;
+  rx_upload_path?: string | null;
+  rx_source?: string | null;
+  verification_status?: string | null;
 };
 
 type CheckoutPayResponse = {
@@ -148,13 +160,16 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
 
     try {
       const retryCount = incrementRetryCount(`payment_submit:${order.id}`);
+      const amountDueCents = getFeedbackAmountDueCents(order);
       markStepStart(`payment_submit:${order.id}`);
       track(POSTHOG_EVENTS.PAYMENT_STARTED, {
         order_id: order.id,
         order_status: order.status,
         verification_mode: mode,
-        order_value_cents: order.total_amount_cents,
+        order_value_cents: amountDueCents,
         total_cart_value_cents: order.total_amount_cents,
+        amount_due_cents: amountDueCents,
+        feedback_credit_cents: order.feedback_credit_cents ?? 0,
         shipping_cents: order.shipping_cents ?? null,
         shipping_method: order.shipping_method ?? "standard",
         manufacturer: order.manufacturer ?? null,
@@ -236,8 +251,10 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
         order_id: order.id,
         order_status: order.status,
         verification_mode: mode,
-        order_value_cents: order.total_amount_cents,
+        order_value_cents: amountDueCents,
         total_cart_value_cents: order.total_amount_cents,
+        amount_due_cents: amountDueCents,
+        feedback_credit_cents: order.feedback_credit_cents ?? 0,
         shipping_cents: order.shipping_cents ?? null,
         shipping_method: order.shipping_method ?? "standard",
         manufacturer: order.manufacturer ?? null,
@@ -389,6 +406,15 @@ function CheckoutInner() {
           shipping_method: orderData.shipping_method ?? "standard",
           payment_intent_id: orderData.payment_intent_id ?? null,
           has_payment_intent: Boolean(orderData.payment_intent_id),
+          feedback_credit_cents: orderData.feedback_credit_cents ?? null,
+          feedback_credit_applied_at:
+            orderData.feedback_credit_applied_at ?? null,
+          feedback_survey_completed_at:
+            orderData.feedback_survey_completed_at ?? null,
+          rx: orderData.rx ?? null,
+          rx_upload_path: orderData.rx_upload_path ?? null,
+          rx_source: orderData.rx_source ?? null,
+          verification_status: orderData.verification_status ?? null,
         });
 
         setMode(isUploadedVerificationOrder(orderData) ? "uploaded" : "passive");
@@ -423,6 +449,11 @@ function CheckoutInner() {
             order_id: orderId,
             order_value_cents: orderData.total_amount_cents,
             total_cart_value_cents: orderData.total_amount_cents,
+            amount_due_cents: getFeedbackAmountDueCents({
+              total_amount_cents: orderData.total_amount_cents,
+              feedback_credit_cents: orderData.feedback_credit_cents ?? null,
+            }),
+            feedback_credit_cents: orderData.feedback_credit_cents ?? 0,
             manufacturer: orderData.manufacturer ?? null,
             sku: orderData.sku ?? null,
             shipping_cents: orderData.shipping_cents ?? null,
@@ -469,13 +500,16 @@ function CheckoutInner() {
 
     function captureAbandonment() {
       if (sessionStorage.getItem(completionKey)) return;
+      const amountDueCents = getFeedbackAmountDueCents(activeOrder);
 
       track(POSTHOG_EVENTS.ABANDONED_CHECKOUT, {
         order_id: activeOrder.id,
         order_status: activeOrder.status,
         verification_mode: mode,
-        order_value_cents: activeOrder.total_amount_cents,
+        order_value_cents: amountDueCents,
         total_cart_value_cents: activeOrder.total_amount_cents,
+        amount_due_cents: amountDueCents,
+        feedback_credit_cents: activeOrder.feedback_credit_cents ?? 0,
         subtotal_cents: subtotalCents,
         shipping_cents: shippingCents,
         shipping_method: activeOrder.shipping_method ?? "standard",
@@ -518,6 +552,11 @@ function CheckoutInner() {
   const shippingCents = order.shipping_cents ?? 0;
   const subtotalCents = Math.max(0, order.total_amount_cents - shippingCents);
   const shippingMethod = order.shipping_method ?? "standard";
+  const feedbackCreditCents = Math.min(
+    normalizeFeedbackCreditCents(order.feedback_credit_cents),
+    order.total_amount_cents,
+  );
+  const amountDueCents = getFeedbackAmountDueCents(order);
 
   return (
     <main>
@@ -579,10 +618,25 @@ function CheckoutInner() {
                     : `$${(shippingCents / 100).toFixed(2)}`}
                 </div>
               </div>
+              {feedbackCreditCents > 0 && (
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    color: "#5b21b6",
+                  }}
+                >
+                  <div style={{ fontWeight: 800 }}>Feedback credit</div>
+                  <div style={{ fontWeight: 900 }}>
+                    -${(feedbackCreditCents / 100).toFixed(2)}
+                  </div>
+                </div>
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <div style={{ fontWeight: 800 }}>Total</div>
                 <div style={{ fontWeight: 900 }}>
-                  ${(order.total_amount_cents / 100).toFixed(2)}
+                  ${(amountDueCents / 100).toFixed(2)}
                 </div>
               </div>
             </div>
@@ -620,6 +674,30 @@ function CheckoutInner() {
             />
           </Elements>
         </div>
+        <AbandonmentFeedbackExperiment
+          orderId={order.id}
+          cartValueCents={order.total_amount_cents}
+          orderStatus={order.status}
+          hasPrescription={Boolean(
+            order.rx || order.rx_upload_path || order.rx_source,
+          )}
+          feedbackCreditCents={order.feedback_credit_cents ?? null}
+          feedbackSurveyCompletedAt={
+            order.feedback_survey_completed_at ?? null
+          }
+          onCreditApplied={(creditCents) => {
+            setOrder((current) =>
+              current
+                ? {
+                    ...current,
+                    feedback_credit_cents: creditCents,
+                    feedback_credit_applied_at: new Date().toISOString(),
+                    feedback_survey_completed_at: new Date().toISOString(),
+                  }
+                : current,
+            );
+          }}
+        />
       </section>
     </main>
   );

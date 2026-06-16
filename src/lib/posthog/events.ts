@@ -47,6 +47,10 @@ export const POSTHOG_EVENTS = {
   ABANDONED_CHECKOUT: "abandoned_checkout",
   ABANDONED_CHECKOUT_DETECTED: "abandoned_checkout_detected",
   ABANDONED_CHECKOUT_ARCHIVED: "abandoned_checkout_archived",
+  ABANDONMENT_SURVEY_SHOWN: "abandonment_survey_shown",
+  ABANDONMENT_SURVEY_DISMISSED: "abandonment_survey_dismissed",
+  ABANDONMENT_SURVEY_SUBMITTED: "abandonment_survey_submitted",
+  ABANDONMENT_CREDIT_APPLIED: "abandonment_credit_applied",
   RECOVERY_EMAIL_DRAFTED: "recovery_email_drafted",
 
   API_ROUTE_FAILED: "api_route_failed",

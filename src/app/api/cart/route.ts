@@ -73,6 +73,9 @@ export async function GET(req: Request) {
   shipping_method,
   shipping_cents,
   total_amount_cents,
+  feedback_credit_cents,
+  feedback_credit_applied_at,
+  feedback_survey_completed_at,
   price_reason,
   created_at,
   updated_at,
@@ -178,6 +181,11 @@ export async function GET(req: Request) {
       shipping_method: validOrder.shipping_method ?? "standard",
       shipping_cents: validOrder.shipping_cents ?? null,
       total_amount_cents: validOrder.total_amount_cents ?? null,
+      feedback_credit_cents: validOrder.feedback_credit_cents ?? null,
+      feedback_credit_applied_at:
+        validOrder.feedback_credit_applied_at ?? null,
+      feedback_survey_completed_at:
+        validOrder.feedback_survey_completed_at ?? null,
     },
   });
 }

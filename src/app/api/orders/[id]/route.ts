@@ -23,6 +23,9 @@ type OrderRow = {
   shipping_method: string | null;
   shipping_cents: number | null;
   payment_intent_id: string | null;
+  feedback_credit_cents: number | null;
+  feedback_credit_applied_at: string | null;
+  feedback_survey_completed_at: string | null;
   rx_upload_path: string | null;
   rx_source: string | null;
   shipping_first_name: string | null;
@@ -79,6 +82,9 @@ export async function GET(
       shipping_method,
       shipping_cents,
       payment_intent_id,
+      feedback_credit_cents,
+      feedback_credit_applied_at,
+      feedback_survey_completed_at,
       rx_upload_path,
       rx_source,
       shipping_first_name,
@@ -119,6 +125,9 @@ export async function GET(
       shipping_method: order.shipping_method,
       shipping_cents: order.shipping_cents,
       payment_intent_id: order.payment_intent_id,
+      feedback_credit_cents: order.feedback_credit_cents,
+      feedback_credit_applied_at: order.feedback_credit_applied_at,
+      feedback_survey_completed_at: order.feedback_survey_completed_at,
       rx_upload_path: order.rx_upload_path,
       rx_source: order.rx_source,
       shipping_first_name: order.shipping_first_name,

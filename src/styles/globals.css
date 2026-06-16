@@ -471,6 +471,11 @@ main {
   font-size: 1rem;
 }
 
+.hl-feedback-credit-row {
+  color: #c4b5fd;
+  font-weight: 800;
+}
+
 .order-recovery-banner {
   position: relative;
   z-index: 90;
@@ -546,6 +551,190 @@ main {
 
   .order-recovery-copy {
     font-size: 0.86rem;
+  }
+}
+
+.abandonment-feedback-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(3, 7, 18, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.abandonment-feedback-modal {
+  width: min(100%, 560px);
+  max-height: min(90vh, 720px);
+  overflow: auto;
+  padding: 1.5rem;
+  border: 1px solid rgba(221, 214, 254, 0.28);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(30, 27, 45, 0.98), rgba(13, 18, 35, 0.98));
+  color: #ffffff;
+  box-shadow:
+    0 28px 90px rgba(0, 0, 0, 0.58),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+.abandonment-feedback-modal h2 {
+  margin: 0 0 0.55rem;
+  font-size: 1.35rem;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.abandonment-feedback-body,
+.abandonment-feedback-thanks {
+  margin: 0;
+  color: rgba(226, 232, 240, 0.9);
+  line-height: 1.55;
+}
+
+.abandonment-feedback-thanks {
+  margin-top: 0.45rem;
+  color: #ddd6fe;
+  font-weight: 700;
+}
+
+.abandonment-feedback-options {
+  display: grid;
+  gap: 0.55rem;
+  margin: 1.1rem 0;
+}
+
+.abandonment-feedback-option {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 44px;
+  padding: 0.68rem 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.54);
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.abandonment-feedback-option:hover {
+  border-color: rgba(196, 181, 253, 0.55);
+  background: rgba(76, 29, 149, 0.28);
+  transform: translateY(-1px);
+}
+
+.abandonment-feedback-option input {
+  width: 18px;
+  height: 18px;
+  accent-color: #7c3aed;
+}
+
+.abandonment-feedback-option:has(input:checked) {
+  border-color: rgba(221, 214, 254, 0.75);
+  background: rgba(109, 40, 217, 0.34);
+}
+
+.abandonment-feedback-field {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.85rem;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 0.92rem;
+  font-weight: 750;
+}
+
+.abandonment-feedback-field input,
+.abandonment-feedback-field textarea {
+  width: 100%;
+  border: 1px solid rgba(221, 214, 254, 0.24);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.74);
+  color: #ffffff;
+  font: inherit;
+}
+
+.abandonment-feedback-field input {
+  min-height: 44px;
+}
+
+.abandonment-feedback-field textarea {
+  min-height: 88px;
+  padding: 0.75rem;
+  resize: vertical;
+}
+
+.abandonment-feedback-field input:focus,
+.abandonment-feedback-field textarea:focus {
+  outline: 3px solid rgba(196, 181, 253, 0.42);
+  outline-offset: 2px;
+  border-color: rgba(221, 214, 254, 0.74);
+}
+
+.abandonment-feedback-error {
+  margin: 0.85rem 0 0;
+  color: #fecaca;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.abandonment-feedback-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.1rem;
+}
+
+.abandonment-feedback-primary {
+  margin-top: 0;
+  min-height: 48px;
+}
+
+.abandonment-feedback-secondary {
+  min-height: 44px;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(226, 232, 240, 0.24);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.36);
+  color: rgba(255, 255, 255, 0.84);
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.abandonment-feedback-secondary:hover {
+  border-color: rgba(226, 232, 240, 0.5);
+  background: rgba(30, 41, 59, 0.58);
+  color: #ffffff;
+}
+
+.abandonment-feedback-secondary:focus-visible {
+  outline: 3px solid var(--hl-primary-cta-focus);
+  outline-offset: 3px;
+}
+
+@media (max-width: 560px) {
+  .abandonment-feedback-modal {
+    padding: 1.15rem;
+  }
+
+  .abandonment-feedback-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .abandonment-feedback-primary,
+  .abandonment-feedback-secondary {
+    width: 100%;
   }
 }
 

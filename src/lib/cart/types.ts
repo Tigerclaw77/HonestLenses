@@ -20,6 +20,9 @@ export type CartOrder = {
   left_box_count?: number | null;
 
   total_amount_cents: number | null;
+  feedback_credit_cents?: number | null;
+  feedback_credit_applied_at?: string | null;
+  feedback_survey_completed_at?: string | null;
 
   shipping_method?: ShippingMethod | null;
   shipping_cents?: number | null;

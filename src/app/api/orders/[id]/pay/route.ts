@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
+import { getFeedbackAmountDueCents } from "@/lib/abandonmentFeedback";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -20,7 +21,9 @@ export async function POST(
 
   const { data, error } = await supabaseServer
     .from("orders")
-    .select("id, user_id, status, total_amount_cents, currency, payment_intent_id")
+    .select(
+      "id, user_id, status, total_amount_cents, feedback_credit_cents, currency, payment_intent_id",
+    )
     .eq("id", orderId)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -28,13 +31,13 @@ export async function POST(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
   if (!data) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
   const order = data;
 
-  // Only allow paying draft orders (your current convention)
   if (order.status !== "draft") {
     return NextResponse.json({ error: "Order is not payable" }, { status: 400 });
   }
@@ -49,16 +52,33 @@ export async function POST(
     );
   }
 
-  // If you already created a PI for this order, you can reuse it (MVP-friendly)
-  if (order.payment_intent_id) {
-    const existing = await stripe.paymentIntents.retrieve(order.payment_intent_id);
+  const amountDueCents = getFeedbackAmountDueCents(order);
 
-    // If amount changed since PI creation, you *must* update it
-    // (this should be rare if cart is frozen before checkout)
-    if (existing.amount !== order.total_amount_cents) {
-      const updated = await stripe.paymentIntents.update(order.payment_intent_id, {
-        amount: order.total_amount_cents,
-      });
+  if (amountDueCents <= 0) {
+    return NextResponse.json(
+      { error: "Order amount due must be greater than 0 before payment" },
+      { status: 400 },
+    );
+  }
+
+  if (order.payment_intent_id) {
+    const existing = await stripe.paymentIntents.retrieve(
+      order.payment_intent_id,
+    );
+
+    if (existing.amount !== amountDueCents) {
+      const updated = await stripe.paymentIntents.update(
+        order.payment_intent_id,
+        {
+          amount: amountDueCents,
+          metadata: {
+            ...existing.metadata,
+            order_id: orderId,
+            feedback_credit_cents: String(order.feedback_credit_cents ?? 0),
+            amount_due_cents: String(amountDueCents),
+          },
+        },
+      );
 
       return NextResponse.json({ clientSecret: updated.client_secret });
     }
@@ -66,20 +86,22 @@ export async function POST(
     return NextResponse.json({ clientSecret: existing.client_secret });
   }
 
-  // Create PI (AUTH ONLY). Do NOT confirm here — client confirms via PaymentElement.
   const paymentIntent = await stripe.paymentIntents.create({
-    amount: order.total_amount_cents, // ✅ DB is the authority
+    amount: amountDueCents,
     currency: (order.currency ?? "usd").toLowerCase(),
     capture_method: "manual",
     automatic_payment_methods: { enabled: true },
-    metadata: { order_id: orderId },
+    metadata: {
+      order_id: orderId,
+      feedback_credit_cents: String(order.feedback_credit_cents ?? 0),
+      amount_due_cents: String(amountDueCents),
+    },
   });
 
   const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
       payment_intent_id: paymentIntent.id,
-      // keep status as "draft" until the client confirms payment successfully
     })
     .eq("id", orderId)
     .eq("user_id", user.id);

@@ -173,6 +173,10 @@ export async function POST(req: Request) {
           typeof orderRaw.capture_amount_cents === "number"
             ? orderRaw.capture_amount_cents
             : null,
+        feedback_credit_cents:
+          typeof orderRaw.feedback_credit_cents === "number"
+            ? orderRaw.feedback_credit_cents
+            : null,
       });
 
       const capturedIntent = await stripe.paymentIntents.capture(intent.id, {
