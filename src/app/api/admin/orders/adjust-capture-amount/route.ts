@@ -4,6 +4,7 @@ import {
   logAdminAuthFailure,
   requireAdminUser,
 } from "@/lib/admin-auth";
+import { getFeedbackAmountDueCents } from "@/lib/abandonmentFeedback";
 import { supabaseServer } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
@@ -30,6 +31,7 @@ type RequestBody = {
 type OrderRow = {
   id: string;
   total_amount_cents: number | null;
+  feedback_credit_cents: number | null;
 };
 
 function isCaptureAdjustmentReason(
@@ -97,7 +99,7 @@ export async function POST(req: Request) {
 
   const { data: order, error: orderError } = await supabaseServer
     .from("orders")
-    .select("id, total_amount_cents")
+    .select("id, total_amount_cents, feedback_credit_cents")
     .eq("id", orderId)
     .maybeSingle<OrderRow>();
 
@@ -138,7 +140,9 @@ export async function POST(req: Request) {
     );
   }
 
-  if (captureAmountCents > order.total_amount_cents) {
+  const amountDueCents = getFeedbackAmountDueCents(order);
+
+  if (captureAmountCents > amountDueCents) {
     return NextResponse.json(
       {
         error: "Capture amount cannot exceed the authorized amount.",

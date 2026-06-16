@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase-client";
 
 import Header from "../../components/Header";
+import AbandonmentFeedbackExperiment from "@/components/AbandonmentFeedbackExperiment";
 import EyeRow from "../../components/cart/EyeRow";
 
 import { fmtPrice } from "../../lib/cart/formatters";
@@ -22,6 +23,7 @@ import {
 } from "@/lib/posthog/client";
 import { getCartLensAnalyticsProperties } from "@/lib/posthog/lensMetadata";
 import { trackFunnelEvent } from "@/lib/telemetry/funnel";
+import { normalizeFeedbackCreditCents } from "@/lib/abandonmentFeedback";
 
 const DEV_MODE =
   process.env.NODE_ENV === "development" && process.env.VERCEL !== "1";
@@ -374,8 +376,13 @@ export default function CartPage() {
       : 0;
 
   const previewTotal = previewSubtotal + previewShipping;
+  const feedbackCreditCents = Math.min(
+    normalizeFeedbackCreditCents(cart.feedback_credit_cents),
+    previewTotal,
+  );
+  const previewAmountDue = Math.max(0, previewTotal - feedbackCreditCents);
 
-  const canCheckout = !syncingQty && totalBoxes > 0 && previewTotal > 0;
+  const canCheckout = !syncingQty && totalBoxes > 0 && previewAmountDue > 0;
 
   /* ---------- Render ---------- */
 
@@ -523,9 +530,16 @@ export default function CartPage() {
               </div>
             )}
 
+            {feedbackCreditCents > 0 && (
+              <div className="hl-summary-row hl-feedback-credit-row">
+                <span>Feedback credit</span>
+                <span>-{fmtPrice(feedbackCreditCents)}</span>
+              </div>
+            )}
+
             <div className="hl-summary-row hl-summary-total">
               <span>Total</span>
-              <span>{fmtPrice(previewTotal)}</span>
+              <span>{fmtPrice(previewAmountDue)}</span>
             </div>
           </div>
 
@@ -538,8 +552,10 @@ export default function CartPage() {
                 ...getCartLensAnalyticsProperties(cart),
                 order_id: cart.id,
                 source: "cart",
-                cart_value_cents: previewTotal,
+                cart_value_cents: previewAmountDue,
                 total_cart_value_cents: previewTotal,
+                amount_due_cents: previewAmountDue,
+                feedback_credit_cents: feedbackCreditCents,
                 shipping_cents: previewShipping,
                 shipping_method: shippingMethod,
                 supply_duration_months: totalMonths,
@@ -561,6 +577,26 @@ export default function CartPage() {
       <Header variant="shop" />
 
       {cartUI}
+      <AbandonmentFeedbackExperiment
+        orderId={cart.id}
+        cartValueCents={previewTotal}
+        orderStatus={cart.status}
+        hasPrescription={Boolean(rightEye || leftEye)}
+        feedbackCreditCents={cart.feedback_credit_cents ?? null}
+        feedbackSurveyCompletedAt={cart.feedback_survey_completed_at ?? null}
+        onCreditApplied={(creditCents) => {
+          setCart((current) =>
+            current
+              ? {
+                  ...current,
+                  feedback_credit_cents: creditCents,
+                  feedback_credit_applied_at: new Date().toISOString(),
+                  feedback_survey_completed_at: new Date().toISOString(),
+                }
+              : current,
+          );
+        }}
+      />
     </>
   );
 }

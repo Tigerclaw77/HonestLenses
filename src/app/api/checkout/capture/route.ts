@@ -25,6 +25,7 @@ export async function POST(req: Request) {
       verification_passed,
       payment_intent_id,
       total_amount_cents,
+      feedback_credit_cents,
       capture_amount_cents
     `)
     .eq("user_id", user.id)

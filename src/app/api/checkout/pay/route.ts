@@ -13,6 +13,7 @@ import {
   getOrderAccess,
   hasOrderAccessContext,
 } from "@/lib/order-access";
+import { getFeedbackAmountDueCents } from "@/lib/abandonmentFeedback";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -105,6 +106,7 @@ export async function POST(req: Request) {
         user_id,
         status,
         total_amount_cents,
+        feedback_credit_cents,
         shipping_cents,
         shipping_method,
         payment_intent_id
@@ -122,6 +124,15 @@ export async function POST(req: Request) {
     if (!order) {
       return NextResponse.json(
         { error: "No draft order found." },
+        { status: 400 }
+      );
+    }
+
+    const amountDueCents = getFeedbackAmountDueCents(order);
+
+    if (amountDueCents <= 0) {
+      return NextResponse.json(
+        { error: "Order amount due must be greater than 0." },
         { status: 400 }
       );
     }
@@ -170,17 +181,21 @@ export async function POST(req: Request) {
             .eq("id", order.id);
 
         } else {
-          if (existing.amount !== order.total_amount_cents) {
+          if (existing.amount !== amountDueCents) {
             const updated = await stripe.paymentIntents.update(
               order.payment_intent_id,
               {
-                amount: order.total_amount_cents,
+                amount: amountDueCents,
                 metadata: {
                   order_id: order.id,
                   user_id: access.userId ?? "",
                   checkout_actor: access.userId ? "user" : "guest",
                   shipping_method: order.shipping_method ?? "standard",
                   shipping_cents: String(order.shipping_cents ?? 0),
+                  feedback_credit_cents: String(
+                    order.feedback_credit_cents ?? 0,
+                  ),
+                  amount_due_cents: String(amountDueCents),
                 },
               }
             );
@@ -209,7 +224,7 @@ export async function POST(req: Request) {
     ========================= */
 
     const intent = await stripe.paymentIntents.create({
-      amount: order.total_amount_cents,
+      amount: amountDueCents,
       currency: "usd",
       capture_method: "manual",
       automatic_payment_methods: { enabled: true },
@@ -219,6 +234,8 @@ export async function POST(req: Request) {
         checkout_actor: access.userId ? "user" : "guest",
         shipping_method: order.shipping_method ?? "standard",
         shipping_cents: String(order.shipping_cents ?? 0),
+        feedback_credit_cents: String(order.feedback_credit_cents ?? 0),
+        amount_due_cents: String(amountDueCents),
       },
     });
 
@@ -257,6 +274,8 @@ export async function POST(req: Request) {
       properties: {
         order_id: order.id,
         order_value_cents: order.total_amount_cents,
+        amount_due_cents: amountDueCents,
+        feedback_credit_cents: order.feedback_credit_cents ?? 0,
         shipping_cents: order.shipping_cents ?? null,
         shipping_method: order.shipping_method ?? "standard",
         has_payment_intent: true,
