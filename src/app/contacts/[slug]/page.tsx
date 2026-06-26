@@ -1,5 +1,9 @@
 import { lenses } from "@/LensCore/data/lenses";
-import { slugifyLens } from "@/lib/seo/slugifyLens";
+import {
+  findLensBySlug,
+  getLensSlug,
+  SITE_URL,
+} from "@/lib/seo/contactSeoRoutes";
 import { notFound } from "next/navigation";
 import ProductTelemetry from "@/components/analytics/ProductTelemetry";
 
@@ -9,31 +13,30 @@ type Props = {
 
 export function generateStaticParams() {
   return lenses.map((lens) => ({
-    slug: slugifyLens(lens.displayName),
+    slug: getLensSlug(lens),
   }));
 }
 
 export async function generateMetadata({ params }: Props) {
   const { slug } = await params;
 
-  const lens = lenses.find(
-    (l) => slugifyLens(l.displayName) === slug
-  );
+  const lens = findLensBySlug(lenses, slug);
 
   if (!lens) return {};
 
   return {
-    title: `${lens.displayName} Contact Lenses | Honest Lenses`,
+    title: `${lens.displayName} Contact Lenses`,
     description: `Shop ${lens.displayName} contact lenses with prescription verification and manufacturer-direct fulfillment from Honest Lenses. ${lens.displayName} is manufactured by ${lens.manufacturer} and designed for ${lens.replacement} replacement.`,
+    alternates: {
+      canonical: `${SITE_URL}/contacts/${slug}`,
+    },
   };
 }
 
 export default async function LensPage({ params }: Props) {
   const { slug } = await params;
 
-  const lens = lenses.find(
-    (l) => slugifyLens(l.displayName) === slug
-  );
+  const lens = findLensBySlug(lenses, slug);
 
   if (!lens) return notFound();
 

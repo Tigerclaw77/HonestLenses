@@ -1,4 +1,11 @@
+import type { Metadata } from "next";
 import { lenses } from "@/LensCore/data/lenses";
+import {
+  getParameterIndexLensMatches,
+  getReadableParameter,
+  isContactParameterKey,
+  SITE_URL,
+} from "@/lib/seo/contactSeoRoutes";
 import { notFound } from "next/navigation";
 
 type Props = {
@@ -8,63 +15,50 @@ type Props = {
   }>;
 };
 
-const VALID_PARAMETERS = [
-  "base-curve",
-  "diameter",
-  "cylinder",
-];
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { parameter, value } = await params;
+
+  if (!isContactParameterKey(parameter)) return {};
+
+  const results = getParameterIndexLensMatches(lenses, parameter, value);
+
+  if (results.length === 0) return {};
+
+  const readableParam = getReadableParameter(parameter);
+
+  return {
+    title: `Contact Lenses With ${readableParam} ${value}`,
+    description: `Browse contact lenses available with ${readableParam} ${value}.`,
+    alternates: {
+      canonical: `${SITE_URL}/contacts/by/${parameter}/${value}`,
+    },
+  };
+}
 
 export default async function ParameterIndexPage({ params }: Props) {
   const { parameter, value } = await params;
 
-  // Prevent route collision with lens slugs
-  if (!VALID_PARAMETERS.includes(parameter)) {
+  if (!isContactParameterKey(parameter)) {
     return notFound();
   }
 
-  const numericValue = Number(value);
-
-  if (Number.isNaN(numericValue)) {
-    return notFound();
-  }
-
-  const results = lenses.filter((lens) => {
-    const p = lens.parameters as {
-      baseCurve?: number[];
-      diameter?: number[];
-      cylinder?: number[];
-    };
-
-    if (!p) return false;
-
-    if (parameter === "base-curve") {
-      return Array.isArray(p.baseCurve) && p.baseCurve.includes(numericValue);
-    }
-
-    if (parameter === "diameter") {
-      return Array.isArray(p.diameter) && p.diameter.includes(numericValue);
-    }
-
-    if (parameter === "cylinder") {
-      return Array.isArray(p.cylinder) && p.cylinder.includes(numericValue);
-    }
-
-    return false;
-  });
+  const results = getParameterIndexLensMatches(lenses, parameter, value);
 
   if (results.length === 0) {
     return notFound();
   }
 
+  const readableParam = getReadableParameter(parameter);
+
   return (
     <div style={{ padding: 40, maxWidth: 900 }}>
       <h1>
-        Contact Lenses With {parameter.replace("-", " ")} {value}
+        Contact Lenses With {readableParam} {value}
       </h1>
 
       <p>
         The following contact lenses are available with{" "}
-        {parameter.replace("-", " ")} {value}.
+        {readableParam} {value}.
       </p>
 
       <ul>
