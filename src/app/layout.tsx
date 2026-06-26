@@ -18,9 +18,6 @@ export const metadata: Metadata = {
     template: "%s | Honest Lenses",
   },
   description: siteDescription,
-  alternates: {
-    canonical: "/",
-  },
   openGraph: {
     type: "website",
     url: "/",

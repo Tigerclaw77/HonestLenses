@@ -1,6 +1,12 @@
 import { MetadataRoute } from "next";
 import { lenses } from "@/LensCore/data/lenses";
-import { slugifyLens } from "@/lib/seo/slugifyLens";
+import {
+  getConditionRoutes,
+  getLensParameterRoutes,
+  getLensSlug,
+  getParameterIndexRoutes,
+  SITE_URL,
+} from "@/lib/seo/contactSeoRoutes";
 
 const guideSlugs = [
   "why-is-my-contact-lens-order-delayed",
@@ -17,23 +23,21 @@ const guideSlugs = [
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const base = "https://honestlenses.com";
-
   const staticPages: MetadataRoute.Sitemap = [
     {
-      url: base,
+      url: SITE_URL,
       lastModified: new Date(),
       changeFrequency: "daily",
       priority: 1,
     },
     {
-      url: `${base}/contacts`,
+      url: `${SITE_URL}/contacts`,
       lastModified: new Date(),
       changeFrequency: "daily",
       priority: 0.9,
     },
     {
-      url: `${base}/guides`,
+      url: `${SITE_URL}/guides`,
       lastModified: new Date(),
       changeFrequency: "monthly",
       priority: 0.7,
@@ -41,38 +45,68 @@ export default function sitemap(): MetadataRoute.Sitemap {
   ];
 
   const lensPages: MetadataRoute.Sitemap = lenses.map((lens) => ({
-    url: `${base}/contacts/${slugifyLens(lens.displayName)}`,
+    url: `${SITE_URL}/contacts/${getLensSlug(lens)}`,
     lastModified: new Date(),
     changeFrequency: "weekly",
     priority: 0.8,
   }));
 
   const guidePages: MetadataRoute.Sitemap = guideSlugs.map((slug) => ({
-    url: `${base}/guides/${slug}`,
+    url: `${SITE_URL}/guides/${slug}`,
     lastModified: new Date(),
     changeFrequency: "monthly",
     priority: 0.65,
   }));
 
-  // const parameterPages: MetadataRoute.Sitemap = lenses.map((lens) => ({
-  //   url: `${base}/contacts/${slugifyLens(lens.displayName)}/parameters`,
-  //   lastModified: new Date(),
-  //   changeFrequency: "monthly",
-  //   priority: 0.6,
-  // }));
+  const parameterPages: MetadataRoute.Sitemap = lenses.map((lens) => ({
+    url: `${SITE_URL}/contacts/${getLensSlug(lens)}/parameters`,
+    lastModified: new Date(),
+    changeFrequency: "monthly",
+    priority: 0.6,
+  }));
 
-  // const alternativePages: MetadataRoute.Sitemap = lenses.map((lens) => ({
-  //   url: `${base}/contacts/${slugifyLens(lens.displayName)}/alternatives`,
-  //   lastModified: new Date(),
-  //   changeFrequency: "monthly",
-  //   priority: 0.6,
-  // }));
+  const alternativePages: MetadataRoute.Sitemap = lenses.map((lens) => ({
+    url: `${SITE_URL}/contacts/${getLensSlug(lens)}/alternatives`,
+    lastModified: new Date(),
+    changeFrequency: "monthly",
+    priority: 0.55,
+  }));
+
+  const parameterIndexPages: MetadataRoute.Sitemap = getParameterIndexRoutes(
+    lenses,
+  ).map(({ parameter, value }) => ({
+    url: `${SITE_URL}/contacts/by/${parameter}/${value}`,
+    lastModified: new Date(),
+    changeFrequency: "monthly",
+    priority: 0.55,
+  }));
+
+  const conditionPages: MetadataRoute.Sitemap = getConditionRoutes(lenses).map(
+    (condition) => ({
+      url: `${SITE_URL}/contacts/for/${condition}`,
+      lastModified: new Date(),
+      changeFrequency: "monthly",
+      priority: 0.55,
+    }),
+  );
+
+  const lensParameterPages: MetadataRoute.Sitemap = getLensParameterRoutes(
+    lenses,
+  ).map(({ slug, parameter, value }) => ({
+    url: `${SITE_URL}/contacts/${slug}/${parameter}/${value}`,
+    lastModified: new Date(),
+    changeFrequency: "monthly",
+    priority: 0.5,
+  }));
 
   return [
     ...staticPages,
     ...lensPages,
     ...guidePages,
-    // ...parameterPages,
-    // ...alternativePages,
+    ...parameterPages,
+    ...alternativePages,
+    ...parameterIndexPages,
+    ...conditionPages,
+    ...lensParameterPages,
   ];
 }

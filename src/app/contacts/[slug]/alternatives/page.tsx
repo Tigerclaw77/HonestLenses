@@ -1,17 +1,34 @@
+import type { Metadata } from "next";
 import { lenses } from "@/LensCore/data/lenses";
-import { slugifyLens } from "@/lib/seo/slugifyLens";
+import {
+  findLensBySlug,
+  SITE_URL,
+} from "@/lib/seo/contactSeoRoutes";
 import { notFound } from "next/navigation";
 
 type Props = {
   params: Promise<{ slug: string }>;
 };
 
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { slug } = await params;
+  const lens = findLensBySlug(lenses, slug);
+
+  if (!lens) return {};
+
+  return {
+    title: `Alternatives to ${lens.displayName}`,
+    description: `Compare similar contact lens options to ${lens.displayName} based on replacement schedule and lens category.`,
+    alternates: {
+      canonical: `${SITE_URL}/contacts/${slug}/alternatives`,
+    },
+  };
+}
+
 export default async function AlternativesPage({ params }: Props) {
   const { slug } = await params;
 
-  const lens = lenses.find(
-    (l) => slugifyLens(l.displayName) === slug
-  );
+  const lens = findLensBySlug(lenses, slug);
 
   if (!lens) return notFound();
 

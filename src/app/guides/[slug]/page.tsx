@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!guide) return {};
 
   return {
-    title: `${guide.title} | Honest Lenses`,
+    title: guide.title,
     description: guide.description,
     alternates: {
       canonical: getAbsoluteGuideUrl(guide.slug),

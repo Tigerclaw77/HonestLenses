@@ -1,6 +1,16 @@
+import type { Metadata } from "next";
 import Link from "next/link"
 import { lenses } from "@/LensCore/data/lenses"
-import { slugifyLens } from "@/lib/seo/slugifyLens"
+import { getLensSlug, SITE_URL } from "@/lib/seo/contactSeoRoutes"
+
+export const metadata: Metadata = {
+  title: "Shop Contact Lenses",
+  description:
+    "Browse contact lenses available through Honest Lenses with prescription verification and manufacturer-direct fulfillment.",
+  alternates: {
+    canonical: `${SITE_URL}/contacts`,
+  },
+};
 
 export default function ContactsPage() {
   return (
@@ -10,7 +20,7 @@ export default function ContactsPage() {
       <ul>
         {lenses.map((lens) => (
           <li key={lens.coreId}>
-            <Link href={`/contacts/${slugifyLens(lens.displayName)}`}>
+            <Link href={`/contacts/${getLensSlug(lens)}`}>
               {lens.displayName}
             </Link>
           </li>
@@ -22,6 +32,6 @@ export default function ContactsPage() {
 
 export function generateStaticParams() {
   return lenses.map((lens) => ({
-    slug: slugifyLens(lens.displayName),
+    slug: getLensSlug(lens),
   }));
 }

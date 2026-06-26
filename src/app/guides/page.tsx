@@ -8,7 +8,7 @@ import styles from "./guide.module.css";
 import { getAbsoluteGuideUrl, getGuideUrl, guides } from "./guides";
 
 export const metadata: Metadata = {
-  title: "Contact Lens Guides | Honest Lenses",
+  title: "Contact Lens Guides",
   description:
     "Practical contact lens ordering guides from Honest Lenses covering prescription verification, expired prescriptions, order delays, and online pricing.",
   alternates: {

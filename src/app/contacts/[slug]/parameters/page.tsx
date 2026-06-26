@@ -1,5 +1,8 @@
 import { lenses } from "@/LensCore/data/lenses";
-import { slugifyLens } from "@/lib/seo/slugifyLens";
+import {
+  findLensBySlug,
+  SITE_URL,
+} from "@/lib/seo/contactSeoRoutes";
 import { notFound } from "next/navigation";
 
 import {
@@ -34,20 +37,23 @@ type LensParameters = {
 export async function generateMetadata({ params }: Props) {
   const { slug } = await params;
 
-  const lens = lenses.find((l) => slugifyLens(l.displayName) === slug);
+  const lens = findLensBySlug(lenses, slug);
 
   if (!lens) return {};
 
   return {
-    title: `${lens.displayName} Parameters | Honest Lenses`,
+    title: `${lens.displayName} Parameters`,
     description: `View sphere, cylinder, axis, base curve, and diameter parameters for ${lens.displayName} contact lenses.`,
+    alternates: {
+      canonical: `${SITE_URL}/contacts/${slug}/parameters`,
+    },
   };
 }
 
 export default async function ParametersPage({ params }: Props) {
   const { slug } = await params;
 
-  const lens = lenses.find((l) => slugifyLens(l.displayName) === slug);
+  const lens = findLensBySlug(lenses, slug);
 
   if (!lens) return notFound();
 
