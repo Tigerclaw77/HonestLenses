@@ -474,6 +474,11 @@ export const guides: GuidePage[] = [
               received by the prescriber. That timing is not the same as eight
               clock hours.
             </p>
+            <div className={styles.actionLinks}>
+              <ActionLink href="/guides/what-happens-if-my-eye-doctor-does-not-respond">
+                what happens if your eye doctor does not respond
+              </ActionLink>
+            </div>
           </>
         ),
       },
@@ -902,6 +907,31 @@ export const guides: GuidePage[] = [
               </ActionLink>
               <ActionLink href="/verification">
                 Prescription verification
+              </ActionLink>
+            </div>
+          </>
+        ),
+      },
+      {
+        heading: "Related Prescription Verification Guides",
+        content: (
+          <>
+            <p>
+              These related guides explain common prescription review questions
+              that can affect whether an order moves forward cleanly.
+            </p>
+            <div className={styles.actionLinks}>
+              <ActionLink href="/guides/why-was-my-contact-lens-prescription-rejected">
+                Why a contact lens prescription gets rejected
+              </ActionLink>
+              <ActionLink href="/guides/why-do-contact-lens-prescriptions-expire">
+                Why contact lens prescriptions expire
+              </ActionLink>
+              <ActionLink href="/guides/how-long-does-contact-lens-verification-take">
+                How long contact lens verification takes
+              </ActionLink>
+              <ActionLink href="/guides/what-information-is-needed-to-verify-a-contact-lens-prescription">
+                What information is needed to verify a contact lens prescription
               </ActionLink>
             </div>
           </>

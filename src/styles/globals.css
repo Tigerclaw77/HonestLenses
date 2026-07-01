@@ -980,6 +980,56 @@ main {
 }
 
 /* ==================================================
+   COMMON PRESCRIPTION QUESTIONS
+================================================== */
+.common-prescription-questions {
+  padding: 0 2rem 4.5rem;
+}
+
+.common-prescription-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  padding-top: 2rem;
+  border-top: 1px solid rgba(122, 115, 138, 0.16);
+}
+
+.common-prescription-inner h2 {
+  margin-bottom: 0.75rem;
+  font-size: 1.05rem;
+  letter-spacing: 0.05em;
+}
+
+.common-prescription-inner p {
+  max-width: 600px;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.common-prescription-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 1.25rem;
+}
+
+.common-prescription-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0.72rem 1rem;
+  border: 1px solid rgba(216, 210, 255, 0.24);
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.035);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.common-prescription-links a:hover {
+  border-color: rgba(216, 210, 255, 0.56);
+  background: rgba(255, 255, 255, 0.065);
+}
+
+/* ==================================================
    IMAGE BAND (EDITORIAL)
 ================================================== */
 .image-band {
