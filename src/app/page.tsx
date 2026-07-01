@@ -106,6 +106,24 @@ export default function HomePage() {
         </div>
       </section>
 
+      <section className="common-prescription-questions">
+        <div className="common-prescription-inner">
+          <h2>Common Prescription Questions</h2>
+          <p>
+            If you are not sure what happens during prescription review, these
+            guides explain two common ordering questions.
+          </p>
+          <div className="common-prescription-links">
+            <Link href="/guides/what-happens-if-my-eye-doctor-does-not-respond">
+              What happens if your eye doctor does not respond?
+            </Link>
+            <Link href="/guides/can-i-use-my-glasses-prescription-to-buy-contacts">
+              Can I use a glasses prescription to buy contacts?
+            </Link>
+          </div>
+        </div>
+      </section>
+
       {/* ==================================================
           IMAGE BAND
       ================================================== */}
