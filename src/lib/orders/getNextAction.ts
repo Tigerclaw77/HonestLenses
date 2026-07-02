@@ -28,6 +28,20 @@ type FulfillmentStatus =
   | "hold"
   | "cancelled";
 
+const AUTHORIZED_STRIPE_INTENT_STATUSES = new Set([
+  "requires_capture",
+  "succeeded",
+]);
+
+const INCOMPLETE_STRIPE_INTENT_STATUSES = new Set([
+  "requires_payment_method",
+  "requires_confirmation",
+  "requires_action",
+  "requires_source",
+  "requires_source_action",
+  "processing",
+]);
+
 export type Order = {
   status?: string | null;
   payment_status?: string | null;
@@ -141,24 +155,29 @@ function hasPrescriberPath(order: Order): boolean {
 }
 
 function normalizePaymentStatus(order: Order): PaymentLifecycleStatus {
+  const stripeStatus = order.stripe_payment_intent_status
+    ?.trim()
+    .toLowerCase();
+
   if (
     order.status === "cancelled" ||
-    order.stripe_payment_intent_status === "canceled"
+    stripeStatus === "canceled"
   ) {
     return "cancelled";
   }
 
-  if (order.status === "draft" && !order.payment_intent_id) return "draft";
-
   if (
-    order.payment_status === "authorized" ||
-    order.payment_status === "captured" ||
-    order.payment_status === "refunded" ||
     order.payment_status === "failed" ||
+    order.payment_status === "refunded" ||
     order.payment_status === "cancelled"
   ) {
     return order.payment_status as PaymentLifecycleStatus;
   }
+
+  if (stripeStatus === "succeeded") return "captured";
+  if (stripeStatus === "requires_capture") return "authorized";
+
+  if (order.status === "draft") return "draft";
 
   if (
     order.status === "captured" ||
@@ -172,7 +191,15 @@ function normalizePaymentStatus(order: Order): PaymentLifecycleStatus {
   if (order.status === "refunded") return "refunded";
   if (order.status === "failed") return "failed";
 
-  return order.payment_intent_id ? "authorized" : "draft";
+  if (INCOMPLETE_STRIPE_INTENT_STATUSES.has(stripeStatus ?? "")) {
+    return "draft";
+  }
+
+  if (stripeStatus && !AUTHORIZED_STRIPE_INTENT_STATUSES.has(stripeStatus)) {
+    return "draft";
+  }
+
+  return "draft";
 }
 
 function normalizeFulfillmentStatus(order: Order): FulfillmentStatus {
@@ -475,6 +502,10 @@ export function getNextAction(order: Order): NextAction {
     return { label: "Resolve hold", severity: "warning" };
   }
 
+  if (payment.status === "draft") {
+    return { label: "Await checkout", severity: "info" };
+  }
+
   if (verification.blocked) {
     return { label: "Resolve verification issue", severity: "warning" };
   }
@@ -488,9 +519,7 @@ export function getNextAction(order: Order): NextAction {
   }
 
   if (!rxSource.hasRxEvidence) {
-    return payment.status === "draft"
-      ? { label: "Await checkout", severity: "info" }
-      : { label: "Request prescription details", severity: "warning" };
+    return { label: "Request prescription details", severity: "warning" };
   }
 
   if (verification.requiresReview) {
@@ -501,10 +530,6 @@ export function getNextAction(order: Order): NextAction {
     return rxSource.status === "doctor_verification"
       ? { label: "Await doctor verification", severity: "info" }
       : { label: "Verify prescription", severity: "warning" };
-  }
-
-  if (payment.status === "draft") {
-    return { label: "Await checkout", severity: "info" };
   }
 
   if (payment.status === "authorized") {

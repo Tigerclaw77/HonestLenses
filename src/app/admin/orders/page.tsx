@@ -11,6 +11,7 @@ import {
   getVerificationState,
   type PaymentLifecycleStatus,
 } from "@/lib/orders/getNextAction";
+import { isWaitingOnCustomer } from "@/lib/orders/operationalQueue";
 
 /* =========================
    Types
@@ -274,6 +275,13 @@ const FULFILLMENT_STATUSES: FulfillmentStatus[] = [
 
 const FULFILLMENT_PROGRESS_FLOW: FulfillmentStatus[] = [
   "review",
+  "ready_to_order",
+  "ordered",
+  "shipped",
+  "completed",
+];
+
+const PAYMENT_CAPTURE_REQUIRED_FULFILLMENT_STATUSES: FulfillmentStatus[] = [
   "ready_to_order",
   "ordered",
   "shipped",
@@ -675,14 +683,6 @@ function normalizedPaymentStatus(order: Order): PaymentStatus {
   return getPaymentState(order).status;
 }
 
-function orderVerificationComplete(order: Order): boolean {
-  return getVerificationState(order).complete;
-}
-
-function orderVerificationBlocked(order: Order): boolean {
-  return getVerificationState(order).blocked;
-}
-
 function compareOperationalPriority(a: Order, b: Order): number {
   return getOperationalSortTimestamp(b) - getOperationalSortTimestamp(a);
 }
@@ -704,10 +704,6 @@ function displayRxStatus(order: Order): string {
   }
 
   return "Prescription Information Missing";
-}
-
-function orderHasRx(order: Order): boolean {
-  return getRxSourceState(order).hasRxEvidence;
 }
 
 function paymentTone(status: PaymentStatus): BadgeTone {
@@ -748,11 +744,6 @@ function fulfillmentTone(status: FulfillmentStatus): BadgeTone {
   return "neutral";
 }
 
-function isOperationallyComplete(order: Order): boolean {
-  const fulfillment = normalizedFulfillmentStatus(order);
-  return fulfillment === "shipped" || fulfillment === "completed";
-}
-
 function getVerificationStatus(order: Order): {
   complete: boolean;
   blocked: boolean;
@@ -767,42 +758,6 @@ function getVerificationStatus(order: Order): {
     label: summary.label,
     tone: summary.tone,
   };
-}
-
-function getActionability(order: Order): {
-  actionable: boolean;
-  reasons: string[];
-} {
-  if (isOperationallyComplete(order)) {
-    return { actionable: false, reasons: [] };
-  }
-
-  const reasons: string[] = [];
-  const payment = normalizedPaymentStatus(order);
-  const fulfillment = normalizedFulfillmentStatus(order);
-
-  if (fulfillment === "hold") reasons.push("hold");
-  if (
-    payment === "failed" ||
-    payment === "refunded" ||
-    payment === "cancelled"
-  ) {
-    reasons.push(payment);
-  }
-  if (payment !== "captured") reasons.push("capture");
-  if (orderVerificationBlocked(order)) reasons.push("verification blocked");
-  if (!orderHasRx(order)) reasons.push("rx missing");
-  if (!orderVerificationComplete(order)) reasons.push("verification");
-  if (
-    order.shipping_method === "express" &&
-    fulfillment !== "ordered" &&
-    fulfillment !== "shipped" &&
-    fulfillment !== "completed"
-  ) {
-    reasons.push("express");
-  }
-
-  return { actionable: reasons.length > 0, reasons };
 }
 
 function paymentCaptureSummary(order: Order): { label: string; tone: BadgeTone } {
@@ -822,6 +777,17 @@ function previousFulfillmentStatus(
   const currentIndex = FULFILLMENT_PROGRESS_FLOW.indexOf(status);
   if (currentIndex <= 0) return null;
   return FULFILLMENT_PROGRESS_FLOW[currentIndex - 1] ?? null;
+}
+
+function canSetFulfillmentStatus(
+  order: Order,
+  status: FulfillmentStatus,
+): boolean {
+  if (!PAYMENT_CAPTURE_REQUIRED_FULFILLMENT_STATUSES.includes(status)) {
+    return true;
+  }
+
+  return normalizedPaymentStatus(order) === "captured";
 }
 
 function workflowActionLabel(
@@ -878,7 +844,7 @@ function canPermanentlyDelete(order: Order): boolean {
 }
 
 function isActionRequired(order: Order): boolean {
-  return getActionability(order).actionable;
+  return isWaitingOnCustomer(order);
 }
 
 function isArchiveOrder(order: Order): boolean {
@@ -887,8 +853,7 @@ function isArchiveOrder(order: Order): boolean {
 
   if (order.abandoned_checkout?.isAbandoned) return true;
   if (isOperatorArchived(order)) {
-    if (order.status === "draft" || !order.payment_intent_id) return true;
-    return !getActionability(order).actionable;
+    return isWaitingOnCustomer(order);
   }
   if (fulfillment === "completed" || fulfillment === "cancelled") return true;
   if (fulfillment === "shipped") return !isRecentlyShipped(order);
@@ -2784,13 +2749,14 @@ export default function AdminOrdersPage() {
     {
       key: "action_required",
       title: "Action Required",
-      description: "Payment, Rx, verification, blocked, or express handling.",
+      description:
+        "Waiting on customer payment, Rx, shipping, or correction.",
       orders: sortSectionOrders(actionRequiredOrders),
     },
     {
       key: "active_fulfillment",
       title: "Active Fulfillment",
-      description: "Ready, ordered, and recent shipped work still in the operator lane.",
+      description: "Orders the operator can move forward without waiting on the customer.",
       orders: sortSectionOrders(activeFulfillmentOrders),
     },
   ];
@@ -2938,10 +2904,16 @@ export default function AdminOrdersPage() {
           const captureState = paymentCaptureSummary(o);
           const rxLines = formatCollapsedRxLine(o);
           const lensDisplay = getOrderLensDisplayName(o);
-          const nextAction = getNextAction(o);
+          const nextActionOrder =
+            section.key === "active_fulfillment"
+              ? { ...o, archived: false, archived_at: null }
+              : o;
+          const nextAction = getNextAction(nextActionOrder);
           const isHighlighted = highlightedOrderIds.has(o.id);
           const nextFulfillment = nextFulfillmentStatus(fulfillment);
           const previousFulfillment = previousFulfillmentStatus(fulfillment);
+          const canAdvanceFulfillment =
+            !nextFulfillment || canSetFulfillmentStatus(o, nextFulfillment);
 
           const patientName = getPatientName(o);
           const customerName = getCustomerName(o);
@@ -3201,7 +3173,7 @@ export default function AdminOrdersPage() {
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <NextActionBanner order={o} />
+                  <NextActionBanner order={nextActionOrder} />
 
                   <div
                     style={{
@@ -3421,14 +3393,21 @@ export default function AdminOrdersPage() {
                       {nextFulfillment && (
                         <button
                           type="button"
-                          disabled={savingOrderId === o.id}
+                          disabled={savingOrderId === o.id || !canAdvanceFulfillment}
                           onClick={(e) => {
                             e.stopPropagation();
+                            if (!canAdvanceFulfillment) return;
                             updateFulfillmentStatus(o.id, nextFulfillment);
                           }}
                           style={buttonStyle({
                             background: "rgba(20,184,166,0.22)",
+                            opacity: canAdvanceFulfillment ? 1 : 0.5,
                           })}
+                          title={
+                            canAdvanceFulfillment
+                              ? undefined
+                              : "Capture payment before advancing fulfillment."
+                          }
                         >
                           {workflowActionLabel(fulfillment, nextFulfillment)}
                         </button>
@@ -3461,6 +3440,12 @@ export default function AdminOrdersPage() {
                             e.stopPropagation();
                             const next = e.target.value;
                             if (isFulfillmentStatus(next)) {
+                              if (!canSetFulfillmentStatus(o, next)) {
+                                setAdminError(
+                                  "Capture payment before advancing fulfillment.",
+                                );
+                                return;
+                              }
                               updateFulfillmentStatus(o.id, next);
                             }
                           }}
@@ -3472,7 +3457,11 @@ export default function AdminOrdersPage() {
                           }}
                         >
                           {FULFILLMENT_STATUSES.map((status) => (
-                            <option key={status} value={status}>
+                            <option
+                              key={status}
+                              value={status}
+                              disabled={!canSetFulfillmentStatus(o, status)}
+                            >
                               {status}
                             </option>
                           ))}
