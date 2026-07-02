@@ -16,11 +16,13 @@ export type AbandonedCheckoutRxMode =
 
 export type AbandonedCheckoutSnapshot = {
   status?: string | null;
+  payment_status?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   archived?: boolean | null;
   archived_at?: string | null;
   payment_intent_id?: string | null;
+  stripe_payment_intent_status?: string | null;
   rx?: unknown;
   rx_source?: string | null;
   rx_upload_path?: string | null;
@@ -109,6 +111,18 @@ function getRxMode(
   return "none";
 }
 
+function hasAuthorizedPayment(order: AbandonedCheckoutSnapshot): boolean {
+  const paymentStatus = order.payment_status?.trim().toLowerCase();
+  const stripeStatus = order.stripe_payment_intent_status?.trim().toLowerCase();
+
+  return (
+    paymentStatus === "authorized" ||
+    paymentStatus === "captured" ||
+    stripeStatus === "requires_capture" ||
+    stripeStatus === "succeeded"
+  );
+}
+
 export function getAbandonedCheckoutThresholdHours(
   value?: string | null,
 ): number {
@@ -136,6 +150,7 @@ export function classifyAbandonedCheckout(
     order.archived ||
     Boolean(order.archived_at) ||
     order.status !== "draft" ||
+    hasAuthorizedPayment(order) ||
     ageHours === null ||
     ageHours < thresholdHours
   ) {

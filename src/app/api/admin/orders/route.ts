@@ -128,13 +128,12 @@ function isActionableOrder(o: OrderRow): boolean {
 
   // Hard rule: fulfillment/admin action queue starts after payment intent.
   if (!o.payment_intent_id) return false;
-  if (o.status === "draft") return false;
 
   return true;
 }
 
 function fallbackPaymentStatus(order: OrderRow): PaymentStatus {
-  if (order.status === "draft" && !order.payment_intent_id) return "draft";
+  if (order.status === "draft") return "draft";
 
   if (
     order.status === "captured" ||
@@ -147,7 +146,7 @@ function fallbackPaymentStatus(order: OrderRow): PaymentStatus {
   if (order.status === "refunded") return "refunded";
   if (order.status === "cancelled") return "cancelled";
   if (order.status === "failed") return "failed";
-  return order.payment_intent_id ? "authorized" : "draft";
+  return "draft";
 }
 
 function statusFromStripeIntent(intent: Stripe.PaymentIntent): PaymentStatus {
@@ -163,6 +162,15 @@ function statusFromStripeIntent(intent: Stripe.PaymentIntent): PaymentStatus {
   if (intent.status === "succeeded") return "captured";
   if (intent.status === "requires_capture") return "authorized";
   if (intent.status === "canceled") return "cancelled";
+  if (intent.last_payment_error) return "failed";
+  if (
+    intent.status === "requires_payment_method" ||
+    intent.status === "requires_confirmation" ||
+    intent.status === "requires_action" ||
+    intent.status === "processing"
+  ) {
+    return "draft";
+  }
 
   return "failed";
 }
