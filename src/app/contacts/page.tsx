@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link"
+import { commercialContactPageList } from "@/app/contacts/_commercial/commercialPages";
 import { lenses } from "@/LensCore/data/lenses"
 import { getLensSlug, SITE_URL } from "@/lib/seo/contactSeoRoutes"
 
@@ -14,9 +15,21 @@ export const metadata: Metadata = {
 
 export default function ContactsPage() {
   return (
-    <div style={{ padding: 40 }}>
+    <div style={{ padding: 40, maxWidth: 1100 }}>
       <h1>Shop Contact Lenses</h1>
 
+      <section style={{ margin: "24px 0 36px" }}>
+        <h2>Shop by Need</h2>
+        <ul>
+          {commercialContactPageList.map((page) => (
+            <li key={page.slug}>
+              <Link href={`/contacts/${page.slug}`}>{page.h1}</Link>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <h2>All Contact Lenses</h2>
       <ul>
         {lenses.map((lens) => (
           <li key={lens.coreId}>

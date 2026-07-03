@@ -1,0 +1,250 @@
+.shell {
+  background: #0b0b0b;
+  color: #f5f5f5;
+}
+
+.hero {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 4.5rem 2rem 3rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.75rem;
+  color: rgba(221, 214, 254, 0.72);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  max-width: 760px;
+  margin: 0;
+  font-size: clamp(2.2rem, 6vw, 4.4rem);
+  line-height: 1.04;
+  letter-spacing: 0;
+}
+
+.intro {
+  max-width: 720px;
+  margin: 1.25rem 0 0;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 1.14rem;
+  line-height: 1.65;
+}
+
+.ctaRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.8rem;
+  margin-top: 0.6rem;
+}
+
+.secondaryCta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  margin-top: 1.5rem;
+  padding: 0.95rem 1.35rem;
+  border: 1px solid rgba(226, 232, 240, 0.22);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.86);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.secondaryCta:hover {
+  border-color: rgba(226, 232, 240, 0.48);
+  color: #ffffff;
+}
+
+.assuranceStrip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.8rem 1.5rem;
+  padding: 1.1rem 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.035);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.88rem;
+}
+
+.sectionStack {
+  display: grid;
+  gap: 2rem;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 3.5rem 2rem 1rem;
+}
+
+.copySection {
+  max-width: 840px;
+}
+
+.copySection h2,
+.sectionHeader h2,
+.relatedGrid h2 {
+  margin: 0 0 0.7rem;
+  font-size: 1.35rem;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.copySection p,
+.sectionHeader p {
+  max-width: 820px;
+  margin: 0.65rem 0 0;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.7;
+}
+
+.copySection ul {
+  margin: 1rem 0 0;
+  padding-left: 1.15rem;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.copySection li + li {
+  margin-top: 0.45rem;
+}
+
+.productsSection {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 3rem 2rem;
+}
+
+.sectionHeader {
+  max-width: 860px;
+  margin-bottom: 1.4rem;
+}
+
+.productGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 1rem;
+}
+
+.productCard {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 1rem;
+  min-height: 164px;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.productImageLink {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 132px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.productImage {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.productCopy {
+  min-width: 0;
+}
+
+.manufacturer {
+  margin: 0 0 0.25rem;
+  color: rgba(221, 214, 254, 0.68);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.productCopy h3 {
+  margin: 0;
+  font-size: 1.02rem;
+  line-height: 1.25;
+}
+
+.productCopy a {
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.productCopy a:hover,
+.relatedGrid a:hover {
+  text-decoration: underline;
+}
+
+.price {
+  margin: 0.55rem 0 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-weight: 750;
+}
+
+.tagRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+}
+
+.tagRow span {
+  padding: 0.28rem 0.48rem;
+  border: 1px solid rgba(226, 232, 240, 0.16);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.72rem;
+}
+
+.relatedGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 1rem 2rem 4.5rem;
+}
+
+.relatedGrid > div {
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.relatedGrid ul {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.relatedGrid a {
+  color: rgba(221, 214, 254, 0.88);
+  text-decoration: none;
+}
+
+@media (max-width: 720px) {
+  .hero {
+    padding-top: 3rem;
+  }
+
+  .productCard,
+  .relatedGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .productImageLink {
+    min-height: 150px;
+  }
+}

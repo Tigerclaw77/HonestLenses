@@ -1,4 +1,5 @@
 import { MetadataRoute } from "next";
+import { commercialContactPageList } from "@/app/contacts/_commercial/commercialPages";
 import { lenses } from "@/LensCore/data/lenses";
 import {
   getConditionRoutes,
@@ -58,6 +59,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.65,
   }));
 
+  const commercialContactPages: MetadataRoute.Sitemap =
+    commercialContactPageList.map((page) => ({
+      url: page.canonicalUrl,
+      lastModified: new Date(),
+      changeFrequency: "weekly",
+      priority: 0.75,
+    }));
+
   const parameterPages: MetadataRoute.Sitemap = lenses.map((lens) => ({
     url: `${SITE_URL}/contacts/${getLensSlug(lens)}/parameters`,
     lastModified: new Date(),
@@ -102,6 +111,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return [
     ...staticPages,
     ...lensPages,
+    ...commercialContactPages,
     ...guidePages,
     ...parameterPages,
     ...alternativePages,
