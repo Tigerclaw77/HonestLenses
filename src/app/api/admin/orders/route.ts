@@ -44,6 +44,8 @@ type OrderRow = {
   id: string;
   created_at: string;
   updated_at?: string | null;
+  lastOperationalActivityAt?: string | null;
+  lastOperationalActivityReason?: string | null;
   user_id?: string | null;
   status?: string;
   verification_status?: string | null;
@@ -66,6 +68,10 @@ type OrderRow = {
   capture_adjustment_reason?: string | null;
   capture_adjusted_by?: string | null;
   capture_adjusted_at?: string | null;
+  order_quantity_adjusted_at?: string | null;
+  verification_details_submitted_at?: string | null;
+  verification_sent_at?: string | null;
+  verification_completed_at?: string | null;
   shipping_cents?: number | null;
   shipping_method?: string | null;
   archived?: boolean | null;
@@ -89,6 +95,11 @@ type PaymentStatus =
   | "refunded"
   | "cancelled"
   | "failed";
+
+type OperationalActivityCandidate = {
+  at?: string | null;
+  reason: string;
+};
 
 /* =========================
    Helpers
@@ -171,23 +182,100 @@ function statusFromStripeIntent(intent: Stripe.PaymentIntent): PaymentStatus {
   return "failed";
 }
 
+function isoFromStripeSeconds(value?: number | null): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+
+  return new Date(value * 1000).toISOString();
+}
+
+function getStripePaymentActivity(
+  intent: Stripe.PaymentIntent,
+): OperationalActivityCandidate | null {
+  const latestCharge = intent.latest_charge;
+  const charge =
+    latestCharge && typeof latestCharge !== "string" ? latestCharge : null;
+  const at = isoFromStripeSeconds(charge?.created ?? intent.created);
+  if (!at) return null;
+
+  if (intent.status === "succeeded") {
+    return { at, reason: "Payment captured" };
+  }
+
+  if (intent.status === "requires_capture") {
+    return { at, reason: "Payment authorized" };
+  }
+
+  if (intent.status === "canceled") {
+    return { at, reason: "Payment cancelled" };
+  }
+
+  return { at, reason: "Payment updated" };
+}
+
+function getTimestamp(value?: string | null): number {
+  const parsed = Date.parse(value ?? "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function latestOperationalActivity(
+  order: OrderRow,
+  stripeActivity?: OperationalActivityCandidate | null,
+): OperationalActivityCandidate | null {
+  const candidates: OperationalActivityCandidate[] = [
+    stripeActivity ?? undefined,
+    { at: order.verification_completed_at, reason: "Verification completed" },
+    {
+      at: order.verification_details_submitted_at,
+      reason: "Verification details submitted",
+    },
+    { at: order.verification_sent_at, reason: "Verification requested" },
+    { at: order.capture_adjusted_at, reason: "Capture amount adjusted" },
+    { at: order.order_quantity_adjusted_at, reason: "Order quantity adjusted" },
+    { at: order.archived_at, reason: "Archived" },
+    { at: order.updated_at, reason: "Order updated" },
+    { at: order.created_at, reason: "Started" },
+  ].filter((candidate): candidate is OperationalActivityCandidate =>
+    Boolean(candidate?.at && getTimestamp(candidate.at) > 0),
+  );
+
+  return (
+    candidates.sort((a, b) => getTimestamp(b.at) - getTimestamp(a.at))[0] ??
+    null
+  );
+}
+
+function withOperationalActivity(
+  order: OrderRow,
+  stripeActivity?: OperationalActivityCandidate | null,
+): OrderRow {
+  const activity = latestOperationalActivity(order, stripeActivity);
+
+  return {
+    ...order,
+    lastOperationalActivityAt: activity?.at ?? null,
+    lastOperationalActivityReason: activity?.reason ?? null,
+  };
+}
+
 async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
   if (!order.payment_intent_id) {
-    return {
+    return withOperationalActivity({
       ...order,
       payment_status: fallbackPaymentStatus(order),
       stripe_payment_intent_status: null,
       payment_status_source: "missing_intent",
-    };
+    });
   }
 
   if (!stripe) {
-    return {
+    return withOperationalActivity({
       ...order,
       payment_status: fallbackPaymentStatus(order),
       stripe_payment_intent_status: null,
       payment_status_source: "order_fallback",
-    };
+    });
   }
 
   try {
@@ -195,12 +283,12 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       expand: ["latest_charge"],
     });
 
-    return {
+    return withOperationalActivity({
       ...order,
       payment_status: statusFromStripeIntent(intent),
       stripe_payment_intent_status: intent.status,
       payment_status_source: "stripe",
-    };
+    }, getStripePaymentActivity(intent));
   } catch (err) {
     console.error("Admin payment status fetch failed:", {
       orderId: order.id,
@@ -208,12 +296,12 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       error: err,
     });
 
-    return {
+    return withOperationalActivity({
       ...order,
       payment_status: fallbackPaymentStatus(order),
       stripe_payment_intent_status: null,
       payment_status_source: "order_fallback",
-    };
+    });
   }
 }
 

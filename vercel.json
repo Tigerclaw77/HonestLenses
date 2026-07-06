@@ -1,1 +1,8 @@
-{}
+{
+  "crons": [
+    {
+      "path": "/api/cron/payment-authorization-expiration",
+      "schedule": "0 14 * * *"
+    }
+  ]
+}

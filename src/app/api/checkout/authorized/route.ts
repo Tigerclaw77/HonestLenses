@@ -215,6 +215,7 @@ export async function POST(req: Request) {
   const updatePayload: Record<string, unknown> = {
     status: isUploaded ? "captured" : "authorized",
     verification_status: isUploaded ? "auto_verified" : "pending",
+    updated_at: new Date().toISOString(),
   };
 
   const { data: updatedRows, error: updateError } = await supabaseServer
