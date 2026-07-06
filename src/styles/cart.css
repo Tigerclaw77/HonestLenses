@@ -5,8 +5,8 @@
 .hl-cart {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  padding: 1.75rem;
+  gap: 0.95rem;
+  padding: 1.35rem;
 }
 
 /* =========================
@@ -16,21 +16,63 @@
 .hl-eye {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.75rem 0;
+  gap: 0.45rem;
+  padding: 0.25rem 0;
 }
 
 .hl-eye-label {
   text-transform: uppercase;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  font-size: 0.72rem;
+  line-height: 1;
   opacity: 0.75;
+}
+
+.hl-eye-lens-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  flex-wrap: wrap;
 }
 
 .hl-eye-lens {
   font-size: 1.05rem;
   font-weight: 500;
+  line-height: 1.2;
+}
+
+.hl-eye-lens-action {
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.hl-pack-size-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: rgba(196, 181, 253, 0.78);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.hl-pack-size-link:hover:not(:disabled) {
+  color: #ddd6fe;
+}
+
+.hl-pack-size-link:focus-visible {
+  outline: 2px solid rgba(196, 181, 253, 0.86);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.hl-pack-size-link:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 /* =========================
@@ -40,34 +82,37 @@
 .hl-rx-block {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  margin-top: 0.25rem;
+  gap: 0.25rem;
+  margin-top: 0;
 }
 
 /* Base Rx row: SPH / CYL / AXIS */
 .hl-rx-row {
   display: flex;
-  gap: 1.25rem;
-  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: baseline;
 }
 
 /* Individual Rx columns */
 .hl-rx-col {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: 60px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  min-width: auto;
 }
 
 .hl-rx-label {
   font-size: 0.65rem;
-  letter-spacing: 0.12em;
+  line-height: 1;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   opacity: 0.6;
 }
 
 .hl-rx-value {
-  font-size: 1.05rem;
+  font-size: 0.9rem;
+  line-height: 1.15;
   font-weight: 500;
   letter-spacing: 0.01em;
 }
@@ -75,20 +120,22 @@
 /* ADD power — visually distinct */
 .hl-rx-add {
   display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  margin-top: 0.15rem;
+  gap: 0.25rem;
+  align-items: baseline;
+  margin-top: 0;
 }
 
 .hl-rx-add-label {
   font-size: 0.65rem;
-  letter-spacing: 0.12em;
+  line-height: 1;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   opacity: 0.6;
 }
 
 .hl-rx-add-value {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
+  line-height: 1.15;
   font-weight: 500;
 }
 
@@ -100,12 +147,13 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin-top: 0.4rem;
+  margin-top: 0.1rem;
   margin-left: auto;
 }
 
 .hl-eye-price {
   font-size: 0.85rem;
+  line-height: 1.2;
   min-width: 80px;
   opacity: 0.7;
   text-align: right;
@@ -115,13 +163,15 @@
   background: #f1f1f1;
   color: #000;
   border-radius: 6px;
-  padding: 0.3rem 0.5rem;
+  min-height: 34px;
+  padding: 0.22rem 0.5rem;
   font-size: 0.9rem;
 }
 
 .hl-eye-total {
   min-width: 70px;
   text-align: right;
+  margin-top: 0.1rem;
   font-weight: 600;
   opacity: 0.7;
 }
@@ -131,7 +181,7 @@
 ========================= */
 
 .hl-divider {
-  margin: 1.25rem 0;
+  margin: 0.65rem 0;
   border: none;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
@@ -141,7 +191,7 @@
 ========================= */
 
 .hl-summary {
-  margin-top: 1rem;
+  margin-top: 0.55rem;
 }
 
 .hl-summary-row {
@@ -174,13 +224,16 @@
 }
 
 .hl-rx-color {
-  margin-top: 6px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  margin-top: 0;
   font-size: 0.9rem;
   color: #ccc;
 }
 
 .hl-rx-color-label {
-  margin-right: 6px;
+  margin-right: 0;
   opacity: 0.8;
 }
 
@@ -190,7 +243,7 @@
 
 @media (min-width: 900px) {
   .hl-rx-row {
-    gap: 1.75rem;
+    gap: 0.7rem;
   }
 
   .hl-eye-price {

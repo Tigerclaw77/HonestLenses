@@ -15,6 +15,7 @@ import {
   validate as validateLensParams,
 } from "@/LensCore";
 import { getColorOptions } from "../../../../../data/lensColors";
+import { getSkuBoxDurationMonths } from "../../../../../lib/pricing/skuDefaults";
 
 /* =========================
    Types
@@ -139,6 +140,21 @@ function isVerifiedLike(v: unknown): boolean {
   return v === "verified" || v === "ocr_verified";
 }
 
+function convertBoxCountForSku(
+  value: number | null | undefined,
+  fromSku: string,
+  toSku: string,
+): number | null {
+  if (typeof value !== "number") return null;
+  if (value <= 0) return 0;
+
+  const fromMonths = getSkuBoxDurationMonths(fromSku);
+  const toMonths = getSkuBoxDurationMonths(toSku);
+  if (toMonths <= 0) return null;
+
+  return Math.max(1, Math.round(value * (fromMonths / toMonths)));
+}
+
 /* =========================
    POST /api/orders/:id/rx
 ========================= */
@@ -222,7 +238,19 @@ export async function POST(
 
   const { data: order, error: orderError } = await supabaseServer
     .from("orders")
-    .select("id, user_id, status, verification_status, rx_source, rx_upload_path")
+    .select(
+      `
+      id,
+      user_id,
+      status,
+      verification_status,
+      rx_source,
+      rx_upload_path,
+      sku,
+      right_box_count,
+      left_box_count
+    `,
+    )
     .eq("id", orderId)
     .single();
 
@@ -264,6 +292,24 @@ export async function POST(
     right: rightResult.eye,
     left: leftResult.eye,
   };
+  let skuChanged = false;
+  let convertedRight: number | null | undefined;
+  let convertedLeft: number | null | undefined;
+
+  if (typeof order.sku === "string" && typeof sku === "string" && order.sku !== sku) {
+    skuChanged = true;
+    convertedRight = sanitizedRx.right
+      ? convertBoxCountForSku(order.right_box_count, order.sku, sku)
+      : undefined;
+    convertedLeft = sanitizedRx.left
+      ? convertBoxCountForSku(order.left_box_count, order.sku, sku)
+      : undefined;
+  }
+
+  const convertedTotal =
+    skuChanged && (convertedRight !== undefined || convertedLeft !== undefined)
+      ? (convertedRight ?? 0) + (convertedLeft ?? 0)
+      : undefined;
 
   /* =========================
      8️⃣ FINAL VERIFICATION STATUS
@@ -309,6 +355,12 @@ export async function POST(
       patient_name,
       prescriber_name,
       prescriber_phone,
+      ...(skuChanged && {
+        right_box_count: sanitizedRx.right ? convertedRight : null,
+        left_box_count: sanitizedRx.left ? convertedLeft : null,
+        box_count: convertedTotal,
+        total_box_count: convertedTotal,
+      }),
     })
     .eq("id", orderId)
     .eq("status", order.status);

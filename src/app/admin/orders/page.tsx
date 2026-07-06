@@ -11,6 +11,11 @@ import {
   getVerificationState,
   type PaymentLifecycleStatus,
 } from "@/lib/orders/getNextAction";
+import {
+  classifyOperationalQueue,
+  isMerchantQueueBucket,
+  type OperationalQueueBucket,
+} from "@/lib/orders/operationalQueue";
 
 /* =========================
    Types
@@ -163,11 +168,6 @@ type BadgeTone =
   | "capture"
   | "refund";
 
-type OrderOperationalBucket =
-  | "action_required"
-  | "active_fulfillment"
-  | "history_archive";
-
 type NotesModalState = {
   orderId: string;
   patientName: string;
@@ -254,6 +254,11 @@ type AdminApiPayload = {
   error?: string;
   code?: string;
   order?: Order;
+  action_required?: Order[];
+  active_fulfillment?: Order[];
+  verification_pending?: Order[];
+  customer_blocked?: Order[];
+  draft_or_test?: Order[];
   needsAction?: Order[];
   stalled?: Order[];
   pipeline?: Order[];
@@ -282,7 +287,6 @@ const FULFILLMENT_PROGRESS_FLOW: FulfillmentStatus[] = [
 
 const HIGHLIGHT_MS = 120_000;
 const RECENT_SHIPPED_DAYS = 7;
-const STALE_INACTIVE_DAYS = 7;
 const RECENT_ACTIVITY_DAYS = 7;
 const MATERIAL_ACTIVITY_DIFF_MS = 5 * 60 * 1000;
 
@@ -675,14 +679,6 @@ function normalizedPaymentStatus(order: Order): PaymentStatus {
   return getPaymentState(order).status;
 }
 
-function orderVerificationComplete(order: Order): boolean {
-  return getVerificationState(order).complete;
-}
-
-function orderVerificationBlocked(order: Order): boolean {
-  return getVerificationState(order).blocked;
-}
-
 function compareOperationalPriority(a: Order, b: Order): number {
   return getOperationalSortTimestamp(b) - getOperationalSortTimestamp(a);
 }
@@ -704,10 +700,6 @@ function displayRxStatus(order: Order): string {
   }
 
   return "Prescription Information Missing";
-}
-
-function orderHasRx(order: Order): boolean {
-  return getRxSourceState(order).hasRxEvidence;
 }
 
 function paymentTone(status: PaymentStatus): BadgeTone {
@@ -748,11 +740,6 @@ function fulfillmentTone(status: FulfillmentStatus): BadgeTone {
   return "neutral";
 }
 
-function isOperationallyComplete(order: Order): boolean {
-  const fulfillment = normalizedFulfillmentStatus(order);
-  return fulfillment === "shipped" || fulfillment === "completed";
-}
-
 function getVerificationStatus(order: Order): {
   complete: boolean;
   blocked: boolean;
@@ -767,42 +754,6 @@ function getVerificationStatus(order: Order): {
     label: summary.label,
     tone: summary.tone,
   };
-}
-
-function getActionability(order: Order): {
-  actionable: boolean;
-  reasons: string[];
-} {
-  if (isOperationallyComplete(order)) {
-    return { actionable: false, reasons: [] };
-  }
-
-  const reasons: string[] = [];
-  const payment = normalizedPaymentStatus(order);
-  const fulfillment = normalizedFulfillmentStatus(order);
-
-  if (fulfillment === "hold") reasons.push("hold");
-  if (
-    payment === "failed" ||
-    payment === "refunded" ||
-    payment === "cancelled"
-  ) {
-    reasons.push(payment);
-  }
-  if (payment !== "captured") reasons.push("capture");
-  if (orderVerificationBlocked(order)) reasons.push("verification blocked");
-  if (!orderHasRx(order)) reasons.push("rx missing");
-  if (!orderVerificationComplete(order)) reasons.push("verification");
-  if (
-    order.shipping_method === "express" &&
-    fulfillment !== "ordered" &&
-    fulfillment !== "shipped" &&
-    fulfillment !== "completed"
-  ) {
-    reasons.push("express");
-  }
-
-  return { actionable: reasons.length > 0, reasons };
 }
 
 function paymentCaptureSummary(order: Order): { label: string; tone: BadgeTone } {
@@ -847,28 +798,6 @@ function workflowActionLabel(
   return `Advance to ${labelizeStatus(next)}`;
 }
 
-function orderActivityTime(order: Order): number {
-  return getOperationalSortTimestamp(order);
-}
-
-function isWithinDays(order: Order, days: number): boolean {
-  const activityTime = orderActivityTime(order);
-  if (!activityTime) return false;
-
-  return Date.now() - activityTime <= days * 24 * 60 * 60 * 1000;
-}
-
-function isRecentlyShipped(order: Order): boolean {
-  return (
-    normalizedFulfillmentStatus(order) === "shipped" &&
-    isWithinDays(order, RECENT_SHIPPED_DAYS)
-  );
-}
-
-function isOperatorArchived(order: Order): boolean {
-  return Boolean(order.archived || order.archived_at);
-}
-
 function canPermanentlyDelete(order: Order): boolean {
   return Boolean(
     order.abandoned_checkout?.isAbandoned &&
@@ -877,37 +806,10 @@ function canPermanentlyDelete(order: Order): boolean {
   );
 }
 
-function isActionRequired(order: Order): boolean {
-  return getActionability(order).actionable;
-}
-
-function isArchiveOrder(order: Order): boolean {
-  const fulfillment = normalizedFulfillmentStatus(order);
-  const payment = normalizedPaymentStatus(order);
-
-  if (order.abandoned_checkout?.isAbandoned) return true;
-  if (isOperatorArchived(order)) {
-    if (order.status === "draft" || !order.payment_intent_id) return true;
-    return !getActionability(order).actionable;
-  }
-  if (fulfillment === "completed" || fulfillment === "cancelled") return true;
-  if (fulfillment === "shipped") return !isRecentlyShipped(order);
-  if (
-    (payment === "failed" ||
-      payment === "refunded" ||
-      payment === "cancelled") &&
-    !isWithinDays(order, STALE_INACTIVE_DAYS)
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-function getOrderOperationalBucket(order: Order): OrderOperationalBucket {
-  if (isArchiveOrder(order)) return "history_archive";
-  if (isActionRequired(order)) return "action_required";
-  return "active_fulfillment";
+function getOrderOperationalBucket(order: Order): OperationalQueueBucket {
+  return classifyOperationalQueue(order, {
+    recentShippedDays: RECENT_SHIPPED_DAYS,
+  }).bucket;
 }
 
 function shouldDefaultCollapse(order: Order): boolean {
@@ -1948,18 +1850,32 @@ export default function AdminOrdersPage() {
 
     setAdminError(null);
 
-    const activeOrders: Order[] = [
-      ...(json.needsAction ?? []),
-      ...(json.stalled ?? []),
-      ...(json.pipeline ?? []),
-    ];
+    const hasQueueGroups =
+      json.action_required !== undefined ||
+      json.active_fulfillment !== undefined ||
+      json.verification_pending !== undefined ||
+      json.customer_blocked !== undefined ||
+      json.draft_or_test !== undefined;
+    const activeOrders: Order[] = hasQueueGroups
+      ? [
+          ...(json.action_required ?? []),
+          ...(json.active_fulfillment ?? []),
+          ...(json.verification_pending ?? []),
+          ...(json.customer_blocked ?? []),
+          ...(json.draft_or_test ?? []),
+        ]
+      : [
+          ...(json.needsAction ?? []),
+          ...(json.stalled ?? []),
+          ...(json.pipeline ?? []),
+        ];
     const hiddenIds = optimisticallyHiddenOrderIds.current;
     const combined: Order[] = [...activeOrders, ...(json.archive ?? [])].filter(
       (order) => !hiddenIds.has(order.id),
     );
-    const abandoned: Order[] = (json.abandoned ?? []).filter(
-      (order) => !hiddenIds.has(order.id),
-    );
+    const abandoned: Order[] = hasQueueGroups
+      ? []
+      : (json.abandoned ?? []).filter((order) => !hiddenIds.has(order.id));
 
     const paymentIntentOrders = activeOrders.filter(isNewPaymentIntentOrder);
 
@@ -2767,6 +2683,15 @@ export default function AdminOrdersPage() {
   const activeFulfillmentOrders = orders.filter(
     (order) => getOrderOperationalBucket(order) === "active_fulfillment",
   );
+  const verificationPendingOrders = orders.filter(
+    (order) => getOrderOperationalBucket(order) === "verification_pending",
+  );
+  const customerBlockedOrders = orders.filter(
+    (order) => getOrderOperationalBucket(order) === "customer_blocked",
+  );
+  const draftOrTestOrders = orders.filter(
+    (order) => getOrderOperationalBucket(order) === "draft_or_test",
+  );
   const archiveOrders = orders.filter(shouldDefaultCollapse).sort(archiveSort);
   const sortSectionOrders = (sectionOrders: Order[]) =>
     [...sectionOrders].sort((a, b) => {
@@ -2776,7 +2701,7 @@ export default function AdminOrdersPage() {
       return getOperationalSortTimestamp(b) - getOperationalSortTimestamp(a);
     });
   const activeOrderSections: {
-    key: Exclude<OrderOperationalBucket, "history_archive">;
+    key: Exclude<OperationalQueueBucket, "history_archive">;
     title: string;
     description: string;
     orders: Order[];
@@ -2784,14 +2709,34 @@ export default function AdminOrdersPage() {
     {
       key: "action_required",
       title: "Action Required",
-      description: "Payment, Rx, verification, blocked, or express handling.",
+      description: "Operator can take a useful action now.",
       orders: sortSectionOrders(actionRequiredOrders),
     },
     {
       key: "active_fulfillment",
       title: "Active Fulfillment",
-      description: "Ready, ordered, and recent shipped work still in the operator lane.",
+      description: "Paid or authorized orders ready to capture, order, ship, or finish.",
       orders: sortSectionOrders(activeFulfillmentOrders),
+    },
+    {
+      key: "verification_pending",
+      title: "Verification Pending",
+      description:
+        "Paid or authorized orders waiting on doctor, passive verification, or customer Rx correction.",
+      orders: sortSectionOrders(verificationPendingOrders),
+    },
+    {
+      key: "customer_blocked",
+      title: "Customer Blocked / Abandoned",
+      description:
+        "Checkout/payment or customer-side step incomplete. Not merchant-actionable unless the customer returns.",
+      orders: sortSectionOrders(customerBlockedOrders),
+    },
+    {
+      key: "draft_or_test",
+      title: "Draft/Test/Internal",
+      description: "Internal, test, or experiment rows excluded from the work queue.",
+      orders: sortSectionOrders(draftOrTestOrders),
     },
   ];
   const archiveCount = archiveOrders.length + abandonedOrders.length;
@@ -2939,9 +2884,15 @@ export default function AdminOrdersPage() {
           const rxLines = formatCollapsedRxLine(o);
           const lensDisplay = getOrderLensDisplayName(o);
           const nextAction = getNextAction(o);
+          const queueBucket = getOrderOperationalBucket(o);
+          const isMerchantLane = isMerchantQueueBucket(queueBucket);
           const isHighlighted = highlightedOrderIds.has(o.id);
-          const nextFulfillment = nextFulfillmentStatus(fulfillment);
-          const previousFulfillment = previousFulfillmentStatus(fulfillment);
+          const nextFulfillment = isMerchantLane
+            ? nextFulfillmentStatus(fulfillment)
+            : null;
+          const previousFulfillment = isMerchantLane
+            ? previousFulfillmentStatus(fulfillment)
+            : null;
 
           const patientName = getPatientName(o);
           const customerName = getCustomerName(o);
@@ -3346,25 +3297,29 @@ export default function AdminOrdersPage() {
                     </div>
                   </div>
 
-                  <OrderQuantityAdjustmentPanel
-                    order={o}
-                    onAdjust={() =>
-                      openOrderQuantityAdjustment(
-                        o,
-                        customerName,
-                      )
-                    }
-                  />
+                  {isMerchantLane && (
+                    <>
+                      <OrderQuantityAdjustmentPanel
+                        order={o}
+                        onAdjust={() =>
+                          openOrderQuantityAdjustment(
+                            o,
+                            customerName,
+                          )
+                        }
+                      />
 
-                  <PaymentAdjustmentPanel
-                    order={o}
-                    onAdjust={() =>
-                      openCaptureAdjustment(
-                        o,
-                        customerName,
-                      )
-                    }
-                  />
+                      <PaymentAdjustmentPanel
+                        order={o}
+                        onAdjust={() =>
+                          openCaptureAdjustment(
+                            o,
+                            customerName,
+                          )
+                        }
+                      />
+                    </>
+                  )}
 
                   {o.rx_upload_path && (
                     <div style={{ ...mutedPanelStyle(), marginBottom: 12 }}>
@@ -3388,100 +3343,102 @@ export default function AdminOrdersPage() {
 
                   <RxDetailsPanel order={o} />
 
-                  <div
-                    style={{
-                      ...mutedPanelStyle(),
-                      display: "grid",
-                      gap: 10,
-                      marginBottom: 12,
-                    }}
-                  >
+                  {isMerchantLane && (
                     <div
                       style={{
-                        display: "flex",
-                        gap: 8,
-                        alignItems: "center",
-                        flexWrap: "wrap",
+                        ...mutedPanelStyle(),
+                        display: "grid",
+                        gap: 10,
+                        marginBottom: 12,
                       }}
                     >
-                      {previousFulfillment && (
-                        <button
-                          type="button"
-                          disabled={savingOrderId === o.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            updateFulfillmentStatus(o.id, previousFulfillment);
-                          }}
-                          style={buttonStyle()}
-                        >
-                          Undo to {labelizeStatus(previousFulfillment)}
-                        </button>
-                      )}
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        {previousFulfillment && (
+                          <button
+                            type="button"
+                            disabled={savingOrderId === o.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updateFulfillmentStatus(o.id, previousFulfillment);
+                            }}
+                            style={buttonStyle()}
+                          >
+                            Undo to {labelizeStatus(previousFulfillment)}
+                          </button>
+                        )}
 
-                      {nextFulfillment && (
-                        <button
-                          type="button"
-                          disabled={savingOrderId === o.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            updateFulfillmentStatus(o.id, nextFulfillment);
-                          }}
-                          style={buttonStyle({
-                            background: "rgba(20,184,166,0.22)",
-                          })}
-                        >
-                          {workflowActionLabel(fulfillment, nextFulfillment)}
-                        </button>
-                      )}
+                        {nextFulfillment && (
+                          <button
+                            type="button"
+                            disabled={savingOrderId === o.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updateFulfillmentStatus(o.id, nextFulfillment);
+                            }}
+                            style={buttonStyle({
+                              background: "rgba(20,184,166,0.22)",
+                            })}
+                          >
+                            {workflowActionLabel(fulfillment, nextFulfillment)}
+                          </button>
+                        )}
 
-                      {fulfillment === "completed" && orderSupportsAdminNotes(o) && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startReturnRefund(
-                              o,
-                              customerName,
-                            );
-                          }}
-                          style={buttonStyle({
-                            background: "rgba(236,72,153,0.18)",
-                          })}
-                        >
-                          Start Return / Refund
-                        </button>
-                      )}
+                        {fulfillment === "completed" && orderSupportsAdminNotes(o) && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startReturnRefund(
+                                o,
+                                customerName,
+                              );
+                            }}
+                            style={buttonStyle({
+                              background: "rgba(236,72,153,0.18)",
+                            })}
+                          >
+                            Start Return / Refund
+                          </button>
+                        )}
 
-                      <label style={{ fontWeight: 700 }}>
-                        Advanced override
-                        <select
-                          value={fulfillment}
-                          disabled={savingOrderId === o.id}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            const next = e.target.value;
-                            if (isFulfillmentStatus(next)) {
-                              updateFulfillmentStatus(o.id, next);
-                            }
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          style={{
-                            marginLeft: 8,
-                            padding: "4px 8px",
-                            borderRadius: 4,
-                          }}
-                        >
-                          {FULFILLMENT_STATUSES.map((status) => (
-                            <option key={status} value={status}>
-                              {status}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                        <label style={{ fontWeight: 700 }}>
+                          Advanced override
+                          <select
+                            value={fulfillment}
+                            disabled={savingOrderId === o.id}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              const next = e.target.value;
+                              if (isFulfillmentStatus(next)) {
+                                updateFulfillmentStatus(o.id, next);
+                              }
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              marginLeft: 8,
+                              padding: "4px 8px",
+                              borderRadius: 4,
+                            }}
+                          >
+                            {FULFILLMENT_STATUSES.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
 
-                      {savingOrderId === o.id && <span>Saving...</span>}
+                        {savingOrderId === o.id && <span>Saving...</span>}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
                     {orderSupportsAdminNotes(o) && (
@@ -3535,8 +3492,8 @@ export default function AdminOrdersPage() {
           History / Archive ({archiveCount})
         </h2>
         <p style={{ marginTop: 0, opacity: 0.72, fontSize: 13 }}>
-          Shipped, completed, cancelled, abandoned, and stale inactive orders are
-          compressed by default.
+          Shipped, completed, cancelled, refunded, and manually archived orders
+          are compressed by default.
         </p>
         {archiveCount === 0 ? (
           <div style={{ ...mutedPanelStyle(), opacity: 0.72 }}>

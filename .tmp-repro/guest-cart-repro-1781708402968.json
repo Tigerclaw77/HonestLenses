@@ -1,0 +1,367 @@
+{
+  "startedAt": "2026-06-17T14:59:57.382Z",
+  "targetUrl": "https://honestlenses.com/enter-prescription?right=OASYS_MAX_1D&left=OASYS_MAX_1D",
+  "requests": [
+    {
+      "requestId": "50392.70",
+      "type": "Fetch",
+      "timestamp": 255263.585172,
+      "documentURL": "https://honestlenses.com/enter-prescription?right=OASYS_MAX_1D&left=OASYS_MAX_1D",
+      "method": "GET",
+      "url": "https://honestlenses.com/api/cart",
+      "postData": null,
+      "requestHeaders": {
+        "sec-ch-ua-platform": "\"Windows\"",
+        "Referer": "https://honestlenses.com/enter-prescription?right=OASYS_MAX_1D&left=OASYS_MAX_1D",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+        "sec-ch-ua-mobile": "?0"
+      },
+      "status": 200,
+      "responseHeaders": {
+        "strict-transport-security": "max-age=63072000",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-encoding": "br",
+        "x-vercel-cache": "MISS",
+        "age": "0",
+        "x-matched-path": "/api/cart",
+        "date": "Wed, 17 Jun 2026 14:59:57 GMT",
+        "content-type": "application/json",
+        "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+        "server": "Vercel",
+        "x-vercel-id": "cle1::iad1::mk4wz-1781708397483-d180e208fc28"
+      },
+      "responseBody": "{\"hasCart\":false,\"order\":null}",
+      "responseBodyError": null,
+      "responseUrl": "https://honestlenses.com/api/cart"
+    },
+    {
+      "requestId": "50392.71",
+      "type": "Fetch",
+      "timestamp": 255263.816384,
+      "documentURL": "https://honestlenses.com/enter-prescription?right=OASYS_MAX_1D&left=OASYS_MAX_1D",
+      "method": "POST",
+      "url": "https://honestlenses.com/api/orders",
+      "postData": null,
+      "requestHeaders": {
+        "sec-ch-ua-platform": "\"Windows\"",
+        "Referer": "https://honestlenses.com/enter-prescription?right=OASYS_MAX_1D&left=OASYS_MAX_1D",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+        "sec-ch-ua-mobile": "?0"
+      },
+      "status": 200,
+      "responseHeaders": {
+        "strict-transport-security": "max-age=63072000",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-encoding": "br",
+        "x-vercel-cache": "MISS",
+        "x-matched-path": "/api/orders",
+        "date": "Wed, 17 Jun 2026 14:59:58 GMT",
+        "content-type": "application/json",
+        "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+        "server": "Vercel",
+        "x-vercel-id": "cle1::iad1::bl8rk-1781708397565-a2b5f4c9f461"
+      },
+      "responseBody": "{\"orderId\":\"d6dd7eb4-44b4-4d4e-8fc5-094bffd36244\"}",
+      "responseBodyError": null,
+      "responseUrl": "https://honestlenses.com/api/orders"
+    },
+    {
+      "requestId": "50392.72",
+      "type": "Fetch",
+      "timestamp": 255264.351214,
+      "documentURL": "https://honestlenses.com/enter-prescription?right=OASYS_MAX_1D&left=OASYS_MAX_1D",
+      "method": "POST",
+      "url": "https://honestlenses.com/api/orders/d6dd7eb4-44b4-4d4e-8fc5-094bffd36244/rx",
+      "postData": "{\"expires\":\"2027-12-31\",\"verification_status\":\"auto_verified\",\"right\":{\"coreId\":\"OASYS_MAX_1D\",\"sphere\":-1,\"base_curve\":8.5},\"left\":{\"coreId\":\"OASYS_MAX_1D\",\"sphere\":-1,\"base_curve\":8.5}}",
+      "requestHeaders": {
+        "sec-ch-ua-platform": "\"Windows\"",
+        "Referer": "https://honestlenses.com/enter-prescription?right=OASYS_MAX_1D&left=OASYS_MAX_1D",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+        "Content-Type": "application/json",
+        "sec-ch-ua-mobile": "?0"
+      },
+      "status": 200,
+      "responseHeaders": {
+        "strict-transport-security": "max-age=63072000",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-encoding": "br",
+        "x-vercel-cache": "MISS",
+        "x-matched-path": "/api/orders/[id]/rx",
+        "date": "Wed, 17 Jun 2026 14:59:58 GMT",
+        "content-type": "application/json",
+        "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+        "server": "Vercel",
+        "x-vercel-id": "cle1::iad1::p5v6z-1781708398100-13577ed0b2a1"
+      },
+      "responseBody": "{\"ok\":true,\"orderId\":\"d6dd7eb4-44b4-4d4e-8fc5-094bffd36244\",\"sku\":\"OASYS_MAX_1D_90\",\"verification_status\":\"auto_verified\"}",
+      "responseBodyError": null,
+      "responseUrl": "https://honestlenses.com/api/orders/d6dd7eb4-44b4-4d4e-8fc5-094bffd36244/rx"
+    },
+    {
+      "requestId": "50392.73",
+      "type": "Fetch",
+      "timestamp": 255264.539668,
+      "documentURL": "https://honestlenses.com/enter-prescription?right=OASYS_MAX_1D&left=OASYS_MAX_1D",
+      "method": "POST",
+      "url": "https://honestlenses.com/api/cart/resolve",
+      "postData": "{\"order_id\":\"d6dd7eb4-44b4-4d4e-8fc5-094bffd36244\"}",
+      "requestHeaders": {
+        "sec-ch-ua-platform": "\"Windows\"",
+        "Referer": "https://honestlenses.com/enter-prescription?right=OASYS_MAX_1D&left=OASYS_MAX_1D",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+        "Content-Type": "application/json",
+        "sec-ch-ua-mobile": "?0"
+      },
+      "status": 200,
+      "responseHeaders": {
+        "strict-transport-security": "max-age=63072000",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-encoding": "br",
+        "x-vercel-cache": "MISS",
+        "x-matched-path": "/api/cart/resolve",
+        "date": "Wed, 17 Jun 2026 14:59:58 GMT",
+        "content-type": "application/json",
+        "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+        "server": "Vercel",
+        "x-vercel-id": "cle1::iad1::kxvhz-1781708398288-d2110276c90e"
+      },
+      "responseBody": "{\"ok\":true,\"orderId\":\"d6dd7eb4-44b4-4d4e-8fc5-094bffd36244\"}",
+      "responseBodyError": null,
+      "responseUrl": "https://honestlenses.com/api/cart/resolve"
+    },
+    {
+      "requestId": "50392.76",
+      "type": "Fetch",
+      "timestamp": 255264.721986,
+      "documentURL": "https://honestlenses.com/cart",
+      "method": "GET",
+      "url": "https://honestlenses.com/api/cart/has-items",
+      "postData": null,
+      "requestHeaders": {
+        "sec-ch-ua-platform": "\"Windows\"",
+        "Referer": "https://honestlenses.com/cart",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+        "sec-ch-ua-mobile": "?0"
+      },
+      "status": 200,
+      "responseHeaders": {
+        "strict-transport-security": "max-age=63072000",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-encoding": "br",
+        "x-vercel-cache": "MISS",
+        "age": "0",
+        "x-matched-path": "/api/cart/has-items",
+        "date": "Wed, 17 Jun 2026 14:59:58 GMT",
+        "content-type": "application/json",
+        "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+        "server": "Vercel",
+        "x-vercel-id": "cle1::iad1::qjg92-1781708398476-ef7e218f2de5"
+      },
+      "responseBody": "{\"hasItems\":true}",
+      "responseBodyError": null,
+      "responseUrl": "https://honestlenses.com/api/cart/has-items"
+    },
+    {
+      "requestId": "50392.77",
+      "type": "Fetch",
+      "timestamp": 255264.723099,
+      "documentURL": "https://honestlenses.com/cart",
+      "method": "GET",
+      "url": "https://honestlenses.com/api/cart",
+      "postData": null,
+      "requestHeaders": {
+        "sec-ch-ua-platform": "\"Windows\"",
+        "Referer": "https://honestlenses.com/cart",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+        "sec-ch-ua": "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+        "sec-ch-ua-mobile": "?0"
+      },
+      "status": 200,
+      "responseHeaders": {
+        "strict-transport-security": "max-age=63072000",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "content-encoding": "br",
+        "x-vercel-cache": "MISS",
+        "age": "0",
+        "x-matched-path": "/api/cart",
+        "date": "Wed, 17 Jun 2026 14:59:58 GMT",
+        "content-type": "application/json",
+        "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+        "server": "Vercel",
+        "x-vercel-id": "cle1::iad1::628cb-1781708398472-8407ec067424"
+      },
+      "responseBody": "{\"hasCart\":false,\"order\":null}",
+      "responseBodyError": null,
+      "responseUrl": "https://honestlenses.com/api/cart"
+    }
+  ],
+  "console": [
+    {
+      "type": "log",
+      "args": [
+        "🟦 [RxForm] submitRx start"
+      ],
+      "ts": "2026-06-17T14:59:58.414Z"
+    },
+    {
+      "type": "log",
+      "args": [
+        "STEP 1: starting draft order creation"
+      ],
+      "ts": "2026-06-17T14:59:58.415Z"
+    },
+    {
+      "type": "log",
+      "args": [
+        "🟦 [RxForm] getOrCreateDraftOrder: checking /api/cart"
+      ],
+      "ts": "2026-06-17T14:59:58.415Z"
+    },
+    {
+      "type": "log",
+      "args": [
+        "🟦 [RxForm] /api/cart status =",
+        200
+      ],
+      "ts": "2026-06-17T14:59:58.646Z"
+    },
+    {
+      "type": "log",
+      "args": [
+        "🟦 [RxForm] /api/cart body =",
+        "Object"
+      ],
+      "ts": "2026-06-17T14:59:58.647Z"
+    },
+    {
+      "type": "log",
+      "args": [
+        "🟦 [RxForm] /api/orders status/body =",
+        200,
+        "Object"
+      ],
+      "ts": "2026-06-17T14:59:59.181Z"
+    },
+    {
+      "type": "log",
+      "args": [
+        "🟩 [RxForm] Created order id",
+        "d6dd7eb4-44b4-4d4e-8fc5-094bffd36244"
+      ],
+      "ts": "2026-06-17T14:59:59.182Z"
+    },
+    {
+      "type": "log",
+      "args": [
+        "STEP 2: draft order id =",
+        "d6dd7eb4-44b4-4d4e-8fc5-094bffd36244"
+      ],
+      "ts": "2026-06-17T14:59:59.182Z"
+    },
+    {
+      "type": "log",
+      "args": [
+        "STEP 3: posting RX"
+      ],
+      "ts": "2026-06-17T14:59:59.182Z"
+    },
+    {
+      "type": "log",
+      "args": [
+        "STEP 4: resolving cart"
+      ],
+      "ts": "2026-06-17T14:59:59.370Z"
+    }
+  ],
+  "final": {
+    "url": "https://honestlenses.com/cart",
+    "readyState": "complete",
+    "title": "Honest Lenses",
+    "bodyText": "HONEST\nLENSES\nORDER CONTACTS\nABOUT\nSign in\n\nNo active cart found.",
+    "localStorage": {
+      "ph_phc_rBSH8Kw3xpMVbx3wrHoJwoZqjNX52TbREdXWue4MeosJ_posthog": "{\"$user_state\":\"anonymous\",\"distinct_id\":\"019ed616-ddc7-7898-8d61-6b61ecc1c667\",\"$device_id\":\"019ed616-dd9f-7eed-bf0b-57e5be161a65\",\"$last_posthog_reset\":\"2026-06-17T14:58:03.335Z\",\"auth_state\":\"anonymous\",\"$error_tracking_suppression_rules\":[],\"$session_recording_remote_config\":{\"cache_timestamp\":1781708283445,\"enabled\":false,\"networkPayloadCapture\":{\"capturePerformance\":{\"network_timing\":true,\"web_vitals\":true,\"web_vitals_allowed_metrics\":null}},\"canvasRecording\":{},\"sampleRate\":null,\"minimumDurationMilliseconds\":null},\"$autocapture_disabled_server_side\":false,\"$product_tours_enabled_server_side\":false,\"$heatmaps_enabled_server_side\":false,\"$web_vitals_enabled_server_side\":true,\"$web_vitals_allowed_metrics\":null,\"$exception_capture_enabled_server_side\":false,\"$dead_clicks_enabled_server_side\":false,\"$feature_flag_errors\":[],\"$active_feature_flags\":[],\"$enabled_feature_flags\":{},\"$feature_flag_payloads\":{},\"$feature_flag_details\":{},\"$feature_flag_request_id\":\"050a142e-5651-44ae-a9f4-f3bf379632c8\",\"$feature_flag_evaluated_at\":1781708282369,\"$sesid\":[1781708399551,\"019ed616-dedd-72c8-af7d-78625cc550ba\",1781708283613],\"$client_session_props\":{\"sessionId\":\"019ed616-dedd-72c8-af7d-78625cc550ba\",\"props\":{\"r\":\"$direct\",\"u\":\"https://honestlenses.com/enter-prescription?right=OASYS_MAX_1D&left=OASYS_MAX_1D\"}},\"$capture_rate_limit\":{\"tokens\":98.1,\"last\":1781708399551},\"$initial_person_info\":{\"r\":\"$direct\",\"u\":\"https://honestlenses.com/enter-prescription?right=OASYS_MAX_1D&left=OASYS_MAX_1D\"}}",
+      "hl_rx_draft_v1": "{\"right\":{\"coreId\":\"OASYS_MAX_1D\",\"sph\":\"-1.00\",\"cyl\":\"\",\"axis\":\"\",\"add\":\"\",\"bc\":\"8.5\",\"color\":\"\"},\"left\":{\"coreId\":\"OASYS_MAX_1D\",\"sph\":\"-1.00\",\"cyl\":\"\",\"axis\":\"\",\"add\":\"\",\"bc\":\"8.5\",\"color\":\"\"},\"expires\":\"2027-12-31\"}"
+    },
+    "sessionStorage": {
+      "hl_recent_user_action_v1": "{\"action\":\"manual_rx_submit_click\",\"route\":\"/enter-prescription\",\"action_at\":1781708398412,\"mode\":\"manual\",\"loading\":false,\"has_right_lens\":true,\"has_left_lens\":true}",
+      "hl_session_id": "088bbeb4-9d77-4d94-8566-cd5e0945eb97",
+      "ph_phc_rBSH8Kw3xpMVbx3wrHoJwoZqjNX52TbREdXWue4MeosJ_window_id": "\"019ed616-dedd-72c8-af7d-78631780ae3f\"",
+      "ph_phc_rBSH8Kw3xpMVbx3wrHoJwoZqjNX52TbREdXWue4MeosJ_primary_window_exists": "true",
+      "ph_phc_rBSH8Kw3xpMVbx3wrHoJwoZqjNX52TbREdXWue4MeosJ_posthog": "{\"$referrer\":\"$direct\",\"$referring_domain\":\"$direct\"}"
+    }
+  },
+  "cookies": [
+    {
+      "name": "hl_guest_order",
+      "value": "eyJ2IjoxLCJvcmRlcklkIjoiZDZkZDdlYjQtNDRiNC00ZDRlLThmYzUtMDk0YmZmZDM2MjQ0In0.Bie_p-vBQDAjEPyeDDlX2uZwG-7oPj4RFdsEdYbsnYw",
+      "domain": "honestlenses.com",
+      "path": "/",
+      "expires": 1784300399.180065,
+      "size": 133,
+      "httpOnly": true,
+      "secure": true,
+      "session": false,
+      "sameSite": "Lax",
+      "priority": "Medium",
+      "sourceScheme": "Secure",
+      "sourcePort": 443
+    },
+    {
+      "name": "ph_phc_rBSH8Kw3xpMVbx3wrHoJwoZqjNX52TbREdXWue4MeosJ_posthog",
+      "value": "%7B%22%24device_id%22%3A%22019ed616-dd9f-7eed-bf0b-57e5be161a65%22%2C%22distinct_id%22%3A%22019ed616-ddc7-7898-8d61-6b61ecc1c667%22%2C%22%24sesid%22%3A%5B1781708399551%2C%22019ed616-dedd-72c8-af7d-78625cc550ba%22%2C1781708283613%5D%2C%22%24initial_person_info%22%3A%7B%22r%22%3A%22%24direct%22%2C%22u%22%3A%22https%3A%2F%2Fhonestlenses.com%2Fenter-prescription%3Fright%3DOASYS_MAX_1D%26left%3DOASYS_MAX_1D%22%7D%2C%22%24user_state%22%3A%22anonymous%22%7D",
+      "domain": ".honestlenses.com",
+      "path": "/",
+      "expires": 1813244399,
+      "size": 513,
+      "httpOnly": false,
+      "secure": true,
+      "session": false,
+      "sameSite": "Lax",
+      "priority": "Medium",
+      "sourceScheme": "Secure",
+      "sourcePort": 443
+    }
+  ],
+  "fillResult": {
+    "url": "https://honestlenses.com/enter-prescription?right=OASYS_MAX_1D&left=OASYS_MAX_1D",
+    "buttonText": "Review & Continue ➜",
+    "disabled": false,
+    "values": [
+      {
+        "tag": "SELECT",
+        "value": "OASYS_MAX_1D"
+      },
+      {
+        "tag": "SELECT",
+        "value": "-1.00"
+      },
+      {
+        "tag": "SELECT",
+        "value": "8.5"
+      },
+      {
+        "tag": "SELECT",
+        "value": "OASYS_MAX_1D"
+      },
+      {
+        "tag": "SELECT",
+        "value": "-1.00"
+      },
+      {
+        "tag": "SELECT",
+        "value": "8.5"
+      },
+      {
+        "tag": "INPUT",
+        "value": "12/31/2027",
+        "placeholder": "MM/DD/YYYY"
+      }
+    ]
+  },
+  "endedAt": "2026-06-17T15:00:02.968Z"
+}

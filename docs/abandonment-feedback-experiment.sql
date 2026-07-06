@@ -45,17 +45,19 @@ group by feedback_reason
 order by response_count desc, feedback_reason asc;
 
 -- Overall credits and recovered revenue.
+-- Recovered means the order progressed beyond draft checkout into authorization,
+-- capture, or fulfillment. Keep these values aligned with the order_status enum.
 select
   count(*) filter (where feedback_credit_cents = 1000) as credits_applied,
   count(*) filter (
     where feedback_survey_completed_at is not null
-      and status in ('authorized', 'captured', 'completed')
+      and status in ('authorized', 'captured', 'fulfilled')
   ) as orders_recovered_after_survey,
   coalesce(sum(
     greatest(total_amount_cents - feedback_credit_cents, 0)
   ) filter (
     where feedback_survey_completed_at is not null
-      and status in ('authorized', 'captured', 'completed')
+      and status in ('authorized', 'captured', 'fulfilled')
   ), 0) as revenue_recovered_cents
 from public.orders
 where feedback_survey_completed_at is not null;
@@ -64,17 +66,17 @@ where feedback_survey_completed_at is not null;
 select
   feedback_reason,
   count(*) as responses,
-  count(*) filter (where status in ('authorized', 'captured', 'completed'))
+  count(*) filter (where status in ('authorized', 'captured', 'fulfilled'))
     as recovered_orders,
   round(
     100.0
-    * count(*) filter (where status in ('authorized', 'captured', 'completed'))
+    * count(*) filter (where status in ('authorized', 'captured', 'fulfilled'))
     / nullif(count(*), 0),
     2
   ) as conversion_rate_percent,
   coalesce(sum(
     greatest(total_amount_cents - feedback_credit_cents, 0)
-  ) filter (where status in ('authorized', 'captured', 'completed')), 0)
+  ) filter (where status in ('authorized', 'captured', 'fulfilled')), 0)
     as revenue_recovered_cents
 from public.orders
 where feedback_survey_completed_at is not null

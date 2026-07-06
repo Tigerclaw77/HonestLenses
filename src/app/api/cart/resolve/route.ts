@@ -10,6 +10,7 @@ import {
 import { getPrice } from "../../../../lib/pricing/getPrice";
 import { getSkuBoxDurationMonths } from "../../../../lib/pricing/skuDefaults";
 import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
+import { isSkuAvailableForCoreId } from "../../../../lib/pricing/packSizeOptions";
 import { deriveTotalBoxes, deriveTotalMonths } from "../../../../lib/shipping";
 import {
   isShippingMethod,
@@ -76,6 +77,7 @@ type RxData = {
 
 type ResolveBody = {
   order_id?: string;
+  sku?: string;
   right_box_count?: number;
   left_box_count?: number;
   shipping_method?: string;
@@ -120,6 +122,13 @@ function isResolveBody(value: unknown): value is ResolveBody {
     return false;
 
   if (
+    value.sku !== undefined &&
+    value.sku !== null &&
+    typeof value.sku !== "string"
+  )
+    return false;
+
+  if (
     value.right_box_count !== undefined &&
     value.right_box_count !== null &&
     !isFiniteNonNegativeInt(value.right_box_count)
@@ -156,6 +165,58 @@ function validateResolvedEyeRx(eye: EyeRx | undefined): string[] {
   });
 
   return result.errors;
+}
+
+function hasResolvedCartQuantities(order: {
+  right_box_count?: number | null;
+  left_box_count?: number | null;
+  total_box_count?: number | null;
+}): boolean {
+  return (
+    typeof order.right_box_count === "number" ||
+    typeof order.left_box_count === "number" ||
+    typeof order.total_box_count === "number"
+  );
+}
+
+function resolveEyeBoxCount({
+  hasEye,
+  requested,
+  stored,
+  fallback,
+  max,
+}: {
+  hasEye: boolean;
+  requested?: number;
+  stored?: number | null;
+  fallback: number;
+  max: number;
+}): number | null {
+  if (!hasEye) return null;
+
+  const value =
+    typeof requested === "number"
+      ? requested
+      : typeof stored === "number"
+        ? stored
+        : fallback;
+
+  return Math.min(Math.max(value, 0), max);
+}
+
+function convertBoxCountForSku(
+  value: number | null | undefined,
+  fromSku: string,
+  toSku: string,
+): number | null {
+  if (typeof value !== "number") return null;
+  if (value <= 0) return 0;
+
+  const fromMonths = getSkuBoxDurationMonths(fromSku);
+  const toMonths = getSkuBoxDurationMonths(toSku);
+  if (toMonths <= 0) return null;
+
+  return Math.max(1, Math.round(value * (fromMonths / toMonths)));
 }
 
 /* =========================
@@ -259,10 +320,10 @@ export async function POST(req: Request) {
 
   if (body?.order_id) {
     query = query.eq("id", body.order_id);
-  } else if (access.guestOrderId) {
-    query = query.eq("id", access.guestOrderId);
   } else if (access.userId) {
     query = query.eq("user_id", access.userId);
+  } else if (access.guestOrderId) {
+    query = query.eq("id", access.guestOrderId);
   }
 
   query = query.order("created_at", { ascending: false }).limit(1);
@@ -369,7 +430,23 @@ export async function POST(req: Request) {
     remainingDays,
   });
 
-  const resolvedSku = resolveDefaultSku(coreId, targetMonths);
+  const requestedSku = body?.sku ?? null;
+  if (requestedSku && !isSkuAvailableForCoreId(coreId, requestedSku)) {
+    return NextResponse.json(
+      { error: "Requested pack size is not available for this lens." },
+      { status: 400 },
+    );
+  }
+
+  const previousSku =
+    typeof order.sku === "string" &&
+    hasResolvedCartQuantities(order) &&
+    isSkuAvailableForCoreId(coreId, order.sku)
+      ? order.sku
+      : null;
+
+  const resolvedSku =
+    requestedSku ?? previousSku ?? resolveDefaultSku(coreId, targetMonths);
   if (!resolvedSku) {
     return NextResponse.json({ error: "No SKU found." }, { status: 400 });
   }
@@ -377,9 +454,32 @@ export async function POST(req: Request) {
   const monthsPerBox = getSkuBoxDurationMonths(resolvedSku);
 
   const defaultPerEye = Math.ceil(targetMonths / monthsPerBox);
+  const maxPerEye = defaultPerEye * 2;
+  const shouldConvertStoredCounts =
+    Boolean(requestedSku) &&
+    previousSku !== null &&
+    previousSku !== resolvedSku;
+  const storedRight = shouldConvertStoredCounts
+    ? convertBoxCountForSku(order.right_box_count, previousSku, resolvedSku)
+    : order.right_box_count;
+  const storedLeft = shouldConvertStoredCounts
+    ? convertBoxCountForSku(order.left_box_count, previousSku, resolvedSku)
+    : order.left_box_count;
 
-  const right = rx.right ? (body?.right_box_count ?? defaultPerEye) : null;
-  const left = rx.left ? (body?.left_box_count ?? defaultPerEye) : null;
+  const right = resolveEyeBoxCount({
+    hasEye: Boolean(rx.right),
+    requested: body?.right_box_count,
+    stored: storedRight,
+    fallback: defaultPerEye,
+    max: maxPerEye,
+  });
+  const left = resolveEyeBoxCount({
+    hasEye: Boolean(rx.left),
+    requested: body?.left_box_count,
+    stored: storedLeft,
+    fallback: defaultPerEye,
+    max: maxPerEye,
+  });
 
   const totalBoxes = deriveTotalBoxes({
     sku: resolvedSku,

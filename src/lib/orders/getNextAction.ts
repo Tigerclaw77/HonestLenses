@@ -28,6 +28,16 @@ type FulfillmentStatus =
   | "hold"
   | "cancelled";
 
+const CUSTOMER_BLOCKED_PAYMENT_INTENT_STATUSES = new Set([
+  "incomplete",
+  "open",
+  "unpaid",
+  "requires_payment_method",
+  "requires_confirmation",
+  "requires_action",
+  "processing",
+]);
+
 export type Order = {
   status?: string | null;
   payment_status?: string | null;
@@ -141,14 +151,18 @@ function hasPrescriberPath(order: Order): boolean {
 }
 
 function normalizePaymentStatus(order: Order): PaymentLifecycleStatus {
-  if (
-    order.status === "cancelled" ||
-    order.stripe_payment_intent_status === "canceled"
-  ) {
+  const stripeStatus = order.stripe_payment_intent_status?.trim().toLowerCase();
+
+  if (stripeStatus === "requires_capture") return "authorized";
+  if (stripeStatus === "succeeded") return "captured";
+
+  if (order.status === "cancelled" || stripeStatus === "canceled") {
     return "cancelled";
   }
 
-  if (order.status === "draft" && !order.payment_intent_id) return "draft";
+  if (stripeStatus && CUSTOMER_BLOCKED_PAYMENT_INTENT_STATUSES.has(stripeStatus)) {
+    return "draft";
+  }
 
   if (
     order.payment_status === "authorized" ||
@@ -171,8 +185,9 @@ function normalizePaymentStatus(order: Order): PaymentLifecycleStatus {
 
   if (order.status === "refunded") return "refunded";
   if (order.status === "failed") return "failed";
+  if (order.status === "draft") return "draft";
 
-  return order.payment_intent_id ? "authorized" : "draft";
+  return "draft";
 }
 
 function normalizeFulfillmentStatus(order: Order): FulfillmentStatus {
@@ -465,10 +480,13 @@ export function getNextAction(order: Order): NextAction {
 
   if (
     payment.status === "failed" ||
-    payment.status === "refunded" ||
     payment.status === "cancelled"
   ) {
-    return { label: "Review payment", severity: "warning" };
+    return { label: "Wait for customer", severity: "info" };
+  }
+
+  if (payment.status === "refunded") {
+    return { label: "Refunded", severity: "info" };
   }
 
   if (fulfillment === "hold") {
