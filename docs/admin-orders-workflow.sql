@@ -11,25 +11,21 @@ alter table public.orders
   add column if not exists blocked boolean not null default false,
   add column if not exists archived_at timestamptz;
 
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_constraint
-    where conname = 'orders_fulfillment_status_check'
-  ) then
-    alter table public.orders
-      add constraint orders_fulfillment_status_check
-      check (
-        fulfillment_status in (
-          'review',
-          'ready_to_order',
-          'ordered',
-          'shipped',
-          'completed',
-          'hold',
-          'cancelled'
-        )
-      );
-  end if;
-end $$;
+alter table public.orders
+  drop constraint if exists orders_fulfillment_status_check;
+
+alter table public.orders
+  add constraint orders_fulfillment_status_check
+  check (
+    fulfillment_status in (
+      'review',
+      'ready_to_order',
+      'ordered',
+      'backordered',
+      'ready_to_ship',
+      'shipped',
+      'completed',
+      'hold',
+      'cancelled'
+    )
+  );

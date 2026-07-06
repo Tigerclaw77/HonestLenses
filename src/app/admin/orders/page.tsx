@@ -98,6 +98,8 @@ type Order = {
 
   created_at?: string;
   updated_at?: string | null;
+  lastOperationalActivityAt?: string | null;
+  lastOperationalActivityReason?: string | null;
 
   rx: string | RxData | null;
   rx_ocr_raw?: unknown;
@@ -139,6 +141,8 @@ type FulfillmentStatus =
   | "review"
   | "ready_to_order"
   | "ordered"
+  | "backordered"
+  | "ready_to_ship"
   | "shipped"
   | "completed"
   | "hold"
@@ -271,6 +275,8 @@ const FULFILLMENT_STATUSES: FulfillmentStatus[] = [
   "review",
   "ready_to_order",
   "ordered",
+  "backordered",
+  "ready_to_ship",
   "shipped",
   "completed",
   "hold",
@@ -281,6 +287,8 @@ const FULFILLMENT_PROGRESS_FLOW: FulfillmentStatus[] = [
   "review",
   "ready_to_order",
   "ordered",
+  "backordered",
+  "ready_to_ship",
   "shipped",
   "completed",
 ];
@@ -288,13 +296,14 @@ const FULFILLMENT_PROGRESS_FLOW: FulfillmentStatus[] = [
 const PAYMENT_CAPTURE_REQUIRED_FULFILLMENT_STATUSES: FulfillmentStatus[] = [
   "ready_to_order",
   "ordered",
+  "backordered",
+  "ready_to_ship",
   "shipped",
   "completed",
 ];
 
 const HIGHLIGHT_MS = 120_000;
 const RECENT_SHIPPED_DAYS = 7;
-const RECENT_ACTIVITY_DAYS = 7;
 const MATERIAL_ACTIVITY_DIFF_MS = 5 * 60 * 1000;
 
 const CAPTURE_ADJUSTMENT_REASONS: CaptureAdjustmentReason[] = [
@@ -555,37 +564,58 @@ function getOrderCreatedTimestamp(order: Order): number {
   return getTimestamp(order.created_at);
 }
 
+function getLastOperationalActivityTimestamp(order: Order): number {
+  return (
+    getTimestamp(order.lastOperationalActivityAt) ||
+    getTimestamp(order.updated_at) ||
+    getOrderCreatedTimestamp(order)
+  );
+}
+
 function getOperationalSortTimestamp(order: Order): number {
-  return getTimestamp(order.updated_at) || getOrderCreatedTimestamp(order);
+  return getLastOperationalActivityTimestamp(order);
 }
 
-function shouldShowRecentActivity(order: Order): boolean {
-  const createdAt = getOrderCreatedTimestamp(order);
-  const activityAt = getOperationalSortTimestamp(order);
+function formatRelativeAge(timestamp: number): string {
+  if (!timestamp) return "";
 
-  if (!createdAt || !activityAt) return false;
-  if (Math.abs(activityAt - createdAt) < MATERIAL_ACTIVITY_DIFF_MS) {
-    return false;
-  }
-
-  return Date.now() - activityAt <= RECENT_ACTIVITY_DAYS * 24 * 60 * 60 * 1000;
-}
-
-function formatOrderActivityDate(order: Order): string {
-  const activityAt = getOperationalSortTimestamp(order);
-  if (!activityAt) return "";
-
-  const elapsedMs = Math.max(0, Date.now() - activityAt);
+  const elapsedMs = Math.max(0, Date.now() - timestamp);
   const elapsedMinutes = Math.floor(elapsedMs / 60_000);
 
-  if (elapsedMinutes < 1) return "Activity just now";
-  if (elapsedMinutes < 60) return `Activity ${elapsedMinutes}m ago`;
+  if (elapsedMinutes < 1) return "just now";
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m ago`;
 
   const elapsedHours = Math.floor(elapsedMinutes / 60);
-  if (elapsedHours < 24) return `Activity ${elapsedHours}h ago`;
+  if (elapsedHours < 24) return `${elapsedHours}h ago`;
 
   const elapsedDays = Math.floor(elapsedHours / 24);
-  return `Activity ${elapsedDays}d ago`;
+  return `${elapsedDays}d ago`;
+}
+
+function formatOrderActivitySummary(order: Order): {
+  date: string;
+  time: string;
+  relative: string;
+  reason: string;
+  isMaterial: boolean;
+} {
+  const activityAt = getLastOperationalActivityTimestamp(order);
+  const createdAt = getOrderCreatedTimestamp(order);
+  const dateTime = formatAdminOrderDateTimeCentral(
+    activityAt ? new Date(activityAt).toISOString() : null,
+  );
+  const reason = order.lastOperationalActivityReason ?? "Order updated";
+
+  return {
+    ...dateTime,
+    relative: formatRelativeAge(activityAt),
+    reason,
+    isMaterial: Boolean(
+      createdAt &&
+        activityAt &&
+        Math.abs(activityAt - createdAt) >= MATERIAL_ACTIVITY_DIFF_MS,
+    ),
+  };
 }
 
 function formatAge(hours?: number | null): string {
@@ -687,7 +717,11 @@ function normalizedPaymentStatus(order: Order): PaymentStatus {
 }
 
 function compareOperationalPriority(a: Order, b: Order): number {
-  return getOperationalSortTimestamp(b) - getOperationalSortTimestamp(a);
+  const activityDelta =
+    getOperationalSortTimestamp(b) - getOperationalSortTimestamp(a);
+  if (activityDelta !== 0) return activityDelta;
+
+  return getOrderCreatedTimestamp(b) - getOrderCreatedTimestamp(a);
 }
 
 function normalizedRxStatus(order: Order): string {
@@ -741,7 +775,14 @@ function verificationSummary(order: Order): { label: string; tone: BadgeTone } {
 
 function fulfillmentTone(status: FulfillmentStatus): BadgeTone {
   if (status === "completed" || status === "shipped") return "good";
-  if (status === "ordered" || status === "ready_to_order") return "info";
+  if (
+    status === "ordered" ||
+    status === "ready_to_order" ||
+    status === "backordered" ||
+    status === "ready_to_ship"
+  ) {
+    return "info";
+  }
   if (status === "hold") return "warning";
   if (status === "cancelled") return "blocked";
   return "neutral";
@@ -805,7 +846,15 @@ function workflowActionLabel(
     return "Place Vendor Order";
   }
 
-  if (current === "ordered" && next === "shipped") {
+  if (current === "ordered" && next === "backordered") {
+    return "Mark Backordered";
+  }
+
+  if (current === "backordered" && next === "ready_to_ship") {
+    return "Mark Ready to Ship";
+  }
+
+  if (current === "ready_to_ship" && next === "shipped") {
     return "Mark Shipped";
   }
 
@@ -1798,6 +1847,32 @@ export default function AdminOrdersPage() {
   const baseDocumentTitle = useRef<string | null>(null);
   const isInitialLoad = useRef(true);
 
+  useEffect(() => {
+    const orderId = new URLSearchParams(window.location.search).get("orderId");
+    if (!orderId) return;
+
+    const timeouts = highlightTimeouts.current;
+    setExpanded(orderId);
+    setHighlightedOrderIds((current) => new Set(current).add(orderId));
+
+    const timeoutId = window.setTimeout(() => {
+      setHighlightedOrderIds((current) => {
+        if (!current.has(orderId)) return current;
+        const next = new Set(current);
+        next.delete(orderId);
+        return next;
+      });
+      timeouts.delete(orderId);
+    }, HIGHLIGHT_MS);
+
+    timeouts.set(orderId, timeoutId);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      timeouts.delete(orderId);
+    };
+  }, []);
+
   const authHeaders = useCallback(async (): Promise<HeadersInit> => {
     const {
       data: { session },
@@ -2712,12 +2787,7 @@ export default function AdminOrdersPage() {
   );
   const archiveOrders = orders.filter(shouldDefaultCollapse).sort(archiveSort);
   const sortSectionOrders = (sectionOrders: Order[]) =>
-    [...sectionOrders].sort((a, b) => {
-      const aOpen = expanded === a.id;
-      const bOpen = expanded === b.id;
-      if (aOpen !== bOpen) return aOpen ? -1 : 1;
-      return getOperationalSortTimestamp(b) - getOperationalSortTimestamp(a);
-    });
+    [...sectionOrders].sort(compareOperationalPriority);
   const activeOrderSections: {
     key: Exclude<OperationalQueueBucket, "history_archive">;
     title: string;
@@ -2726,7 +2796,7 @@ export default function AdminOrdersPage() {
   }[] = [
     {
       key: "action_required",
-      title: "Action Required",
+      title: "Operator Action Required",
       description: "Operator can take a useful action now.",
       orders: sortSectionOrders(actionRequiredOrders),
     },
@@ -2736,18 +2806,22 @@ export default function AdminOrdersPage() {
       description: "Paid or authorized orders ready to capture, order, ship, or finish.",
       orders: sortSectionOrders(activeFulfillmentOrders),
     },
-    {
-      key: "verification_pending",
-      title: "Verification Pending",
-      description:
-        "Paid or authorized orders waiting on doctor, passive verification, or customer Rx correction.",
-      orders: sortSectionOrders(verificationPendingOrders),
-    },
+    ...(verificationPendingOrders.length > 0
+      ? [
+          {
+            key: "verification_pending" as const,
+            title: "Verification Pending",
+            description:
+              "Legacy or ambiguous paid orders that need review before they can continue.",
+            orders: sortSectionOrders(verificationPendingOrders),
+          },
+        ]
+      : []),
     {
       key: "customer_blocked",
-      title: "Customer Blocked / Abandoned",
+      title: "Customer Action Required",
       description:
-        "Checkout/payment or customer-side step incomplete. Not merchant-actionable unless the customer returns.",
+        "Payment, Rx, shipping, or correction is waiting on the customer.",
       orders: sortSectionOrders(customerBlockedOrders),
     },
     {
@@ -2894,10 +2968,8 @@ export default function AdminOrdersPage() {
           const payment = paymentStatus(o);
           const verification = getVerificationStatus(o);
           const fulfillment = normalizedFulfillmentStatus(o);
-          const dateTime = formatOrderCreatedDate(o);
-          const activityLabel = shouldShowRecentActivity(o)
-            ? formatOrderActivityDate(o)
-            : null;
+          const startedDateTime = formatOrderCreatedDate(o);
+          const activitySummary = formatOrderActivitySummary(o);
           const captureState = paymentCaptureSummary(o);
           const rxLines = formatCollapsedRxLine(o);
           const lensDisplay = getOrderLensDisplayName(o);
@@ -2958,7 +3030,7 @@ export default function AdminOrdersPage() {
                   style={{
                     display: "grid",
                     gridTemplateColumns:
-                      "112px minmax(260px, 1.35fr) minmax(260px, 1fr)",
+                      "132px minmax(260px, 1.35fr) minmax(260px, 1fr)",
                     gap: 12,
                     alignItems: "start",
                     fontSize: 12,
@@ -2966,21 +3038,42 @@ export default function AdminOrdersPage() {
                   }}
                 >
                   <div>
-                    <div style={{ fontWeight: 800, fontSize: 14 }}>
-                      {dateTime.date}
+                    <div style={{ opacity: 0.58, fontSize: 11, fontWeight: 800 }}>
+                      Started
                     </div>
-                    <div style={{ opacity: 0.72 }}>{dateTime.time}</div>
-                    {activityLabel && (
+                    <div style={{ fontWeight: 800, fontSize: 14 }}>
+                      {startedDateTime.date}
+                    </div>
+                    <div style={{ opacity: 0.72 }}>{startedDateTime.time}</div>
+
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ opacity: 0.58, fontSize: 11, fontWeight: 800 }}>
+                        Last activity
+                      </div>
                       <div
                         style={{
-                          marginTop: 3,
-                          color: "rgba(226,232,240,0.48)",
+                          fontWeight: 800,
+                          fontSize: 14,
+                          color: activitySummary.isMaterial ? "#bae6fd" : "inherit",
+                        }}
+                      >
+                        {activitySummary.date}
+                      </div>
+                      <div style={{ opacity: 0.72 }}>
+                        {activitySummary.relative
+                          ? `${activitySummary.time} • ${activitySummary.relative}`
+                          : activitySummary.time}
+                      </div>
+                      <div
+                        style={{
+                          marginTop: 2,
+                          color: "rgba(226,232,240,0.52)",
                           fontSize: 11,
                         }}
                       >
-                        {activityLabel}
+                        {activitySummary.reason}
                       </div>
-                    )}
+                    </div>
                     {o.shipping_method === "express" && (
                       <div
                         style={{
@@ -3310,6 +3403,14 @@ export default function AdminOrdersPage() {
                         <CopyableValue value={o.id}>Order: {o.id}</CopyableValue>
                       </div>
                       <div>Created: {formatDateTime(o.created_at)}</div>
+                      <div>
+                        Last activity:{" "}
+                        {formatDateTime(o.lastOperationalActivityAt ?? o.updated_at)}
+                      </div>
+                      <div>
+                        Activity reason:{" "}
+                        {o.lastOperationalActivityReason ?? "Order updated"}
+                      </div>
                       <div>Updated: {formatDateTime(o.updated_at)}</div>
                       <div>Rx source: {rxSource.label}</div>
                       <div>Rx detail: {rxStatus}</div>

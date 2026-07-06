@@ -91,6 +91,7 @@ export async function POST(req: Request) {
     .from("orders")
     .update({
       status: "captured",
+      updated_at: new Date().toISOString(),
     })
     .eq("id", order.id)
     .eq("user_id", user.id)

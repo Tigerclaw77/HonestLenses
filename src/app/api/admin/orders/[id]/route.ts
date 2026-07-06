@@ -10,6 +10,8 @@ const FULFILLMENT_STATUSES = [
   "review",
   "ready_to_order",
   "ordered",
+  "backordered",
+  "ready_to_ship",
   "shipped",
   "completed",
   "hold",

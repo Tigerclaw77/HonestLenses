@@ -23,6 +23,8 @@ type FulfillmentStatus =
   | "review"
   | "ready_to_order"
   | "ordered"
+  | "backordered"
+  | "ready_to_ship"
   | "shipped"
   | "completed"
   | "hold"
@@ -197,6 +199,8 @@ function normalizeFulfillmentStatus(order: Order): FulfillmentStatus {
     order.fulfillment_status === "review" ||
     order.fulfillment_status === "ready_to_order" ||
     order.fulfillment_status === "ordered" ||
+    order.fulfillment_status === "backordered" ||
+    order.fulfillment_status === "ready_to_ship" ||
     order.fulfillment_status === "shipped" ||
     order.fulfillment_status === "completed" ||
     order.fulfillment_status === "hold" ||
@@ -495,6 +499,10 @@ export function getNextAction(order: Order): NextAction {
     return { label: "Resolve hold", severity: "warning" };
   }
 
+  if (payment.status === "draft") {
+    return { label: "Await checkout", severity: "info" };
+  }
+
   if (verification.blocked) {
     return { label: "Resolve verification issue", severity: "warning" };
   }
@@ -508,9 +516,7 @@ export function getNextAction(order: Order): NextAction {
   }
 
   if (!rxSource.hasRxEvidence) {
-    return payment.status === "draft"
-      ? { label: "Await checkout", severity: "info" }
-      : { label: "Request prescription details", severity: "warning" };
+    return { label: "Request prescription details", severity: "warning" };
   }
 
   if (verification.requiresReview) {
@@ -520,11 +526,7 @@ export function getNextAction(order: Order): NextAction {
   if (!verification.complete) {
     return rxSource.status === "doctor_verification"
       ? { label: "Await doctor verification", severity: "info" }
-      : { label: "Verify prescription", severity: "warning" };
-  }
-
-  if (payment.status === "draft") {
-    return { label: "Await checkout", severity: "info" };
+      : { label: "Await passive verification", severity: "info" };
   }
 
   if (payment.status === "authorized") {
@@ -533,6 +535,14 @@ export function getNextAction(order: Order): NextAction {
 
   if (fulfillment === "ordered") {
     return { label: "Await shipment", severity: "info" };
+  }
+
+  if (fulfillment === "backordered") {
+    return { label: "Await restock", severity: "info" };
+  }
+
+  if (fulfillment === "ready_to_ship") {
+    return { label: "Ship order", severity: "warning" };
   }
 
   if (fulfillment === "shipped") {

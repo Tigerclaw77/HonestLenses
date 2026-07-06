@@ -31,6 +31,10 @@ export type OperationalQueueOrder = NextActionOrder & {
   shipping_email?: string | null;
   shipping_first_name?: string | null;
   shipping_last_name?: string | null;
+  shipping_address1?: string | null;
+  shipping_city?: string | null;
+  shipping_state?: string | null;
+  shipping_zip?: string | null;
   patient_name?: string | null;
   patient_full_name?: string | null;
   archived?: boolean | null;
@@ -43,6 +47,8 @@ type FulfillmentStatus =
   | "review"
   | "ready_to_order"
   | "ordered"
+  | "backordered"
+  | "ready_to_ship"
   | "shipped"
   | "completed"
   | "hold"
@@ -77,6 +83,11 @@ const CUSTOMER_BLOCKED_STRIPE_STATUSES = new Set([
 const NORMAL_FULFILLMENT_ACTIONS = new Set([
   "Capture payment",
   "Place vendor order",
+  "Await passive verification",
+  "Await doctor verification",
+  "Await shipment",
+  "Await restock",
+  "Ship order",
   "Confirm delivery",
 ]);
 
@@ -87,6 +98,8 @@ function normalizedFulfillmentStatus(
     order.fulfillment_status === "review" ||
     order.fulfillment_status === "ready_to_order" ||
     order.fulfillment_status === "ordered" ||
+    order.fulfillment_status === "backordered" ||
+    order.fulfillment_status === "ready_to_ship" ||
     order.fulfillment_status === "shipped" ||
     order.fulfillment_status === "completed" ||
     order.fulfillment_status === "hold" ||
@@ -125,6 +138,22 @@ function isWithinDays(
 
 function normalizedText(value: string | null | undefined): string {
   return value?.trim().toLowerCase() ?? "";
+}
+
+function hasText(value?: string | null): boolean {
+  return Boolean(value?.trim());
+}
+
+function hasFulfillmentShipping(order: OperationalQueueOrder): boolean {
+  return Boolean(
+    hasText(order.shipping_email) &&
+      hasText(order.shipping_first_name) &&
+      hasText(order.shipping_last_name) &&
+      hasText(order.shipping_address1) &&
+      hasText(order.shipping_city) &&
+      hasText(order.shipping_state) &&
+      hasText(order.shipping_zip),
+  );
 }
 
 function containsAnyMarker(
@@ -253,12 +282,16 @@ export function classifyOperationalQueue(
     return classify("customer_blocked", false, ["unpaid"], order);
   }
 
+  if (!hasFulfillmentShipping(order)) {
+    return classify("customer_blocked", false, ["customer shipping"], order);
+  }
+
   if (fulfillment === "hold") {
     return classify("action_required", true, ["hold"], order);
   }
 
   if (verification.blocked) {
-    return classify("action_required", true, ["verification blocked"], order);
+    return classify("customer_blocked", false, ["customer correction"], order);
   }
 
   if (order.rx_status === "ocr_failed" || verification.requiresReview) {
@@ -266,15 +299,11 @@ export function classifyOperationalQueue(
   }
 
   if (!rxSource.hasRxEvidence || order.rx_status === "expired") {
-    return classify("verification_pending", false, ["customer rx"], order);
+    return classify("customer_blocked", false, ["customer rx"], order);
   }
 
   if (!verification.complete) {
-    if (nextAction.label === "Verify prescription") {
-      return classify("action_required", true, ["verify prescription"], order);
-    }
-
-    return classify("verification_pending", false, ["verification pending"], order);
+    return classify("active_fulfillment", false, ["verification pending"], order);
   }
 
   return classify(
