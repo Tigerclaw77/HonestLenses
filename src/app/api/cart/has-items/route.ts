@@ -16,10 +16,10 @@ export async function GET(req: Request) {
     .in("status", ["draft", "pending"])
     .limit(1);
 
-  if (access.guestOrderId) {
-    query = query.eq("id", access.guestOrderId);
-  } else if (access.userId) {
+  if (access.userId) {
     query = query.eq("user_id", access.userId);
+  } else if (access.guestOrderId) {
+    query = query.eq("id", access.guestOrderId);
   }
 
   const { data: orders, error } = await query;

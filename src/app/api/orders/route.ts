@@ -59,10 +59,10 @@ export async function POST(req: Request) {
       .eq("status", "draft")
       .is("payment_intent_id", null);
 
-    if (access.guestOrderId) {
-      draftsQuery = draftsQuery.eq("id", access.guestOrderId);
-    } else if (user) {
+    if (user) {
       draftsQuery = draftsQuery.eq("user_id", user.id);
+    } else if (access.guestOrderId) {
+      draftsQuery = draftsQuery.eq("id", access.guestOrderId);
     } else {
       draftsQuery = draftsQuery.eq("id", "00000000-0000-0000-0000-000000000000");
     }
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
       console.log("REUSING RECENT DRAFT:", recentDraft.id);
 
       const response = NextResponse.json({ orderId: recentDraft.id });
-      return access.guestOrderId || !user
+      return !user
         ? setGuestOrderCookie(response, recentDraft.id)
         : response;
     }

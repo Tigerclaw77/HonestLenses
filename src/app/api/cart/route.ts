@@ -17,6 +17,11 @@ type RxData = {
   left?: EyeRx;
 };
 
+const SHOW_QA_DIAGNOSTICS =
+  process.env.NODE_ENV !== "production" ||
+  process.env.VERCEL_ENV === "preview" ||
+  process.env.CART_QA_DIAGNOSTICS === "true";
+
 /* =========================
    Type Guards
 ========================= */
@@ -50,6 +55,7 @@ export async function GET(req: Request) {
 
   const access = await getOrderAccess(req);
   console.log("CART USER:", access.userId);
+  const ownerScope = access.userId ? "user" : "guest";
 
   if (!hasOrderAccessContext(access)) {
     return NextResponse.json({ hasCart: false, order: null });
@@ -86,10 +92,10 @@ export async function GET(req: Request) {
     .is("payment_intent_id", null)
     .order("created_at", { ascending: false });
 
-  if (access.guestOrderId) {
-    query = query.eq("id", access.guestOrderId);
-  } else if (access.userId) {
+  if (access.userId) {
     query = query.eq("user_id", access.userId);
+  } else if (access.guestOrderId) {
+    query = query.eq("id", access.guestOrderId);
   }
 
   const { data: orders, error } = await query;
@@ -97,7 +103,30 @@ export async function GET(req: Request) {
   console.log("RAW ORDERS:", orders, error);
 
   if (error) {
-    console.error("CART QUERY ERROR:", error);
+    console.error("CART QUERY ERROR:", {
+      error,
+      ownerScope,
+      userId: access.userId,
+      hasGuestOrderCookie: Boolean(access.guestOrderId),
+    });
+
+    if (SHOW_QA_DIAGNOSTICS) {
+      return NextResponse.json(
+        {
+          hasCart: false,
+          order: null,
+          error: "Cart query failed",
+          details: {
+            message: error.message,
+            code: error.code,
+            hint: error.hint,
+            details: error.details,
+          },
+        },
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json({ hasCart: false, order: null });
   }
 
@@ -114,7 +143,9 @@ export async function GET(req: Request) {
 
   const recentOrders = orders.filter((o) => {
     if (!o?.created_at) return false;
-    if (access.guestOrderId && o.id === access.guestOrderId) return true;
+    if (!access.userId && access.guestOrderId && o.id === access.guestOrderId) {
+      return true;
+    }
 
     const timestamp = o.updated_at ?? o.created_at;
     const age = now - new Date(timestamp).getTime();

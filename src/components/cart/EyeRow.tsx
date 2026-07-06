@@ -26,6 +26,7 @@ type EyeRowProps = {
   durationLabel: string;
   quantityOptions: number[];
   disabled?: boolean;
+  lensAction?: React.ReactNode;
 };
 
 /* =========================
@@ -109,6 +110,7 @@ export default function EyeRow(props: EyeRowProps) {
     durationLabel,
     quantityOptions,
     disabled,
+    lensAction,
   } = props;
 
   const eyeTotalCents =
@@ -119,7 +121,12 @@ export default function EyeRow(props: EyeRowProps) {
   return (
     <div className="hl-eye">
       <div className="hl-eye-label">{label}</div>
-      <div className="hl-eye-lens">{lensName}</div>
+      <div className="hl-eye-lens-row">
+        <div className="hl-eye-lens">{lensName}</div>
+        {lensAction ? (
+          <div className="hl-eye-lens-action">{lensAction}</div>
+        ) : null}
+      </div>
 
       <RxBlock rx={rx} />
 

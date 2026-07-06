@@ -16,6 +16,13 @@ import { getLensDisplayName } from "../../lib/cart/display";
 import { deriveTotalMonths, type ShippingMethod } from "../../lib/shipping";
 import { resolveShipping } from "../../lib/shipping/resolveShipping";
 import {
+  convertPackSizeQuantity,
+  getNextLargerPackSizeOption,
+  getNextSmallerPackSizeOption,
+  getPackSizeOptionsForCoreId,
+  type PackSizeOption,
+} from "@/lib/pricing/packSizeOptions";
+import {
   POSTHOG_EVENTS,
   captureClientException,
   markStepStart,
@@ -31,6 +38,16 @@ const DEV_MODE =
 const DEV_ACCESS_TOKEN = "dev-local-token";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+type PackSwitchUndo = {
+  orderId: string;
+  originalSku: string;
+  originalRightQty: number;
+  originalLeftQty: number;
+  switchedSku: string;
+  switchedRightQty: number;
+  switchedLeftQty: number;
+};
 
 function safeRemainingDays(expires: string) {
   if (!expires) return 0;
@@ -55,6 +72,8 @@ export default function CartPage() {
 
   const [rightQtyOverride, setRightQtyOverride] = useState<number | null>(null);
   const [leftQtyOverride, setLeftQtyOverride] = useState<number | null>(null);
+  const [packSwitchUndo, setPackSwitchUndo] =
+    useState<PackSwitchUndo | null>(null);
 
   /* ---------- Derived ---------- */
 
@@ -77,6 +96,34 @@ export default function CartPage() {
   const defaultPerEye = quantityConfig?.defaultPerEye ?? 1;
   const quantityOptions = quantityConfig?.options ?? [1, 2, 3, 4, 6, 8];
   const durationLabel = quantityConfig?.durationLabel ?? "box";
+
+  const packCoreId = useMemo(() => {
+    const rightCoreId = cart?.rx?.right?.coreId ?? null;
+    const leftCoreId = cart?.rx?.left?.coreId ?? null;
+
+    if (rightCoreId && leftCoreId && rightCoreId !== leftCoreId) return null;
+    return rightCoreId ?? leftCoreId;
+  }, [cart?.rx?.left?.coreId, cart?.rx?.right?.coreId]);
+
+  const packOptions = useMemo(() => {
+    if (!packCoreId) return [];
+    return getPackSizeOptionsForCoreId(packCoreId);
+  }, [packCoreId]);
+
+  const currentPackOption = useMemo(
+    () => packOptions.find((option) => option.sku === sku) ?? null,
+    [packOptions, sku],
+  );
+
+  const smallerPackOption = useMemo(() => {
+    if (!packCoreId) return null;
+    return getNextSmallerPackSizeOption(packCoreId, sku);
+  }, [packCoreId, sku]);
+
+  const largerPackOption = useMemo(() => {
+    if (!packCoreId) return null;
+    return getNextLargerPackSizeOption(packCoreId, sku);
+  }, [packCoreId, sku]);
 
   /* ---------- Qty change ---------- */
 
@@ -384,6 +431,148 @@ export default function CartPage() {
 
   const canCheckout = !syncingQty && totalBoxes > 0 && previewAmountDue > 0;
 
+  async function handlePackSizeChange(
+    targetOption: PackSizeOption,
+    nextUndo: PackSwitchUndo | null,
+  ) {
+    if (syncingQty || !cart || !cart.sku || !currentPackOption) {
+      return;
+    }
+
+    const token = accessToken ?? (DEV_MODE ? DEV_ACCESS_TOKEN : null);
+    const nextRightQty = rightEye
+      ? convertPackSizeQuantity(effectiveRight, currentPackOption, targetOption)
+      : undefined;
+    const nextLeftQty = leftEye
+      ? convertPackSizeQuantity(effectiveLeft, currentPackOption, targetOption)
+      : undefined;
+
+    setSyncingQty(true);
+    setError(null);
+
+    try {
+      const updated = await resolveCart(token, {
+        sku: targetOption.sku,
+        right_box_count: nextRightQty,
+        left_box_count: nextLeftQty,
+        shipping_method: shippingMethod,
+      });
+
+      setCart(updated);
+      setRightQtyOverride(null);
+      setLeftQtyOverride(null);
+      setPackSwitchUndo(nextUndo);
+    } catch (e) {
+      console.error("[CartPage] pack size update failed", e);
+      captureClientException(e, { source: "cart_pack_size_change" });
+      setError(e instanceof Error ? e.message : "Failed to update pack size.");
+    } finally {
+      setSyncingQty(false);
+    }
+  }
+
+  function handlePackSizeSwitch(targetOption: PackSizeOption) {
+    if (!cart || !cart.sku || !currentPackOption) return;
+
+    const nextRightQty = rightEye
+      ? convertPackSizeQuantity(effectiveRight, currentPackOption, targetOption)
+      : 0;
+    const nextLeftQty = leftEye
+      ? convertPackSizeQuantity(effectiveLeft, currentPackOption, targetOption)
+      : 0;
+    const isSmallerSwitch =
+      targetOption.durationMonths < currentPackOption.durationMonths;
+
+    void handlePackSizeChange(
+      targetOption,
+      isSmallerSwitch
+        ? {
+            orderId: cart.id,
+            originalSku: cart.sku,
+            originalRightQty: rightEye ? effectiveRight : 0,
+            originalLeftQty: leftEye ? effectiveLeft : 0,
+            switchedSku: targetOption.sku,
+            switchedRightQty: nextRightQty,
+            switchedLeftQty: nextLeftQty,
+          }
+        : null,
+    );
+  }
+
+  async function handlePackSizeUndo() {
+    if (syncingQty || !cart || !packSwitchUndo) return;
+
+    const token = accessToken ?? (DEV_MODE ? DEV_ACCESS_TOKEN : null);
+    setSyncingQty(true);
+    setError(null);
+
+    try {
+      const updated = await resolveCart(token, {
+        sku: packSwitchUndo.originalSku,
+        right_box_count: rightEye
+          ? packSwitchUndo.originalRightQty
+          : undefined,
+        left_box_count: leftEye ? packSwitchUndo.originalLeftQty : undefined,
+        shipping_method: shippingMethod,
+      });
+
+      setCart(updated);
+      setRightQtyOverride(null);
+      setLeftQtyOverride(null);
+      setPackSwitchUndo(null);
+    } catch (e) {
+      console.error("[CartPage] pack size undo failed", e);
+      captureClientException(e, { source: "cart_pack_size_undo" });
+      setError(e instanceof Error ? e.message : "Failed to undo pack size.");
+    } finally {
+      setSyncingQty(false);
+    }
+  }
+
+  const packUndoAvailable =
+    Boolean(cart.sku) &&
+    packSwitchUndo?.orderId === cart.id &&
+    packSwitchUndo.switchedSku === cart.sku;
+  const packUndoExactAvailable =
+    packUndoAvailable &&
+    (!rightEye || effectiveRight === packSwitchUndo.switchedRightQty) &&
+    (!leftEye || effectiveLeft === packSwitchUndo.switchedLeftQty);
+  const originalPackOption =
+    packUndoAvailable && packSwitchUndo
+      ? (packOptions.find((option) => option.sku === packSwitchUndo.originalSku) ??
+        null)
+      : null;
+
+  const packSizeAction = (() => {
+    if (packUndoExactAvailable) {
+      return (
+        <button
+          type="button"
+          className="hl-pack-size-link"
+          disabled={syncingQty}
+          onClick={() => void handlePackSizeUndo()}
+        >
+          Undo?
+        </button>
+      );
+    }
+
+    const targetOption =
+      smallerPackOption ?? originalPackOption ?? largerPackOption;
+    if (!cart.sku || !currentPackOption || !targetOption) return null;
+
+    return (
+      <button
+        type="button"
+        className="hl-pack-size-link"
+        disabled={syncingQty}
+        onClick={() => handlePackSizeSwitch(targetOption)}
+      >
+        Change to {targetOption.packSize}-packs?
+      </button>
+    );
+  })();
+
   /* ---------- Render ---------- */
 
   const cartUI = (
@@ -404,6 +593,7 @@ export default function CartPage() {
               label="RIGHT EYE"
               lensName={rightLensName}
               rx={rightEye}
+              lensAction={packSizeAction}
               qty={effectiveRight}
               onQty={(v) => {
                 setRightQtyOverride(v);
@@ -424,6 +614,7 @@ export default function CartPage() {
                 label="LEFT EYE"
                 lensName={leftLensName}
                 rx={leftEye}
+                lensAction={packSizeAction}
                 qty={effectiveLeft}
                 onQty={(v) => {
                   setLeftQtyOverride(v);
