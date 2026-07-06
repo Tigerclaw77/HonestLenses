@@ -28,12 +28,10 @@ type FulfillmentStatus =
   | "hold"
   | "cancelled";
 
-const AUTHORIZED_STRIPE_INTENT_STATUSES = new Set([
-  "requires_capture",
-  "succeeded",
-]);
-
-const INCOMPLETE_STRIPE_INTENT_STATUSES = new Set([
+const CUSTOMER_BLOCKED_PAYMENT_INTENT_STATUSES = new Set([
+  "incomplete",
+  "open",
+  "unpaid",
   "requires_payment_method",
   "requires_confirmation",
   "requires_action",
@@ -155,29 +153,28 @@ function hasPrescriberPath(order: Order): boolean {
 }
 
 function normalizePaymentStatus(order: Order): PaymentLifecycleStatus {
-  const stripeStatus = order.stripe_payment_intent_status
-    ?.trim()
-    .toLowerCase();
+  const stripeStatus = order.stripe_payment_intent_status?.trim().toLowerCase();
 
-  if (
-    order.status === "cancelled" ||
-    stripeStatus === "canceled"
-  ) {
+  if (stripeStatus === "requires_capture") return "authorized";
+  if (stripeStatus === "succeeded") return "captured";
+
+  if (order.status === "cancelled" || stripeStatus === "canceled") {
     return "cancelled";
   }
 
+  if (stripeStatus && CUSTOMER_BLOCKED_PAYMENT_INTENT_STATUSES.has(stripeStatus)) {
+    return "draft";
+  }
+
   if (
-    order.payment_status === "failed" ||
+    order.payment_status === "authorized" ||
+    order.payment_status === "captured" ||
     order.payment_status === "refunded" ||
+    order.payment_status === "failed" ||
     order.payment_status === "cancelled"
   ) {
     return order.payment_status as PaymentLifecycleStatus;
   }
-
-  if (stripeStatus === "succeeded") return "captured";
-  if (stripeStatus === "requires_capture") return "authorized";
-
-  if (order.status === "draft") return "draft";
 
   if (
     order.status === "captured" ||
@@ -190,14 +187,7 @@ function normalizePaymentStatus(order: Order): PaymentLifecycleStatus {
 
   if (order.status === "refunded") return "refunded";
   if (order.status === "failed") return "failed";
-
-  if (INCOMPLETE_STRIPE_INTENT_STATUSES.has(stripeStatus ?? "")) {
-    return "draft";
-  }
-
-  if (stripeStatus && !AUTHORIZED_STRIPE_INTENT_STATUSES.has(stripeStatus)) {
-    return "draft";
-  }
+  if (order.status === "draft") return "draft";
 
   return "draft";
 }
@@ -492,18 +482,17 @@ export function getNextAction(order: Order): NextAction {
 
   if (
     payment.status === "failed" ||
-    payment.status === "refunded" ||
     payment.status === "cancelled"
   ) {
-    return { label: "Review payment", severity: "warning" };
+    return { label: "Wait for customer", severity: "info" };
+  }
+
+  if (payment.status === "refunded") {
+    return { label: "Refunded", severity: "info" };
   }
 
   if (fulfillment === "hold") {
     return { label: "Resolve hold", severity: "warning" };
-  }
-
-  if (payment.status === "draft") {
-    return { label: "Await checkout", severity: "info" };
   }
 
   if (verification.blocked) {
@@ -519,7 +508,9 @@ export function getNextAction(order: Order): NextAction {
   }
 
   if (!rxSource.hasRxEvidence) {
-    return { label: "Request prescription details", severity: "warning" };
+    return payment.status === "draft"
+      ? { label: "Await checkout", severity: "info" }
+      : { label: "Request prescription details", severity: "warning" };
   }
 
   if (verification.requiresReview) {
@@ -530,6 +521,10 @@ export function getNextAction(order: Order): NextAction {
     return rxSource.status === "doctor_verification"
       ? { label: "Await doctor verification", severity: "info" }
       : { label: "Verify prescription", severity: "warning" };
+  }
+
+  if (payment.status === "draft") {
+    return { label: "Await checkout", severity: "info" };
   }
 
   if (payment.status === "authorized") {
