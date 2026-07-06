@@ -13,6 +13,7 @@ import {
   logAdminAuthFailure,
   requireAdminUser,
 } from "@/lib/admin-auth";
+import { classifyOperationalQueue } from "@/lib/orders/operationalQueue";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
@@ -45,6 +46,8 @@ type OrderRow = {
   updated_at?: string | null;
   user_id?: string | null;
   status?: string;
+  verification_status?: string | null;
+  rx_status?: string | null;
   sku?: string | null;
   brand?: string | null;
   rx?: RxData;
@@ -54,6 +57,10 @@ type OrderRow = {
   prescriber_email?: string | null;
   prescriber_phone?: string | null;
   shipping_email?: string | null;
+  shipping_first_name?: string | null;
+  shipping_last_name?: string | null;
+  patient_name?: string | null;
+  patient_full_name?: string | null;
   total_amount_cents?: number | null;
   capture_amount_cents?: number | null;
   capture_adjustment_reason?: string | null;
@@ -122,16 +129,6 @@ function normalizeRx(rx: RxData): RxData {
   };
 }
 
-function isActionableOrder(o: OrderRow): boolean {
-  if (!o) return false;
-  if (o.archived || o.archived_at) return false;
-
-  // Hard rule: fulfillment/admin action queue starts after payment intent.
-  if (!o.payment_intent_id) return false;
-
-  return true;
-}
-
 function fallbackPaymentStatus(order: OrderRow): PaymentStatus {
   if (order.status === "draft") return "draft";
 
@@ -146,7 +143,7 @@ function fallbackPaymentStatus(order: OrderRow): PaymentStatus {
   if (order.status === "refunded") return "refunded";
   if (order.status === "cancelled") return "cancelled";
   if (order.status === "failed") return "failed";
-  return "draft";
+  return order.payment_intent_id ? "authorized" : "draft";
 }
 
 function statusFromStripeIntent(intent: Stripe.PaymentIntent): PaymentStatus {
@@ -162,7 +159,6 @@ function statusFromStripeIntent(intent: Stripe.PaymentIntent): PaymentStatus {
   if (intent.status === "succeeded") return "captured";
   if (intent.status === "requires_capture") return "authorized";
   if (intent.status === "canceled") return "cancelled";
-  if (intent.last_payment_error) return "failed";
   if (
     intent.status === "requires_payment_method" ||
     intent.status === "requires_confirmation" ||
@@ -301,35 +297,41 @@ export async function GET(req: Request) {
       });
     }
 
-    const actionableOrders = orders.filter(isActionableOrder);
-    const archivedOrders = orders.filter((o) => Boolean(o.archived || o.archived_at));
+    const actionRequired: OrderRow[] = [];
+    const activeFulfillment: OrderRow[] = [];
+    const verificationPending: OrderRow[] = [];
+    const customerBlocked: OrderRow[] = [];
+    const draftOrTest: OrderRow[] = [];
+    const archivedOrders: OrderRow[] = [];
 
-    /* =========================
-       Grouping (unchanged shape)
-    ========================= */
+    for (const order of orders) {
+      const classification = classifyOperationalQueue(order);
 
-    const needsAction = actionableOrders.filter(
-      (o) =>
-        o.status === "authorized" &&
-        !o.rx_upload_path &&
-        !o.prescriber_name,
-    );
-
-    const stalled = actionableOrders.filter(
-      (o) =>
-        o.status === "authorized" &&
-        (o.rx_upload_path || o.prescriber_name),
-    );
-
-    const pipeline = actionableOrders.filter(
-      (o) => o.status !== "authorized",
-    );
+      if (classification.bucket === "action_required") {
+        actionRequired.push(order);
+      } else if (classification.bucket === "active_fulfillment") {
+        activeFulfillment.push(order);
+      } else if (classification.bucket === "verification_pending") {
+        verificationPending.push(order);
+      } else if (classification.bucket === "customer_blocked") {
+        customerBlocked.push(order);
+      } else if (classification.bucket === "draft_or_test") {
+        draftOrTest.push(order);
+      } else {
+        archivedOrders.push(order);
+      }
+    }
 
     return NextResponse.json({
-      needsAction,
-      stalled,
-      pipeline,
+      action_required: actionRequired,
+      active_fulfillment: activeFulfillment,
+      verification_pending: verificationPending,
+      customer_blocked: customerBlocked,
+      draft_or_test: draftOrTest,
       archive: archivedOrders,
+      needsAction: actionRequired,
+      stalled: verificationPending,
+      pipeline: activeFulfillment,
       abandoned,
     });
   } catch (err) {
