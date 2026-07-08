@@ -98,6 +98,8 @@ type Order = {
 
   created_at?: string;
   updated_at?: string | null;
+  lastOperationalActivityAt?: string | null;
+  lastOperationalActivityReason?: string | null;
 
   rx: string | RxData | null;
   rx_ocr_raw?: unknown;
@@ -167,6 +169,12 @@ type BadgeTone =
   | "info"
   | "capture"
   | "refund";
+
+type OrderStatusFlag = {
+  label: string;
+  tone: BadgeTone;
+  title: string;
+};
 
 type NotesModalState = {
   orderId: string;
@@ -294,7 +302,7 @@ const PAYMENT_CAPTURE_REQUIRED_FULFILLMENT_STATUSES: FulfillmentStatus[] = [
 
 const HIGHLIGHT_MS = 120_000;
 const RECENT_SHIPPED_DAYS = 7;
-const RECENT_ACTIVITY_DAYS = 7;
+const CUSTOMER_ACTION_RECENT_DAYS = 7;
 const MATERIAL_ACTIVITY_DIFF_MS = 5 * 60 * 1000;
 
 const CAPTURE_ADJUSTMENT_REASONS: CaptureAdjustmentReason[] = [
@@ -555,37 +563,69 @@ function getOrderCreatedTimestamp(order: Order): number {
   return getTimestamp(order.created_at);
 }
 
+function formatRelativeUnit(value: number, unit: string): string {
+  return `${value} ${unit}${value === 1 ? "" : "s"} ago`;
+}
+
+function getLastOperationalActivityTimestamp(order: Order): number {
+  return (
+    getTimestamp(order.lastOperationalActivityAt) ||
+    getTimestamp(order.updated_at) ||
+    getOrderCreatedTimestamp(order)
+  );
+}
+
 function getOperationalSortTimestamp(order: Order): number {
-  return getTimestamp(order.updated_at) || getOrderCreatedTimestamp(order);
+  return getLastOperationalActivityTimestamp(order);
 }
 
-function shouldShowRecentActivity(order: Order): boolean {
-  const createdAt = getOrderCreatedTimestamp(order);
-  const activityAt = getOperationalSortTimestamp(order);
+function formatRelativeAge(timestamp: number): string {
+  if (!timestamp) return "";
 
-  if (!createdAt || !activityAt) return false;
-  if (Math.abs(activityAt - createdAt) < MATERIAL_ACTIVITY_DIFF_MS) {
-    return false;
-  }
-
-  return Date.now() - activityAt <= RECENT_ACTIVITY_DAYS * 24 * 60 * 60 * 1000;
-}
-
-function formatOrderActivityDate(order: Order): string {
-  const activityAt = getOperationalSortTimestamp(order);
-  if (!activityAt) return "";
-
-  const elapsedMs = Math.max(0, Date.now() - activityAt);
+  const elapsedMs = Math.max(0, Date.now() - timestamp);
   const elapsedMinutes = Math.floor(elapsedMs / 60_000);
 
-  if (elapsedMinutes < 1) return "Activity just now";
-  if (elapsedMinutes < 60) return `Activity ${elapsedMinutes}m ago`;
+  if (elapsedMinutes < 1) return "just now";
+  if (elapsedMinutes < 60) return formatRelativeUnit(elapsedMinutes, "minute");
 
   const elapsedHours = Math.floor(elapsedMinutes / 60);
-  if (elapsedHours < 24) return `Activity ${elapsedHours}h ago`;
+  if (elapsedHours < 24) return formatRelativeUnit(elapsedHours, "hour");
 
   const elapsedDays = Math.floor(elapsedHours / 24);
-  return `Activity ${elapsedDays}d ago`;
+  return formatRelativeUnit(elapsedDays, "day");
+}
+
+function isRecentCustomerActivity(order: Order): boolean {
+  const timestamp = getLastOperationalActivityTimestamp(order);
+  if (!timestamp) return true;
+
+  return Date.now() - timestamp <= CUSTOMER_ACTION_RECENT_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function formatOrderActivitySummary(order: Order): {
+  date: string;
+  time: string;
+  relative: string;
+  reason: string;
+  isMaterial: boolean;
+} {
+  const activityAt = getLastOperationalActivityTimestamp(order);
+  const createdAt = getOrderCreatedTimestamp(order);
+  const dateTime = formatAdminOrderDateTimeCentral(
+    activityAt ? new Date(activityAt).toISOString() : null,
+  );
+  const reason = order.lastOperationalActivityReason ?? "Order updated";
+
+  return {
+    ...dateTime,
+    relative: formatRelativeAge(activityAt),
+    reason,
+    isMaterial: Boolean(
+      createdAt &&
+        activityAt &&
+        Math.abs(activityAt - createdAt) >= MATERIAL_ACTIVITY_DIFF_MS,
+    ),
+  };
 }
 
 function formatAge(hours?: number | null): string {
@@ -768,6 +808,68 @@ function paymentCaptureSummary(order: Order): { label: string; tone: BadgeTone }
   return { label: payment.label, tone: paymentTone(payment.status) };
 }
 
+function getOrderStatusFlags(order: Order): OrderStatusFlag[] {
+  const flags: OrderStatusFlag[] = [];
+
+  if (order.shipping_method === "express") {
+    flags.push({
+      label: "EXPRESS",
+      tone: "warning",
+      title: "Express shipping",
+    });
+  }
+
+  const payment = normalizedPaymentStatus(order);
+  if (payment === "authorized") {
+    flags.push({
+      label: "CAPTURE",
+      tone: "warning",
+      title: "Payment authorized",
+    });
+  } else if (payment === "failed" || payment === "cancelled") {
+    flags.push({
+      label: "PAYMENT",
+      tone: "blocked",
+      title: `Payment ${payment}`,
+    });
+  } else if (payment === "draft") {
+    flags.push({
+      label: "PAYMENT",
+      tone: "info",
+      title: "Payment not completed",
+    });
+  }
+
+  const verification = getVerificationState(order);
+  if (verification.blocked || !verification.complete) {
+    flags.push({
+      label: "VERIFY",
+      tone: verification.blocked ? "blocked" : "warning",
+      title: verification.label,
+    });
+  }
+
+  const fulfillment = normalizedFulfillmentStatus(order);
+  const rawFulfillment = String(order.fulfillment_status ?? fulfillment);
+  if (rawFulfillment === "backordered") {
+    flags.push({
+      label: "BACKORDER",
+      tone: "warning",
+      title: "Backordered",
+    });
+  }
+
+  if (fulfillment === "review" || fulfillment === "hold") {
+    flags.push({
+      label: "REVIEW",
+      tone: fulfillment === "hold" ? "warning" : "neutral",
+      title: labelizeStatus(fulfillment),
+    });
+  }
+
+  return flags;
+}
+
 function nextFulfillmentStatus(status: FulfillmentStatus): FulfillmentStatus | null {
   const currentIndex = FULFILLMENT_PROGRESS_FLOW.indexOf(status);
   if (currentIndex < 0) return null;
@@ -890,6 +992,17 @@ function badgeStyle(tone: BadgeTone): CSSProperties {
     lineHeight: 1,
     padding: "5px 7px",
     whiteSpace: "nowrap",
+  };
+}
+
+function compactBadgeStyle(tone: BadgeTone): CSSProperties {
+  return {
+    ...badgeStyle(tone),
+    borderRadius: 5,
+    fontSize: 10,
+    fontWeight: 900,
+    padding: "3px 5px",
+    minHeight: 18,
   };
 }
 
@@ -1766,6 +1879,7 @@ export default function AdminOrdersPage() {
   const [abandonedOrders, setAbandonedOrders] = useState<Order[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [rxExpanded, setRxExpanded] = useState<string | null>(null);
+  const [showOlderCustomerAction, setShowOlderCustomerAction] = useState(false);
   const [recoveryDrafts, setRecoveryDrafts] = useState<
     Record<string, RecoveryEmailDraft>
   >({});
@@ -2695,6 +2809,645 @@ export default function AdminOrdersPage() {
     navigator.clipboard.writeText(text);
   }
 
+  function renderExpandedOrderDetails(o: Order): ReactNode {
+    const rx = parseRx(o);
+    const rxStatus = displayRxStatus(o);
+    const rxSource = getRxSourceState(o);
+    const payment = paymentStatus(o);
+    const verification = getVerificationStatus(o);
+    const fulfillment = normalizedFulfillmentStatus(o);
+    const lensDisplay = getOrderLensDisplayName(o);
+    const nextAction = getNextAction(o);
+    const queueBucket = getOrderOperationalBucket(o);
+    const isMerchantLane = isMerchantQueueBucket(queueBucket);
+    const nextFulfillment = isMerchantLane
+      ? nextFulfillmentStatus(fulfillment)
+      : null;
+    const previousFulfillment = isMerchantLane
+      ? previousFulfillmentStatus(fulfillment)
+      : null;
+    const canAdvanceFulfillment =
+      !nextFulfillment || canSetFulfillmentStatus(o, nextFulfillment);
+    const patientName = getPatientName(o);
+    const customerName = getCustomerName(o);
+    const showPatientName = namesDiffer(patientName, customerName);
+    const submittedQuantityDisplay = formatSubmittedOrderQuantity(o);
+    const adjustedQuantityDisplay = hasAdjustedOrderQuantity(o)
+      ? formatAdjustedOrderQuantity(o)
+      : null;
+
+    return (
+      <div
+        style={{
+          marginTop: 12,
+          fontSize: 13,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <NextActionBanner order={o} />
+
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 6,
+            marginBottom: 10,
+          }}
+        >
+          <span style={badgeStyle(payment.tone)}>Payment: {payment.label}</span>
+          <span style={badgeStyle(verification.tone)}>
+            Verification: {verification.label}
+          </span>
+          <span style={badgeStyle(fulfillmentTone(fulfillment))}>
+            Fulfillment: {labelizeStatus(fulfillment)}
+          </span>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: 10,
+            marginTop: 12,
+            marginBottom: 12,
+          }}
+        >
+          <div style={mutedPanelStyle()}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>Order Summary</div>
+            <div>Ordered: {lensDisplay}</div>
+            {adjustedQuantityDisplay ? (
+              <>
+                <div>Corrected quantity: {adjustedQuantityDisplay}</div>
+                <div>Submitted quantity: {submittedQuantityDisplay}</div>
+              </>
+            ) : (
+              <div>Submitted quantity: {submittedQuantityDisplay}</div>
+            )}
+            <div>Authorized: {formatMoney(o.total_amount_cents)}</div>
+            <div>Capture: {formatMoney(effectiveCaptureAmountCents(o))}</div>
+            <div>Next: {nextAction.label}</div>
+          </div>
+
+          <div style={mutedPanelStyle()}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>
+              Customer / Shipping
+            </div>
+            <div>Customer: {customerName}</div>
+            {showPatientName && <div>Patient: {patientName}</div>}
+            <div style={{ marginTop: 6 }}>{o.shipping_address1 ?? "-"}</div>
+            {o.shipping_address2 && <div>{o.shipping_address2}</div>}
+            <div>
+              {[o.shipping_city, o.shipping_state, o.shipping_zip]
+                .filter(Boolean)
+                .join(", ")}
+            </div>
+            <div style={{ marginTop: 6 }}>
+              {o.shipping_phone ? (
+                <CopyableValue value={o.shipping_phone}>
+                  Phone: {o.shipping_phone}
+                </CopyableValue>
+              ) : (
+                "Phone: -"
+              )}
+            </div>
+            <div>
+              {o.shipping_email ? (
+                <CopyableValue value={o.shipping_email}>
+                  Email: {o.shipping_email}
+                </CopyableValue>
+              ) : (
+                "Email: -"
+              )}
+            </div>
+          </div>
+
+          <div style={mutedPanelStyle()}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>Payment</div>
+            <div>Status: {payment.label}</div>
+            <div>Authorized: {formatMoney(o.total_amount_cents)}</div>
+            <div>Capture: {formatMoney(effectiveCaptureAmountCents(o))}</div>
+            <div>
+              Shipping: {o.shipping_method === "express" ? "Express" : "Standard"}{" "}
+              {formatMoney(o.shipping_cents ?? 0)}
+            </div>
+            {o.payment_intent_id && (
+              <div>
+                <CopyableValue value={o.payment_intent_id}>
+                  PI: {o.payment_intent_id}
+                </CopyableValue>
+              </div>
+            )}
+            {o.stripe_payment_intent_status && (
+              <div>Stripe status: {o.stripe_payment_intent_status}</div>
+            )}
+          </div>
+
+          <div style={mutedPanelStyle()}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>Prescriber</div>
+            <div>Name: {o.prescriber_name ?? "-"}</div>
+            <div>Email: {o.prescriber_email ?? "-"}</div>
+            <div>Phone: {o.prescriber_phone ?? "-"}</div>
+          </div>
+
+          <div style={mutedPanelStyle()}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>
+              Internal / Audit
+            </div>
+            <div>
+              <CopyableValue value={o.id}>Order: {o.id}</CopyableValue>
+            </div>
+            <div>Created: {formatDateTime(o.created_at)}</div>
+            <div>
+              Last activity:{" "}
+              {formatDateTime(o.lastOperationalActivityAt ?? o.updated_at)}
+            </div>
+            <div>
+              Activity reason: {o.lastOperationalActivityReason ?? "Order updated"}
+            </div>
+            <div>Updated: {formatDateTime(o.updated_at)}</div>
+            <div>Rx source: {rxSource.label}</div>
+            <div>Rx detail: {rxStatus}</div>
+            {rx.exp && <div>Rx exp: {rx.exp}</div>}
+          </div>
+        </div>
+
+        {isMerchantLane && (
+          <>
+            <OrderQuantityAdjustmentPanel
+              order={o}
+              onAdjust={() => openOrderQuantityAdjustment(o, customerName)}
+            />
+
+            <PaymentAdjustmentPanel
+              order={o}
+              onAdjust={() => openCaptureAdjustment(o, customerName)}
+            />
+          </>
+        )}
+
+        {o.rx_upload_path && (
+          <div style={{ ...mutedPanelStyle(), marginBottom: 12 }}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>Rx Image</div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                openRxImage(o, customerName);
+              }}
+              style={buttonStyle()}
+            >
+              View Rx Image
+            </button>
+            <div style={{ marginTop: 6, opacity: 0.72 }}>{o.rx_upload_path}</div>
+          </div>
+        )}
+
+        <RxDetailsPanel order={o} />
+
+        {isMerchantLane && (
+          <div
+            style={{
+              ...mutedPanelStyle(),
+              display: "grid",
+              gap: 10,
+              marginBottom: 12,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              {previousFulfillment && (
+                <button
+                  type="button"
+                  disabled={savingOrderId === o.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    updateFulfillmentStatus(o.id, previousFulfillment);
+                  }}
+                  style={buttonStyle()}
+                >
+                  Undo to {labelizeStatus(previousFulfillment)}
+                </button>
+              )}
+
+              {nextFulfillment && (
+                <button
+                  type="button"
+                  disabled={savingOrderId === o.id || !canAdvanceFulfillment}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!canAdvanceFulfillment) return;
+                    updateFulfillmentStatus(o.id, nextFulfillment);
+                  }}
+                  style={buttonStyle({
+                    background: "rgba(20,184,166,0.22)",
+                    opacity: canAdvanceFulfillment ? 1 : 0.5,
+                  })}
+                  title={
+                    canAdvanceFulfillment
+                      ? undefined
+                      : "Capture payment before advancing fulfillment."
+                  }
+                >
+                  {workflowActionLabel(fulfillment, nextFulfillment)}
+                </button>
+              )}
+
+              {fulfillment === "completed" && orderSupportsAdminNotes(o) && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startReturnRefund(o, customerName);
+                  }}
+                  style={buttonStyle({
+                    background: "rgba(236,72,153,0.18)",
+                  })}
+                >
+                  Start Return / Refund
+                </button>
+              )}
+
+              <label style={{ fontWeight: 700 }}>
+                Advanced override
+                <select
+                  value={fulfillment}
+                  disabled={savingOrderId === o.id}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    const next = e.target.value;
+                    if (isFulfillmentStatus(next)) {
+                      if (!canSetFulfillmentStatus(o, next)) {
+                        setAdminError(
+                          "Capture payment before advancing fulfillment.",
+                        );
+                        return;
+                      }
+                      updateFulfillmentStatus(o.id, next);
+                    }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    marginLeft: 8,
+                    padding: "4px 8px",
+                    borderRadius: 4,
+                  }}
+                >
+                  {FULFILLMENT_STATUSES.map((status) => (
+                    <option
+                      key={status}
+                      value={status}
+                      disabled={!canSetFulfillmentStatus(o, status)}
+                    >
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {savingOrderId === o.id && <span>Saving...</span>}
+            </div>
+          </div>
+        )}
+
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            marginBottom: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          {orderSupportsAdminNotes(o) && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                openNotes(o, customerName);
+              }}
+              onClickCapture={(e) => e.stopPropagation()}
+              style={buttonStyle()}
+            >
+              Notes
+            </button>
+          )}
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              copyOrderText(o, rx);
+            }}
+            onClickCapture={(e) => e.stopPropagation()}
+            style={buttonStyle()}
+          >
+            Copy Order
+          </button>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              archiveOrder(o.id);
+            }}
+            onClickCapture={(e) => e.stopPropagation()}
+            style={buttonStyle({ color: "#fbbf24" })}
+          >
+            Archive
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderCustomerActionRow(o: Order): ReactNode {
+    const activitySummary = formatOrderActivitySummary(o);
+    const activityTime = activitySummary.relative
+      ? `${activitySummary.time} \u2022 ${activitySummary.relative}`
+      : activitySummary.time;
+    const customerName = getCustomerName(o);
+    const lensDisplay = getOrderLensDisplayName(o);
+    const nextAction = getNextAction(o);
+    const flags = getOrderStatusFlags(o);
+    const isOpen = expanded === o.id;
+    const isHighlighted = highlightedOrderIds.has(o.id);
+    const amountDisplay = hasCaptureAdjustment(o)
+      ? `Capture ${formatMoney(effectiveCaptureAmountCents(o))}`
+      : formatMoney(o.total_amount_cents);
+
+    return (
+      <div
+        key={o.id}
+        style={{
+          border: isHighlighted
+            ? "1px solid rgba(186,230,253,0.95)"
+            : "1px solid rgba(148,163,184,0.16)",
+          borderRadius: 8,
+          background: isOpen
+            ? "rgba(30,41,59,0.5)"
+            : isHighlighted
+              ? "rgba(14,165,233,0.08)"
+              : "rgba(15,23,42,0.16)",
+          boxShadow: isHighlighted
+            ? "0 0 0 1px rgba(186,230,253,0.18), 0 0 20px rgba(14,165,233,0.16)"
+            : "none",
+          minWidth: 920,
+          overflow: "hidden",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            clearOrderHighlight(o.id);
+            setExpanded(isOpen ? null : o.id);
+          }}
+          aria-expanded={isOpen}
+          style={{
+            width: "100%",
+            minHeight: 52,
+            display: "grid",
+            gridTemplateColumns:
+              "122px minmax(130px, 1fr) minmax(190px, 1.35fr) 94px minmax(150px, 1fr) minmax(118px, 0.85fr) 62px",
+            gap: 10,
+            alignItems: "center",
+            border: 0,
+            background: "transparent",
+            color: "inherit",
+            cursor: "pointer",
+            padding: "6px 10px",
+            textAlign: "left",
+            fontSize: 12,
+            lineHeight: 1.25,
+          }}
+        >
+          <span>
+            <span style={{ display: "block", fontWeight: 900 }}>
+              {activitySummary.date}
+            </span>
+            <span style={{ display: "block", opacity: 0.72 }}>
+              {activityTime}
+            </span>
+            <span
+              style={{
+                display: "block",
+                color: "rgba(226,232,240,0.52)",
+                fontSize: 10,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {activitySummary.reason}
+            </span>
+          </span>
+
+          <span
+            style={{
+              fontWeight: 850,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={customerName}
+          >
+            {customerName}
+          </span>
+
+          <span
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={lensDisplay}
+          >
+            {lensDisplay}
+          </span>
+
+          <span style={{ fontWeight: 800 }}>{amountDisplay}</span>
+
+          <span
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              fontWeight: 800,
+            }}
+            title={nextAction.label}
+          >
+            {nextAction.label}
+          </span>
+
+          <span
+            style={{
+              display: "flex",
+              gap: 4,
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            {flags.map((flag) => (
+              <span
+                key={`${o.id}-${flag.label}-${flag.title}`}
+                style={compactBadgeStyle(flag.tone)}
+                title={flag.title}
+              >
+                {flag.label}
+              </span>
+            ))}
+          </span>
+
+          <span style={{ textAlign: "right", opacity: 0.7 }}>
+            {isOpen ? "Hide" : "Details"}
+          </span>
+        </button>
+
+        {isOpen && (
+          <div
+            style={{
+              borderTop: "1px solid rgba(148,163,184,0.14)",
+              padding: "0 10px 10px",
+            }}
+          >
+            {renderExpandedOrderDetails(o)}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderCustomerActionSection(sectionOrders: Order[]): ReactNode {
+    const recentOrders = sectionOrders.filter(isRecentCustomerActivity);
+    const olderOrders = sectionOrders.filter(
+      (order) => !isRecentCustomerActivity(order),
+    );
+    const expandedOlderOrderVisible = olderOrders.some(
+      (order) => expanded === order.id,
+    );
+    const showOlder = showOlderCustomerAction || expandedOlderOrderVisible;
+
+    if (sectionOrders.length === 0) {
+      return (
+        <div
+          style={{
+            border: "1px solid rgba(148,163,184,0.16)",
+            borderRadius: 10,
+            padding: "10px 12px",
+            color: "rgba(226,232,240,0.6)",
+            fontSize: 13,
+          }}
+        >
+          No orders in this queue.
+        </div>
+      );
+    }
+
+    return (
+      <div style={{ overflowX: "auto", paddingBottom: 2 }}>
+        <div
+          style={{
+            minWidth: 920,
+            display: "grid",
+            gridTemplateColumns:
+              "122px minmax(130px, 1fr) minmax(190px, 1.35fr) 94px minmax(150px, 1fr) minmax(118px, 0.85fr) 62px",
+            gap: 10,
+            padding: "0 10px 5px",
+            color: "rgba(226,232,240,0.48)",
+            fontSize: 10,
+            fontWeight: 900,
+            textTransform: "uppercase",
+          }}
+        >
+          <span>Activity</span>
+          <span>Customer</span>
+          <span>Lens</span>
+          <span>Amount</span>
+          <span>Next</span>
+          <span>Flags</span>
+          <span style={{ textAlign: "right" }}>Open</span>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div
+            style={{
+              minWidth: 920,
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 10,
+              padding: "2px 2px 0",
+              color: "rgba(226,232,240,0.62)",
+              fontSize: 12,
+              fontWeight: 800,
+            }}
+          >
+            <span>Recent</span>
+            <span style={{ fontSize: 11, opacity: 0.72 }}>
+              Last {CUSTOMER_ACTION_RECENT_DAYS} days
+            </span>
+          </div>
+
+          {recentOrders.length > 0 ? (
+            recentOrders.map(renderCustomerActionRow)
+          ) : (
+            <div
+              style={{
+                minWidth: 920,
+                border: "1px solid rgba(148,163,184,0.12)",
+                borderRadius: 8,
+                padding: "9px 10px",
+                color: "rgba(226,232,240,0.52)",
+                fontSize: 12,
+              }}
+            >
+              No recent customer action orders.
+            </div>
+          )}
+
+          {olderOrders.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  if (showOlder) {
+                    setShowOlderCustomerAction(false);
+                    if (expandedOlderOrderVisible) setExpanded(null);
+                    return;
+                  }
+
+                  setShowOlderCustomerAction(true);
+                }}
+                aria-expanded={showOlder}
+                style={{
+                  minWidth: 920,
+                  border: "1px solid rgba(148,163,184,0.16)",
+                  borderRadius: 8,
+                  background: "rgba(15,23,42,0.22)",
+                  color: "rgba(226,232,240,0.78)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  padding: "8px 10px",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 850,
+                  textAlign: "left",
+                }}
+              >
+                <span>Older Customer Action Required ({olderOrders.length})</span>
+                <span>{showOlder ? "▼ Collapse" : "▶ Expand"}</span>
+              </button>
+
+              {showOlder && olderOrders.map(renderCustomerActionRow)}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const actionRequiredOrders = orders.filter(
     (order) => getOrderOperationalBucket(order) === "action_required",
   );
@@ -2871,7 +3624,9 @@ export default function AdminOrdersPage() {
               </div>
             </div>
 
-            {section.orders.length === 0 ? (
+            {section.key === "customer_blocked" ? (
+              renderCustomerActionSection(section.orders)
+            ) : section.orders.length === 0 ? (
               <div
                 style={{
                   border: "1px solid rgba(148,163,184,0.16)",
@@ -2888,23 +3643,19 @@ export default function AdminOrdersPage() {
                 style={{ display: "flex", flexDirection: "column", gap: 10 }}
               >
                 {section.orders.map((o) => {
+          const activitySummary = formatOrderActivitySummary(o);
+          const captureState = paymentCaptureSummary(o);
+          const rxLines = formatCollapsedRxLine(o);
+          const lensDisplay = getOrderLensDisplayName(o);
+          const nextAction = getNextAction(o);
           const rx = parseRx(o);
           const rxStatus = displayRxStatus(o);
           const rxSource = getRxSourceState(o);
           const payment = paymentStatus(o);
           const verification = getVerificationStatus(o);
           const fulfillment = normalizedFulfillmentStatus(o);
-          const dateTime = formatOrderCreatedDate(o);
-          const activityLabel = shouldShowRecentActivity(o)
-            ? formatOrderActivityDate(o)
-            : null;
-          const captureState = paymentCaptureSummary(o);
-          const rxLines = formatCollapsedRxLine(o);
-          const lensDisplay = getOrderLensDisplayName(o);
-          const nextAction = getNextAction(o);
           const queueBucket = getOrderOperationalBucket(o);
           const isMerchantLane = isMerchantQueueBucket(queueBucket);
-          const isHighlighted = highlightedOrderIds.has(o.id);
           const nextFulfillment = isMerchantLane
             ? nextFulfillmentStatus(fulfillment)
             : null;
@@ -2913,6 +3664,13 @@ export default function AdminOrdersPage() {
             : null;
           const canAdvanceFulfillment =
             !nextFulfillment || canSetFulfillmentStatus(o, nextFulfillment);
+          const submittedQuantityDisplay = formatSubmittedOrderQuantity(o);
+          const adjustedQuantityDisplay = hasAdjustedOrderQuantity(o)
+            ? formatAdjustedOrderQuantity(o)
+            : null;
+          const isHighlighted = highlightedOrderIds.has(o.id);
+          const statusFlags = getOrderStatusFlags(o);
+          const isPriorityCard = section.key === "action_required";
 
           const patientName = getPatientName(o);
           const customerName = getCustomerName(o);
@@ -2921,10 +3679,6 @@ export default function AdminOrdersPage() {
           const isOpen = expanded === o.id;
           const isRxOpen = rxExpanded === o.id;
 
-          const submittedQuantityDisplay = formatSubmittedOrderQuantity(o);
-          const adjustedQuantityDisplay = hasAdjustedOrderQuantity(o)
-            ? formatAdjustedOrderQuantity(o)
-            : null;
           const boxDisplay = formatOrderQuantitySummary(o);
 
           return (
@@ -2934,8 +3688,8 @@ export default function AdminOrdersPage() {
                 border: isHighlighted
                   ? "1px solid rgba(186,230,253,0.95)"
                   : "1px solid rgba(148,163,184,0.2)",
-                borderRadius: 10,
-                padding: "10px 12px",
+                borderRadius: isPriorityCard ? 10 : 8,
+                padding: isPriorityCard ? "11px 13px" : "8px 10px",
                 background: isOpen
                   ? "rgba(30,41,59,0.6)"
                   : isHighlighted
@@ -2957,44 +3711,62 @@ export default function AdminOrdersPage() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns:
-                      "112px minmax(260px, 1.35fr) minmax(260px, 1fr)",
-                    gap: 12,
+                    gridTemplateColumns: isPriorityCard
+                      ? "128px minmax(260px, 1.35fr) minmax(260px, 1fr)"
+                      : "118px minmax(230px, 1.25fr) minmax(240px, 1fr)",
+                    gap: isPriorityCard ? 12 : 10,
                     alignItems: "start",
                     fontSize: 12,
                     lineHeight: 1.35,
                   }}
                 >
                   <div>
-                    <div style={{ fontWeight: 800, fontSize: 14 }}>
-                      {dateTime.date}
+                    <div style={{ opacity: 0.58, fontSize: 11, fontWeight: 800 }}>
+                      Last activity
                     </div>
-                    <div style={{ opacity: 0.72 }}>{dateTime.time}</div>
-                    {activityLabel && (
+                    <div style={{ fontWeight: 800, fontSize: 14 }}>
+                      {activitySummary.date}
+                    </div>
+                    <div
+                      style={{
+                        opacity: 0.72,
+                        color: activitySummary.isMaterial ? "#bae6fd" : "inherit",
+                      }}
+                    >
+                      {activitySummary.relative
+                        ? `${activitySummary.time} \u2022 ${activitySummary.relative}`
+                        : activitySummary.time}
+                    </div>
+
+                    <div style={{ marginTop: 2 }}>
                       <div
                         style={{
-                          marginTop: 3,
-                          color: "rgba(226,232,240,0.48)",
+                          marginTop: 2,
+                          color: "rgba(226,232,240,0.52)",
                           fontSize: 11,
                         }}
                       >
-                        {activityLabel}
+                        {activitySummary.reason}
                       </div>
-                    )}
-                    {o.shipping_method === "express" && (
+                    </div>
+                    {statusFlags.length > 0 && (
                       <div
                         style={{
+                          display: "flex",
+                          gap: 4,
+                          flexWrap: "wrap",
                           marginTop: 7,
-                          padding: "5px 7px",
-                          borderRadius: 6,
-                          border: "1px solid rgba(251,191,36,0.7)",
-                          background: "rgba(251,191,36,0.14)",
-                          color: "#fde68a",
-                          fontWeight: 800,
-                          letterSpacing: 0,
                         }}
                       >
-                        EXPRESS
+                        {statusFlags.map((flag) => (
+                          <span
+                            key={`${o.id}-${flag.label}-${flag.title}`}
+                            style={compactBadgeStyle(flag.tone)}
+                            title={flag.title}
+                          >
+                            {flag.label}
+                          </span>
+                        ))}
                       </div>
                     )}
                     {isHighlighted && (
