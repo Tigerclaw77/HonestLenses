@@ -1,8 +1,7 @@
-import { Resend } from "resend";
-
-const resend = new Resend(process.env.RESEND_API_KEY!);
+import { sendEmail } from "@/lib/email";
 
 type OrderEmailInput = {
+  id?: string;
   email: string;
   first_name?: string | null;
   verification_status: "auto_verified" | "pending" | string;
@@ -38,10 +37,12 @@ export async function sendOrderEmail(order: OrderEmailInput) {
   // 🔍 helpful for debugging (remove later)
   console.log("Sending email to:", to);
 
-  await resend.emails.send({
-    from: "Honest Lenses <support@honestlenses.com>",
+  await sendEmail({
     to,
     subject,
     html,
+    tracking: order.id
+      ? { orderId: order.id, emailType: "order_status" }
+      : undefined,
   });
 }

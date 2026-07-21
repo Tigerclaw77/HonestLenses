@@ -56,6 +56,8 @@ export type Order = {
   archived?: boolean | null;
   archived_at?: string | null;
   stripe_payment_intent_status?: string | null;
+  email_delivery_status?: string | null;
+  email_delivery_requires_attention?: boolean | null;
 };
 
 export type VerificationLifecycleStatus =
@@ -467,6 +469,10 @@ export function getNextAction(order: Order): NextAction {
     return { label: "Archived", severity: "success" };
   }
 
+  if (hasEmailDeliveryAttention(order)) {
+    return { label: "Correct customer email", severity: "warning" };
+  }
+
   const payment = getPaymentState(order);
   const verification = getVerificationState(order);
   const rxSource = getRxSourceState(order);
@@ -540,4 +546,20 @@ export function getNextAction(order: Order): NextAction {
   }
 
   return { label: "Place vendor order", severity: "warning" };
+}
+
+const EMAIL_ATTENTION_STATUSES = new Set([
+  "bounced",
+  "complained",
+  "failed",
+  "suppressed",
+]);
+
+export function hasEmailDeliveryAttention(order: Order): boolean {
+  return Boolean(
+    order.email_delivery_requires_attention ||
+      EMAIL_ATTENTION_STATUSES.has(
+        order.email_delivery_status?.trim().toLowerCase() ?? "",
+      ),
+  );
 }

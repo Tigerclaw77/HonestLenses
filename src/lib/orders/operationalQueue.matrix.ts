@@ -93,6 +93,38 @@ const cases: MatrixCase[] = [
     expectedActionable: true,
   },
   {
+    scenario: "captured order with hard-bounced customer email",
+    order: {
+      id: "matrix-email-bounced",
+      status: "captured",
+      payment_intent_id: "pi_email_bounced",
+      stripe_payment_intent_status: "succeeded",
+      verification_status: "verified",
+      fulfillment_status: "review",
+      rx: verifiedRx,
+      email_delivery_status: "bounced",
+      email_delivery_requires_attention: true,
+    },
+    expectedBucket: "action_required",
+    expectedActionable: true,
+  },
+  {
+    scenario: "delivered email does not alter fulfillment placement",
+    order: {
+      id: "matrix-email-delivered",
+      status: "captured",
+      payment_intent_id: "pi_email_delivered",
+      stripe_payment_intent_status: "succeeded",
+      verification_status: "verified",
+      fulfillment_status: "review",
+      rx: verifiedRx,
+      email_delivery_status: "delivered",
+      email_delivery_requires_attention: false,
+    },
+    expectedBucket: "active_fulfillment",
+    expectedActionable: true,
+  },
+  {
     scenario: "test/internal order",
     order: {
       id: "matrix-test",

@@ -75,6 +75,13 @@ type OrderRow = {
   stripe_payment_intent_status?: string | null;
   payment_status_source?: "stripe" | "order_fallback" | "missing_intent" | null;
   fulfillment_status?: string | null;
+  email_delivery_status?: string | null;
+  email_last_event?: string | null;
+  email_last_event_at?: string | null;
+  email_failure_reason?: string | null;
+  email_delivery_requires_attention?: boolean | null;
+  confirmation_email_sent_at?: string | null;
+  confirmation_email_delivered_at?: string | null;
   admin_notes?: string | null;
 };
 
