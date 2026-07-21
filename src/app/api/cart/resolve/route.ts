@@ -10,7 +10,8 @@ import {
 import { getPrice } from "../../../../lib/pricing/getPrice";
 import { getSkuBoxDurationMonths } from "../../../../lib/pricing/skuDefaults";
 import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
-import { deriveTotalBoxes, deriveTotalMonths } from "../../../../lib/shipping";
+import { deriveTotalMonths } from "../../../../lib/shipping";
+import { resolveCartEyeBoxCounts } from "@/lib/cart/resolveQuantities";
 import {
   isShippingMethod,
   normalizeShippingMethod,
@@ -76,8 +77,8 @@ type RxData = {
 
 type ResolveBody = {
   order_id?: string;
-  right_box_count?: number;
-  left_box_count?: number;
+  right_box_count?: number | null;
+  left_box_count?: number | null;
   shipping_method?: string;
 };
 
@@ -141,6 +142,10 @@ function isResolveBody(value: unknown): value is ResolveBody {
     return false;
 
   return true;
+}
+
+function hasOwn(value: object | null, key: string): boolean {
+  return value !== null && Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function validateResolvedEyeRx(eye: EyeRx | undefined): string[] {
@@ -378,16 +383,21 @@ export async function POST(req: Request) {
 
   const defaultPerEye = Math.ceil(targetMonths / monthsPerBox);
 
-  const right = rx.right ? (body?.right_box_count ?? defaultPerEye) : null;
-  const left = rx.left ? (body?.left_box_count ?? defaultPerEye) : null;
-
-  const totalBoxes = deriveTotalBoxes({
-    sku: resolvedSku,
-    total_box_count: null,
-    box_count: null,
-    left_box_count: left,
-    right_box_count: right,
+  const counts = resolveCartEyeBoxCounts({
+    hasRightEye: Boolean(rx.right),
+    hasLeftEye: Boolean(rx.left),
+    defaultPerEye,
+    requestedRightBoxCount: body?.right_box_count,
+    requestedLeftBoxCount: body?.left_box_count,
+    hasRequestedRightBoxCount: hasOwn(body, "right_box_count"),
+    hasRequestedLeftBoxCount: hasOwn(body, "left_box_count"),
+    storedRightBoxCount: order.right_box_count,
+    storedLeftBoxCount: order.left_box_count,
   });
+
+  const right = counts.right;
+  const left = counts.left;
+  const totalBoxes = counts.totalBoxes;
   const totalMonths = deriveTotalMonths({
     sku: resolvedSku,
     totalBoxes,
