@@ -1,150 +1,164 @@
-import { supabaseServer } from "@/lib/supabase-server";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { supabaseServer } from "@/lib/supabase-server";
+import {
+  CUSTOMER_ORDER_SELECT,
+  formatCustomerMoney,
+  getCustomerAmountCents,
+  getCustomerFulfillmentStatus,
+  getCustomerNextStep,
+  getCustomerOrderQuantities,
+  getCustomerPaymentStatus,
+  getCustomerVerificationStatus,
+  isCustomerOrderId,
+  type CustomerOrder,
+} from "@/lib/orders/customerOrder";
 
-type PageProps = {
-  params: {
-    id: string;
-  };
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export const metadata: Metadata = {
+  title: "Your Order | Honest Lenses",
+  robots: { index: false, follow: false },
 };
 
-function formatMoney(cents?: number) {
-  if (typeof cents !== "number") return "—";
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
-function formatStatus(status: string) {
-  if (status === "captured") return "Processing";
-  if (status === "authorized") return "Verification Required";
-  return status;
-}
-
-function formatVerification(v: string) {
-  if (v === "auto_verified") return "Verified";
-  if (v === "pending") return "Pending";
-  return v;
-}
+type PageProps = {
+  params: Promise<{ id: string }>;
+};
 
 export default async function OrderPage({ params }: PageProps) {
-  const orderId = params.id;
+  const { id: orderId } = await params;
+  if (!isCustomerOrderId(orderId)) return notFound();
 
+  // Existing email links use the random order UUID as their bearer credential.
   const { data: order, error } = await supabaseServer
     .from("orders")
-    .select("*")
+    .select(CUSTOMER_ORDER_SELECT)
     .eq("id", orderId)
-    .single();
+    .single<CustomerOrder>();
 
   if (error || !order) return notFound();
 
-  const status = order.status;
-  const verificationStatus = order.verification_status;
-
-  const isCaptured = status === "captured";
-  const isAuthorized = status === "authorized";
-  const isVerified = verificationStatus === "auto_verified";
-
-  let headline = "Order Received";
-  let message = "Your order is being reviewed.";
-
-  if (isCaptured && isVerified) {
-    headline = "Order Confirmed";
-    message =
-      "Your prescription has been verified and your order is being prepared for shipment.";
-  }
-
-  if (isAuthorized) {
-    headline = "Verification In Progress";
-    message =
-      "We are verifying your prescription before shipment. Timing can depend on prescriber office hours and response time.";
-  }
+  const quantities = getCustomerOrderQuantities(order);
+  const paymentStatus = getCustomerPaymentStatus(order);
+  const verificationStatus = getCustomerVerificationStatus(order);
+  const fulfillmentStatus = getCustomerFulfillmentStatus(order);
+  const amount = formatCustomerMoney(
+    getCustomerAmountCents(order),
+    order.currency ?? "USD",
+  );
 
   return (
-    <main style={{ padding: "40px 20px" }}>
-      <div
-        style={{
-          maxWidth: 760,
-          margin: "0 auto",
-          background: "rgba(15, 23, 42, 0.75)",
-          border: "1px solid rgba(148, 163, 184, 0.18)",
-          borderRadius: 18,
-          padding: 28,
-        }}
-      >
-        <h1 style={{ fontSize: 30, fontWeight: 900, marginBottom: 10 }}>
-          {headline}
-        </h1>
+    <main style={{ padding: "40px 20px 64px" }}>
+      <div style={{ maxWidth: 860, margin: "0 auto" }}>
+        <header style={{ marginBottom: 30 }}>
+          <p style={{ color: "#93c5fd", fontWeight: 700, marginBottom: 8 }}>
+            HONEST LENSES
+          </p>
+          <h1 style={{ fontSize: 34, margin: 0 }}>Your Order</h1>
+          <p style={{ color: "#94a3b8", overflowWrap: "anywhere" }}>
+            Order {order.id}
+          </p>
+        </header>
 
-        <p style={{ color: "#cbd5e1", marginBottom: 24 }}>{message}</p>
-
-        {/* Status pills */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-          <span
+        <section className="order-card" style={{ marginBottom: 20 }}>
+          <h2 style={{ fontSize: 20, marginTop: 0 }}>Current status</h2>
+          <p style={{ color: "#cbd5e1", lineHeight: 1.6 }}>
+            {getCustomerNextStep(order)}
+          </p>
+          <div
             style={{
-              padding: "6px 12px",
-              borderRadius: 999,
-              background: "#1d4ed8",
-              color: "#fff",
-              fontSize: 12,
-              fontWeight: 700,
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: 16,
+              marginTop: 22,
             }}
           >
-            {formatStatus(status)}
-          </span>
+            <StatusItem label="Payment" value={paymentStatus} />
+            <StatusItem label="Prescription" value={verificationStatus} />
+            <StatusItem label="Fulfillment" value={fulfillmentStatus} />
+          </div>
+        </section>
 
-          <span
-            style={{
-              padding: "6px 12px",
-              borderRadius: 999,
-              background: "rgba(148,163,184,0.2)",
-              color: "#e2e8f0",
-              fontSize: 12,
-              fontWeight: 600,
-            }}
-          >
-            {formatVerification(verificationStatus)}
-          </span>
-        </div>
+        <section className="order-card" style={{ marginBottom: 20 }}>
+          <h2 style={{ fontSize: 20, marginTop: 0 }}>Order summary</h2>
+          <SummaryRow label="Lens" value={order.sku ?? "Contact lenses"} />
+          <SummaryRow label="Right eye" value={`${quantities.right} boxes`} />
+          <SummaryRow label="Left eye" value={`${quantities.left} boxes`} />
+          <SummaryRow label="Total quantity" value={`${quantities.total} boxes`} />
+          <SummaryRow label="Order amount" value={amount} strong />
+        </section>
 
-        <hr style={{ opacity: 0.2, margin: "20px 0" }} />
+        <section className="order-card" style={{ marginBottom: 20 }}>
+          <h2 style={{ fontSize: 20, marginTop: 0 }}>Shipment</h2>
+          <SummaryRow label="Status" value={fulfillmentStatus} />
+          <SummaryRow label="Tracking" value="Not yet available" />
+        </section>
 
-        {/* Order Info */}
-        <p><strong>Order ID:</strong> {order.id}</p>
-        <p><strong>Lens:</strong> {order.sku ?? "—"}</p>
-        <p><strong>Total:</strong> {formatMoney(order.total_amount_cents)}</p>
+        <section className="order-card">
+          <h2 style={{ fontSize: 20, marginTop: 0 }}>Receipt</h2>
+          <p style={{ color: "#cbd5e1", lineHeight: 1.6 }}>
+            View or download the receipt generated from your current order
+            confirmation information.
+          </p>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <a className="primary-btn" href={`/order/${order.id}/receipt`}>
+              View receipt
+            </a>
+            <a
+              className="primary-btn"
+              href={`/order/${order.id}/receipt?download=1`}
+              style={{
+                background: "rgba(148, 163, 184, 0.16)",
+                borderColor: "rgba(148, 163, 184, 0.32)",
+                boxShadow: "none",
+              }}
+            >
+              Download receipt
+            </a>
+          </div>
+        </section>
 
-        <hr style={{ opacity: 0.2, margin: "20px 0" }} />
-
-        {/* Shipping */}
-        <h3 style={{ marginBottom: 10 }}>Shipping</h3>
-        <p>{order.shipping_first_name} {order.shipping_last_name}</p>
-        <p>{order.shipping_address1}</p>
-        {order.shipping_address2 && <p>{order.shipping_address2}</p>}
-        <p>
-          {order.shipping_city}, {order.shipping_state} {order.shipping_zip}
+        <p style={{ color: "#94a3b8", marginTop: 24, lineHeight: 1.6 }}>
+          Questions about your order? Contact support@honestlenses.com.
         </p>
-
-        <hr style={{ opacity: 0.2, margin: "20px 0" }} />
-
-        {/* Next Steps */}
-        <h3 style={{ marginBottom: 10 }}>What happens next</h3>
-
-        {isCaptured && isVerified && (
-          <ul>
-            <li>Your order is being prepared for shipment</li>
-            <li>You will receive tracking once it ships</li>
-          </ul>
-        )}
-
-        {isAuthorized && (
-          <ul>
-            <li>We are verifying your prescription with your doctor</li>
-            <li>
-              The verification window is measured in business hours after our
-              request is received
-            </li>
-            <li>We will notify you once it is complete</li>
-          </ul>
-        )}
       </div>
     </main>
+  );
+}
+
+function StatusItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div style={{ color: "#94a3b8", fontSize: 13 }}>{label}</div>
+      <div style={{ fontWeight: 800, marginTop: 4 }}>{value}</div>
+    </div>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 20,
+        padding: "12px 0",
+        borderBottom: "1px solid rgba(148, 163, 184, 0.16)",
+      }}
+    >
+      <span style={{ color: "#94a3b8" }}>{label}</span>
+      <span style={{ fontWeight: strong ? 800 : 600, textAlign: "right" }}>
+        {value}
+      </span>
+    </div>
   );
 }

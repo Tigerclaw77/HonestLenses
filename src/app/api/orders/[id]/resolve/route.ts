@@ -8,6 +8,11 @@ import {
   normalizeShippingMethod,
   resolveShipping,
 } from "@/lib/shipping/resolveShipping";
+import {
+  canAccessOrder,
+  getOrderAccess,
+  hasOrderAccessContext,
+} from "@/lib/order-access";
 
 const MIN_DAYS_FOR_ANNUAL = 150;
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
@@ -25,6 +30,11 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const access = await getOrderAccess(req);
+  if (!hasOrderAccessContext(access)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { id: orderId } = await context.params;
   const supabase = supabaseServer;
 
@@ -33,13 +43,18 @@ export async function POST(
     const { data: order, error } = await supabase
       .from("orders")
       .select(
-        "id, coreId, rx, box_count, total_box_count, left_box_count, right_box_count, shipping_method"
+        "id, user_id, status, coreId, rx, box_count, total_box_count, left_box_count, right_box_count, shipping_method"
       )
       .eq("id", orderId)
+      .eq("status", "draft")
       .single();
 
     if (error || !order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    if (!canAccessOrder(access, order)) {
+      return NextResponse.json({ error: "Order not authorized" }, { status: 403 });
     }
 
     if (!order.coreId) {
@@ -121,7 +136,8 @@ export async function POST(
         total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
         status: "draft",
       })
-      .eq("id", orderId);
+      .eq("id", orderId)
+      .eq("status", "draft");
 
     if (updateError) {
       return NextResponse.json(
