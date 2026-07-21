@@ -87,12 +87,14 @@ export async function sendVerificationEmail({
   subject,
   html,
   text,
+  tracking,
 }: SendEmailParams) {
   return await sendEmail({
     to,
     subject,
     html,
     text,
+    tracking,
   });
 }
 
