@@ -12,6 +12,7 @@ import {
   getOrderAccess,
   hasOrderAccessContext,
 } from "@/lib/order-access";
+import { buildCustomerOrderEmail } from "@/lib/orders/customerOrder";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -384,35 +385,13 @@ export async function POST(req: Request) {
 
   if (customerEmail) {
     try {
+      const confirmation = buildCustomerOrderEmail({ orderId, isUploaded });
+
       await sendEmail({
         to: customerEmail,
-        subject: "Order received — Honest Lenses",
-        html: `
-        <h2>Thank you for your order</h2>
-
-        <p>Your order has been received and is now being processed.</p>
-
-        <p><strong>Order ID:</strong> ${orderId}</p>
-
-        <p>
-        ${
-          isUploaded
-            ? "Your prescription has been received and verified. Your order is moving into fulfillment."
-            : "We will contact your doctor to verify your prescription before shipping."
-        }
-        </p>
-
-        <p>
-            View your order:
-            <a href="https://www.honestlenses.com/order/${orderId}">
-              View Order
-            </a>
-        </p>
-
-        <p>You’ll receive updates as your order progresses.</p>
-
-        <p>— Honest Lenses</p>
-      `,
+        subject: confirmation.subject,
+        html: confirmation.html,
+        text: confirmation.text,
       });
     } catch (err) {
       console.error("Customer confirmation email failed:", err);

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "test": "tsx src/lib/cart/resolveQuantities.test.ts",
+    "test": "tsx src/lib/cart/resolveQuantities.test.ts && tsx src/lib/orders/customerOrder.test.ts",
     "build": "npm run check:lenses && npm run check:validation && next build",
     "start": "next start",
     "lint": "eslint",
