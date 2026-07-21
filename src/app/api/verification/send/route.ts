@@ -218,6 +218,10 @@ Verification Department
         subject,
         html: htmlBody,
         text: textBody,
+        tracking: {
+          orderId: order.id,
+          emailType: "verification_request",
+        },
       });
     } catch (err) {
       console.error("Verification email failed:", err);
