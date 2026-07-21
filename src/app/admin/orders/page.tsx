@@ -9,6 +9,7 @@ import {
   getPaymentState,
   getRxSourceState,
   getVerificationState,
+  hasEmailDeliveryAttention,
   type PaymentLifecycleStatus,
 } from "@/lib/orders/getNextAction";
 import {
@@ -73,6 +74,13 @@ type Order = {
   payment_status?: PaymentStatus | null;
   stripe_payment_intent_status?: string | null;
   payment_status_source?: string | null;
+  email_delivery_status?: string | null;
+  email_last_event?: string | null;
+  email_last_event_at?: string | null;
+  email_failure_reason?: string | null;
+  email_delivery_requires_attention?: boolean | null;
+  confirmation_email_sent_at?: string | null;
+  confirmation_email_delivered_at?: string | null;
   admin_notes?: string | null;
 
   total_amount_cents?: number | null;
@@ -811,6 +819,20 @@ function paymentCaptureSummary(order: Order): { label: string; tone: BadgeTone }
 function getOrderStatusFlags(order: Order): OrderStatusFlag[] {
   const flags: OrderStatusFlag[] = [];
 
+  if (hasEmailDeliveryAttention(order)) {
+    flags.push({
+      label: "📧 EMAIL",
+      tone: "blocked",
+      title: "Invalid or Undeliverable Email",
+    });
+  } else if (order.email_delivery_status === "delivery_delayed") {
+    flags.push({
+      label: "EMAIL DELAYED",
+      tone: "warning",
+      title: "Transactional email delivery is delayed",
+    });
+  }
+
   if (order.shipping_method === "express") {
     flags.push({
       label: "EXPRESS",
@@ -868,6 +890,53 @@ function getOrderStatusFlags(order: Order): OrderStatusFlag[] {
   }
 
   return flags;
+}
+
+function EmailDeliveryWarning({ order }: { order: Order }) {
+  const attention = hasEmailDeliveryAttention(order);
+  const delayed = order.email_delivery_status === "delivery_delayed";
+  if (!attention && !delayed) return null;
+
+  return (
+    <div
+      role="status"
+      style={{
+        border: attention
+          ? "1px solid rgba(248,113,113,0.7)"
+          : "1px solid rgba(251,191,36,0.6)",
+        borderRadius: 8,
+        background: attention
+          ? "rgba(127,29,29,0.28)"
+          : "rgba(120,53,15,0.24)",
+        color: attention ? "#fecaca" : "#fde68a",
+        padding: "10px 12px",
+        marginBottom: 10,
+        fontWeight: 750,
+      }}
+    >
+      <div style={{ fontWeight: 900 }}>
+        {attention
+          ? "Invalid or Undeliverable Email"
+          : "Email delivery delayed"}
+      </div>
+      <div style={{ marginTop: 3, fontSize: 12 }}>
+        {attention
+          ? "This customer probably never received transactional emails. Confirm or correct the email address before relying on email follow-up."
+          : "The recipient mail server has not accepted this email yet."}
+      </div>
+      {order.email_failure_reason && (
+        <div style={{ marginTop: 4, fontSize: 12 }}>
+          Reason: {order.email_failure_reason}
+        </div>
+      )}
+      <div style={{ marginTop: 4, fontSize: 11, opacity: 0.76 }}>
+        Last event: {order.email_last_event ?? order.email_delivery_status ?? "-"}
+        {order.email_last_event_at
+          ? ` at ${formatDateTime(order.email_last_event_at)}`
+          : ""}
+      </div>
+    </div>
+  );
 }
 
 function nextFulfillmentStatus(status: FulfillmentStatus): FulfillmentStatus | null {
@@ -2845,6 +2914,7 @@ export default function AdminOrdersPage() {
         onClick={(e) => e.stopPropagation()}
       >
         <NextActionBanner order={o} />
+        <EmailDeliveryWarning order={o} />
 
         <div
           style={{
@@ -3945,6 +4015,7 @@ export default function AdminOrdersPage() {
                   onClick={(e) => e.stopPropagation()}
                 >
                   <NextActionBanner order={o} />
+                  <EmailDeliveryWarning order={o} />
 
                   <div
                     style={{

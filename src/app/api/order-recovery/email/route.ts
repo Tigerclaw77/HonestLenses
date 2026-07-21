@@ -117,6 +117,10 @@ export async function POST(req: Request) {
       subject: emailDraft.subject,
       html: emailDraft.html,
       text: emailDraft.text,
+      tracking: {
+        orderId: order.id,
+        emailType: "order_recovery",
+      },
     });
   } catch {
     await supabaseServer

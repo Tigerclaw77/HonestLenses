@@ -392,6 +392,10 @@ export async function POST(req: Request) {
         subject: confirmation.subject,
         html: confirmation.html,
         text: confirmation.text,
+        tracking: {
+          orderId,
+          emailType: "order_confirmation",
+        },
       });
     } catch (err) {
       console.error("Customer confirmation email failed:", err);

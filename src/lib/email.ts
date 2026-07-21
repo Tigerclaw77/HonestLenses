@@ -1,4 +1,8 @@
 import { Resend } from "resend";
+import {
+  recordTransactionalEmailSend,
+  type TransactionalEmailTracking,
+} from "@/lib/emailDeliveryServer";
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
 
@@ -19,13 +23,20 @@ type SendEmailParams = {
   subject: string;
   html: string;
   text?: string;
+  tracking?: TransactionalEmailTracking;
 };
 
 /* ======================================
 Generic Send Helper
 ====================================== */
 
-export async function sendEmail({ to, subject, html, text }: SendEmailParams) {
+export async function sendEmail({
+  to,
+  subject,
+  html,
+  text,
+  tracking,
+}: SendEmailParams) {
   const result = await resend.emails.send({
     from: FROM_SUPPORT,
     to,
@@ -33,11 +44,35 @@ export async function sendEmail({ to, subject, html, text }: SendEmailParams) {
     html,
     text,
     replyTo: REPLY_TO_SUPPORT,
+    tags: tracking
+      ? [
+          { name: "order_id", value: tracking.orderId },
+          { name: "email_type", value: tracking.emailType },
+        ]
+      : undefined,
   });
 
   if (result.error) {
     console.error("Resend error:", result.error);
     throw new Error("Email send failed");
+  }
+
+  if (tracking && result.data?.id) {
+    try {
+      const recipient = Array.isArray(to) ? to[0] : to;
+      await recordTransactionalEmailSend({
+        emailId: result.data.id,
+        recipient,
+        tracking,
+      });
+    } catch (trackingError) {
+      console.error("Transactional email tracking failed:", {
+        orderId: tracking.orderId,
+        emailType: tracking.emailType,
+        emailId: result.data.id,
+        error: trackingError,
+      });
+    }
   }
 
   return result;

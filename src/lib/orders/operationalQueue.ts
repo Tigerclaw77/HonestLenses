@@ -3,6 +3,7 @@ import {
   getPaymentState,
   getRxSourceState,
   getVerificationState,
+  hasEmailDeliveryAttention,
   type Order as NextActionOrder,
   type PaymentLifecycleStatus,
 } from "./getNextAction";
@@ -225,6 +226,15 @@ export function classifyOperationalQueue(
 
   if (isExplicitDraftOrTest(order)) {
     return classify("draft_or_test", false, ["test/internal"], order);
+  }
+
+  if (hasEmailDeliveryAttention(order)) {
+    return classify(
+      "action_required",
+      true,
+      ["customer email undeliverable"],
+      order,
+    );
   }
 
   if (
