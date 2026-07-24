@@ -1,3 +1,8 @@
+import {
+  isPaymentAuthorizedOrCaptured,
+  projectPaymentState,
+} from "@/lib/orders/paymentState";
+
 export const DEFAULT_ABANDONED_CHECKOUT_THRESHOLD_HOURS = 2;
 export const DEFAULT_STALE_CHECKOUT_THRESHOLD_HOURS = 24;
 
@@ -112,15 +117,8 @@ function getRxMode(
 }
 
 function hasAuthorizedPayment(order: AbandonedCheckoutSnapshot): boolean {
-  const paymentStatus = order.payment_status?.trim().toLowerCase();
-  const stripeStatus = order.stripe_payment_intent_status?.trim().toLowerCase();
-
-  return (
-    paymentStatus === "authorized" ||
-    paymentStatus === "captured" ||
-    stripeStatus === "requires_capture" ||
-    stripeStatus === "succeeded"
-  );
+  const payment = projectPaymentState(order, { fallback: "strict" });
+  return isPaymentAuthorizedOrCaptured(payment.status);
 }
 
 export function getAbandonedCheckoutThresholdHours(

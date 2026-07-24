@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase-client";
 
-type VerificationStatus = "pending" | "verified" | "altered" | "rejected";
+type VerificationStatus =
+  | "pending"
+  | "information_needed"
+  | "verified"
+  | "altered"
+  | "rejected";
 
 type Order = {
   id: string;

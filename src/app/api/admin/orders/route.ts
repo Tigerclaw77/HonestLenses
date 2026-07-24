@@ -14,6 +14,10 @@ import {
   requireAdminUser,
 } from "@/lib/admin-auth";
 import { classifyOperationalQueue } from "@/lib/orders/operationalQueue";
+import {
+  projectPaymentState,
+  type PaymentLifecycleStatus,
+} from "@/lib/orders/paymentState";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
@@ -90,12 +94,7 @@ type AbandonedOrderRow = OrderRow & {
 };
 
 type PaymentStatus =
-  | "draft"
-  | "authorized"
-  | "captured"
-  | "refunded"
-  | "cancelled"
-  | "failed";
+  PaymentLifecycleStatus;
 
 /* =========================
    Helpers
@@ -136,62 +135,28 @@ function normalizeRx(rx: RxData): RxData {
   };
 }
 
-function fallbackPaymentStatus(order: OrderRow): PaymentStatus {
-  if (order.status === "draft") return "draft";
-
-  if (
-    order.status === "captured" ||
-    order.status === "paid" ||
-    order.status === "shipped" ||
-    order.status === "completed"
-  ) {
-    return "captured";
-  }
-  if (order.status === "refunded") return "refunded";
-  if (order.status === "cancelled") return "cancelled";
-  if (order.status === "failed") return "failed";
-  return order.payment_intent_id ? "authorized" : "draft";
-}
-
-function statusFromStripeIntent(intent: Stripe.PaymentIntent): PaymentStatus {
-  const latestCharge = intent.latest_charge;
-  const charge =
-    latestCharge && typeof latestCharge !== "string" ? latestCharge : null;
-  const amountRefunded = charge?.amount_refunded ?? 0;
-
-  if (charge?.refunded || amountRefunded > 0) {
-    return "refunded";
-  }
-
-  if (intent.status === "succeeded") return "captured";
-  if (intent.status === "requires_capture") return "authorized";
-  if (intent.status === "canceled") return "cancelled";
-  if (
-    intent.status === "requires_payment_method" ||
-    intent.status === "requires_confirmation" ||
-    intent.status === "requires_action" ||
-    intent.status === "processing"
-  ) {
-    return "draft";
-  }
-
-  return "failed";
-}
-
 async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
   if (!order.payment_intent_id) {
+    const projection = projectPaymentState(order, {
+      fallback: "intent_authorized",
+    });
+
     return {
       ...order,
-      payment_status: fallbackPaymentStatus(order),
+      payment_status: projection.status,
       stripe_payment_intent_status: null,
       payment_status_source: "missing_intent",
     };
   }
 
   if (!stripe) {
+    const projection = projectPaymentState(order, {
+      fallback: "intent_authorized",
+    });
+
     return {
       ...order,
-      payment_status: fallbackPaymentStatus(order),
+      payment_status: projection.status,
       stripe_payment_intent_status: null,
       payment_status_source: "order_fallback",
     };
@@ -202,10 +167,15 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       expand: ["latest_charge"],
     });
 
+    const projection = projectPaymentState(order, {
+      stripeIntent: intent,
+      fallback: "intent_authorized",
+    });
+
     return {
       ...order,
-      payment_status: statusFromStripeIntent(intent),
-      stripe_payment_intent_status: intent.status,
+      payment_status: projection.status,
+      stripe_payment_intent_status: projection.stripePaymentIntentStatus,
       payment_status_source: "stripe",
     };
   } catch (err) {
@@ -215,9 +185,13 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       error: err,
     });
 
+    const projection = projectPaymentState(order, {
+      fallback: "intent_authorized",
+    });
+
     return {
       ...order,
-      payment_status: fallbackPaymentStatus(order),
+      payment_status: projection.status,
       stripe_payment_intent_status: null,
       payment_status_source: "order_fallback",
     };

@@ -5,6 +5,7 @@ import Stripe from "stripe";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
 import { getCaptureAmountCents } from "@/lib/payments/captureAmount";
+import { getRequiredPaymentIntentId } from "@/lib/orders/captureReadiness";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -47,9 +48,13 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!order.payment_intent_id) {
+  const paymentIntent = getRequiredPaymentIntentId(
+    order,
+    "Missing Stripe PaymentIntent",
+  );
+  if (!paymentIntent.ok) {
     return NextResponse.json(
-      { error: "Missing Stripe PaymentIntent" },
+      { error: paymentIntent.error },
       { status: 400 }
     );
   }
@@ -71,7 +76,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    await stripe.paymentIntents.capture(order.payment_intent_id, {
+    await stripe.paymentIntents.capture(paymentIntent.paymentIntentId, {
       amount_to_capture: amountToCapture,
     });
   } catch (err) {
@@ -94,7 +99,7 @@ export async function POST(req: Request) {
     })
     .eq("id", order.id)
     .eq("user_id", user.id)
-    .eq("payment_intent_id", order.payment_intent_id)
+    .eq("payment_intent_id", paymentIntent.paymentIntentId)
     .select("id")
     .maybeSingle();
 

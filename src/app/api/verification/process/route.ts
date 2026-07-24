@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseServer } from "@/lib/supabase-server";
 import { getCaptureAmountCents } from "@/lib/payments/captureAmount";
+import {
+  getCaptureReadiness,
+  getRequiredPaymentIntentId,
+} from "@/lib/orders/captureReadiness";
+import { sendVerificationInformationNeededEmail } from "@/lib/email";
+import {
+  getVerificationReadiness,
+  VERIFICATION_INFORMATION_NEEDED_STATUS,
+} from "@/lib/orders/verificationReadiness";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -34,14 +43,46 @@ export async function POST(req: Request) {
   }
 
   for (const order of orders) {
+    const verificationReadiness = getVerificationReadiness(order);
+
+    if (!verificationReadiness.canEnterPendingVerification) {
+      await supabaseServer
+        .from("orders")
+        .update({
+          verification_status: VERIFICATION_INFORMATION_NEEDED_STATUS,
+        })
+        .eq("id", order.id)
+        .eq("verification_status", "pending");
+
+      if (order.shipping_email) {
+        try {
+          await sendVerificationInformationNeededEmail({
+            to: order.shipping_email,
+            orderId: order.id,
+          });
+        } catch (err) {
+          console.error("Verification information email failed:", err);
+        }
+      }
+
+      await supabaseServer.from("order_events").insert({
+        order_id: order.id,
+        event_type: "verification_information_needed",
+        actor: "system",
+      });
+      continue;
+    }
+
     if (order.rx_upload_path) continue;
-    if (!order.payment_intent_id) continue;
+    const paymentIntent = getRequiredPaymentIntentId(order);
+    if (!paymentIntent.ok) continue;
 
     const intent = await stripe.paymentIntents.retrieve(
-      order.payment_intent_id,
+      paymentIntent.paymentIntentId,
     );
+    const readiness = getCaptureReadiness(order, intent);
 
-    if (intent.status === "succeeded") {
+    if (readiness.reason === "already_captured") {
       const { data: updatedOrder, error: updateError } = await supabaseServer
         .from("orders")
         .update({
@@ -51,7 +92,7 @@ export async function POST(req: Request) {
           verification_completed_at: now,
         })
         .eq("id", order.id)
-        .eq("payment_intent_id", order.payment_intent_id)
+        .eq("payment_intent_id", paymentIntent.paymentIntentId)
         .select("id")
         .maybeSingle();
 
@@ -71,10 +112,10 @@ export async function POST(req: Request) {
       continue;
     }
 
-    if (intent.status !== "requires_capture") {
+    if (!readiness.canProceed) {
       console.log("Skipping - not capturable", {
         orderId: order.id,
-        status: intent.status,
+        status: readiness.status,
       });
       continue;
     }
@@ -90,7 +131,7 @@ export async function POST(req: Request) {
       continue;
     }
 
-    await stripe.paymentIntents.capture(order.payment_intent_id, {
+    await stripe.paymentIntents.capture(paymentIntent.paymentIntentId, {
       amount_to_capture: amountToCapture,
     });
 
@@ -103,7 +144,7 @@ export async function POST(req: Request) {
         verification_completed_at: now,
       })
       .eq("id", order.id)
-      .eq("payment_intent_id", order.payment_intent_id)
+      .eq("payment_intent_id", paymentIntent.paymentIntentId)
       .select("id")
       .maybeSingle();
 

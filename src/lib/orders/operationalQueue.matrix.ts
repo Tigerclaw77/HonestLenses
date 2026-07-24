@@ -7,6 +7,7 @@ type MatrixCase = {
   order: OperationalQueueOrder;
   expectedBucket: ReturnType<typeof classifyOperationalQueue>["bucket"];
   expectedActionable: boolean;
+  expectedNextAction?: string;
 };
 
 const verifiedRx = {
@@ -77,6 +78,37 @@ const cases: MatrixCase[] = [
     },
     expectedBucket: "verification_pending",
     expectedActionable: false,
+  },
+  {
+    scenario: "paid order waiting on customer verification information",
+    order: {
+      id: "matrix-information-needed",
+      status: "authorized",
+      payment_intent_id: "pi_information_needed",
+      stripe_payment_intent_status: "requires_capture",
+      verification_status: "information_needed",
+      rx: verifiedRx,
+      rx_status: "uploaded",
+      rx_upload_path: null,
+    },
+    expectedBucket: "verification_pending",
+    expectedActionable: false,
+    expectedNextAction: "Request prescription details",
+  },
+  {
+    scenario: "legacy uploaded status without file path",
+    order: {
+      id: "matrix-uploaded-status-no-path",
+      status: "authorized",
+      payment_intent_id: "pi_uploaded_status_no_path",
+      stripe_payment_intent_status: "requires_capture",
+      verification_status: "pending",
+      rx_status: "uploaded",
+      rx_upload_path: null,
+    },
+    expectedBucket: "verification_pending",
+    expectedActionable: false,
+    expectedNextAction: "Request prescription details",
   },
   {
     scenario: "paid verified order not fulfilled",
@@ -151,6 +183,13 @@ const rows = cases.map((matrixCase) => {
     matrixCase.expectedActionable,
     `${matrixCase.scenario} actionability`,
   );
+  if (matrixCase.expectedNextAction) {
+    assert.equal(
+      nextAction.label,
+      matrixCase.expectedNextAction,
+      `${matrixCase.scenario} next action`,
+    );
+  }
 
   return {
     scenario: matrixCase.scenario,

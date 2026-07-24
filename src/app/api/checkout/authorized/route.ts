@@ -2,11 +2,19 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { sendEmail } from "../../../../lib/email";
+import {
+  sendEmail,
+  sendVerificationInformationNeededEmail,
+} from "../../../../lib/email";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { captureServerEvent } from "@/lib/posthog/server";
 import { getCaptureAmountCents } from "@/lib/payments/captureAmount";
+import { getRequiredPaymentIntentId } from "@/lib/orders/captureReadiness";
+import {
+  getVerificationReadiness,
+  VERIFICATION_INFORMATION_NEEDED_STATUS,
+} from "@/lib/orders/verificationReadiness";
 import {
   canAccessOrder,
   getOrderAccess,
@@ -25,6 +33,14 @@ function isRecord(v: unknown): v is UnknownRecord {
 function getString(o: UnknownRecord, key: string): string | null {
   const v = o[key];
   return typeof v === "string" ? v : null;
+}
+
+function getCustomerEmail(
+  order: UnknownRecord,
+  fallback: string | null,
+): string | null {
+  const shippingEmail = getString(order, "shipping_email");
+  return shippingEmail && shippingEmail.trim() ? shippingEmail : fallback;
 }
 
 async function safeJson(req: Request): Promise<unknown> {
@@ -99,18 +115,24 @@ export async function POST(req: Request) {
   const orderId = getString(orderRaw, "id");
   const orderStatus = getString(orderRaw, "status");
   const verificationStatus = getString(orderRaw, "verification_status");
-  const paymentIntentId = getString(orderRaw, "payment_intent_id");
 
   if (!orderId) {
     return NextResponse.json({ error: "Order missing id" }, { status: 500 });
   }
 
-  if (!paymentIntentId) {
+  const paymentIntent = getRequiredPaymentIntentId(
+    {
+      payment_intent_id: getString(orderRaw, "payment_intent_id"),
+    },
+    "Missing Stripe PaymentIntent",
+  );
+  if (!paymentIntent.ok) {
     return NextResponse.json(
-      { error: "Missing Stripe PaymentIntent" },
+      { error: paymentIntent.error },
       { status: 400 },
     );
   }
+  const paymentIntentId = paymentIntent.paymentIntentId;
 
   /* =========================
      3️⃣ Verify Stripe Authorization
@@ -142,20 +164,29 @@ export async function POST(req: Request) {
   ========================= */
 
   const isUploaded = !!orderRaw.rx_upload_path;
-
-  if (orderStatus === "authorized" && verificationStatus === "pending") {
-    return NextResponse.json({
-      ok: true,
-      orderId,
-      next: "verification-details",
-      mode: "passive",
-    });
-  }
+  const verificationReadiness = getVerificationReadiness(orderRaw);
+  const canEnterPendingVerification =
+    verificationReadiness.canEnterPendingVerification;
+  const nextVerificationStatus = isUploaded
+    ? "auto_verified"
+    : canEnterPendingVerification
+      ? "pending"
+      : VERIFICATION_INFORMATION_NEEDED_STATUS;
+  const verificationMode = isUploaded
+    ? "uploaded"
+    : canEnterPendingVerification
+      ? "passive"
+      : "information_needed";
+  const enteringInformationNeeded =
+    nextVerificationStatus === VERIFICATION_INFORMATION_NEEDED_STATUS &&
+    verificationStatus !== VERIFICATION_INFORMATION_NEEDED_STATUS;
 
   console.log("UPLOAD CHECK", {
     orderId,
     rx_upload_path: orderRaw.rx_upload_path,
     isUploaded,
+    verificationMode,
+    verificationReadiness,
   });
 
   /* =========================
@@ -215,7 +246,7 @@ export async function POST(req: Request) {
 
   const updatePayload: Record<string, unknown> = {
     status: isUploaded ? "captured" : "authorized",
-    verification_status: isUploaded ? "auto_verified" : "pending",
+    verification_status: nextVerificationStatus,
   };
 
   const { data: updatedRows, error: updateError } = await supabaseServer
@@ -249,7 +280,7 @@ export async function POST(req: Request) {
       order_id: orderId,
       order_status_before: orderStatus,
       order_status_after: isUploaded ? "captured" : "authorized",
-      verification_mode: isUploaded ? "uploaded" : "passive",
+      verification_mode: verificationMode,
       order_value_cents:
         typeof orderRaw.total_amount_cents === "number"
           ? orderRaw.total_amount_cents
@@ -270,7 +301,7 @@ export async function POST(req: Request) {
       order_id: orderId,
       order_status_before: orderStatus,
       order_status_after: isUploaded ? "captured" : "authorized",
-      verification_mode: isUploaded ? "uploaded" : "passive",
+      verification_mode: verificationMode,
       order_value_cents:
         typeof orderRaw.total_amount_cents === "number"
           ? orderRaw.total_amount_cents
@@ -301,10 +332,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const customerEmail =
-    typeof orderRaw.shipping_email === "string" && orderRaw.shipping_email
-      ? orderRaw.shipping_email
-      : access.userEmail;
+  const customerEmail = getCustomerEmail(orderRaw, access.userEmail);
 
   /* =========================
      Email Admin
@@ -369,7 +397,13 @@ export async function POST(req: Request) {
         <hr/>
 
         <p><strong>Mode:</strong>
-        ${isUploaded ? "Upload (Verified)" : "Passive (Verification Pending)"}
+        ${
+          isUploaded
+            ? "Upload (Verified)"
+            : canEnterPendingVerification
+              ? "Passive (Verification Pending)"
+              : "Verification Information Needed"
+        }
         </p>
 
         <p><strong>Stripe Intent:</strong> ${paymentIntentId}</p>
@@ -385,18 +419,31 @@ export async function POST(req: Request) {
 
   if (customerEmail) {
     try {
-      const confirmation = buildCustomerOrderEmail({ orderId, isUploaded });
-
-      await sendEmail({
-        to: customerEmail,
-        subject: confirmation.subject,
-        html: confirmation.html,
-        text: confirmation.text,
-        tracking: {
+      if (enteringInformationNeeded) {
+        await sendVerificationInformationNeededEmail({
+          to: customerEmail,
           orderId,
-          emailType: "order_confirmation",
-        },
-      });
+        });
+
+        await supabaseServer.from("order_events").insert({
+          order_id: orderId,
+          event_type: "verification_information_needed",
+          actor: "system",
+        });
+      } else {
+        const confirmation = buildCustomerOrderEmail({ orderId, isUploaded });
+
+        await sendEmail({
+          to: customerEmail,
+          subject: confirmation.subject,
+          html: confirmation.html,
+          text: confirmation.text,
+          tracking: {
+            orderId,
+            emailType: "order_confirmation",
+          },
+        });
+      }
     } catch (err) {
       console.error("Customer confirmation email failed:", err);
     }
@@ -410,6 +457,6 @@ export async function POST(req: Request) {
     ok: true,
     orderId,
     next: isUploaded ? "success" : "verification-details",
-    mode: isUploaded ? "uploaded" : "passive",
+    mode: verificationMode,
   });
 }

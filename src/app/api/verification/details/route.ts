@@ -105,10 +105,19 @@ export async function POST(req: Request) {
 
     const hasName = isNonEmpty(body.prescriber_name);
     const hasPractice = isNonEmpty(body.prescriber_practice);
+    const hasContact =
+      isNonEmpty(body.prescriber_phone) || isNonEmpty(body.prescriber_email);
 
     if (!hasName && !hasPractice) {
       return NextResponse.json(
         { error: "Doctor name or practice name required" },
+        { status: 400 },
+      );
+    }
+
+    if (!hasContact) {
+      return NextResponse.json(
+        { error: "Doctor phone or email required" },
         { status: 400 },
       );
     }

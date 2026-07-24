@@ -2,7 +2,14 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabase-server";
-import { sendVerificationEmail } from "../../../../lib/email";
+import {
+  sendVerificationEmail,
+  sendVerificationInformationNeededEmail,
+} from "../../../../lib/email";
+import {
+  getVerificationReadiness,
+  VERIFICATION_INFORMATION_NEEDED_STATUS,
+} from "@/lib/orders/verificationReadiness";
 import {
   canAccessOrder,
   getOrderAccess,
@@ -45,8 +52,12 @@ export async function POST(req: Request) {
         user_id,
         status,
         verification_status,
+        rx_status,
+        rx_upload_path,
+        shipping_email,
         verification_sent_at,
         passive_deadline_at,
+        verification_details_submitted_at,
         sku,
         manufacturer,
         right_box_count,
@@ -113,10 +124,66 @@ export async function POST(req: Request) {
       });
     }
 
-    if (!order.prescriber_email) {
+    const verificationReadiness = getVerificationReadiness(order);
+
+    if (!verificationReadiness.canEnterPendingVerification) {
+      const enteringInformationNeeded =
+        order.verification_status !== VERIFICATION_INFORMATION_NEEDED_STATUS;
+
+      if (enteringInformationNeeded) {
+        await supabaseServer
+          .from("orders")
+          .update({
+            verification_status: VERIFICATION_INFORMATION_NEEDED_STATUS,
+          })
+          .eq("id", order.id);
+
+        const customerEmail = order.shipping_email || access.userEmail;
+        if (customerEmail) {
+          try {
+            await sendVerificationInformationNeededEmail({
+              to: customerEmail,
+              orderId: order.id,
+            });
+          } catch (err) {
+            console.error("Verification information email failed:", err);
+          }
+        }
+
+        await supabaseServer.from("order_events").insert({
+          order_id: order.id,
+          event_type: "verification_information_needed",
+          actor: "system",
+        });
+      }
+
       return NextResponse.json({
         ok: true,
         passive_deadline_at: null,
+        note: "Verification information needed before pending verification.",
+      });
+    }
+
+    if (!order.prescriber_email) {
+      const { error: updateError } = await supabaseServer
+        .from("orders")
+        .update({
+          verification_status: "pending",
+          verification_method: "manual_contact",
+        })
+        .eq("id", order.id);
+
+      if (updateError) {
+        return NextResponse.json(
+          { error: "Order update failed" },
+          { status: 500 },
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        passive_deadline_at: null,
+        note: "Verification details collected for manual prescriber contact.",
       });
     }
 

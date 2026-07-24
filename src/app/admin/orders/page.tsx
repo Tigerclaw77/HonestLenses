@@ -680,8 +680,20 @@ function getShippingName(order: Order): string {
   return compactName(order.shipping_first_name, order.shipping_last_name);
 }
 
+function getShippingEmail(order: Order): string {
+  return order.shipping_email?.trim() ?? "";
+}
+
 function getCustomerName(order: Order): string {
-  return getShippingName(order) || getPatientName(order) || "Unknown customer";
+  const knownName =
+    getShippingName(order) || getPatientName(order) || getShippingEmail(order);
+  if (knownName) return knownName;
+
+  if (order.status === "draft" && !order.payment_intent_id) {
+    return "Awaiting customer info";
+  }
+
+  return "Unknown customer";
 }
 
 function orderSupportsAdminNotes(order: Order): boolean {
@@ -750,7 +762,11 @@ function displayRxStatus(order: Order): string {
   if (source.status === "doctor_verification") {
     return "Prescription Verification Requested";
   }
-  if (source.hasRxEvidence || normalizedRxStatus(order) !== "none") {
+  const rxStatus = normalizedRxStatus(order);
+  if (
+    source.hasRxEvidence ||
+    (rxStatus !== "none" && rxStatus !== "uploaded")
+  ) {
     return "Prescription Information Available";
   }
 
@@ -4662,13 +4678,7 @@ export default function AdminOrdersPage() {
             {abandonedOrders.map((o) => {
               const info = o.abandoned_checkout;
               const reasons = info?.reasons ?? [];
-              const patientName =
-                o.patient_name ||
-                o.patient_full_name ||
-                `${o.shipping_first_name ?? ""} ${
-                  o.shipping_last_name ?? ""
-                }`.trim() ||
-                "Unknown customer";
+              const patientName = getCustomerName(o);
               const draft = recoveryDrafts[o.id];
               const rowId = `abandoned:${o.id}`;
               const isOpen = expanded === rowId;
