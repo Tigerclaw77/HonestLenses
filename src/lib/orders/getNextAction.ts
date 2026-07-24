@@ -1,3 +1,8 @@
+import {
+  projectPaymentState,
+  type PaymentLifecycleStatus,
+} from "./paymentState";
+
 export type NextActionSeverity = "info" | "warning" | "success";
 
 export type NextAction = {
@@ -5,13 +10,7 @@ export type NextAction = {
   severity: NextActionSeverity;
 };
 
-export type PaymentLifecycleStatus =
-  | "draft"
-  | "authorized"
-  | "captured"
-  | "refunded"
-  | "cancelled"
-  | "failed";
+export type { PaymentLifecycleStatus };
 
 export type PaymentState = {
   status: PaymentLifecycleStatus;
@@ -27,18 +26,6 @@ type FulfillmentStatus =
   | "completed"
   | "hold"
   | "cancelled";
-
-const CUSTOMER_BLOCKED_PAYMENT_INTENT_STATUSES = new Set([
-  "incomplete",
-  "open",
-  "unpaid",
-  "requires_payment_method",
-  "requires_confirmation",
-  "requires_action",
-  "requires_source",
-  "requires_source_action",
-  "processing",
-]);
 
 export type Order = {
   status?: string | null;
@@ -63,6 +50,7 @@ export type Order = {
 export type VerificationLifecycleStatus =
   | "not_required"
   | "pending"
+  | "information_needed"
   | "requires_review"
   | "verified"
   | "passive_verified"
@@ -154,46 +142,6 @@ function hasPrescriberPath(order: Order): boolean {
   );
 }
 
-function normalizePaymentStatus(order: Order): PaymentLifecycleStatus {
-  const stripeStatus = order.stripe_payment_intent_status?.trim().toLowerCase();
-
-  if (stripeStatus === "requires_capture") return "authorized";
-  if (stripeStatus === "succeeded") return "captured";
-
-  if (order.status === "cancelled" || stripeStatus === "canceled") {
-    return "cancelled";
-  }
-
-  if (stripeStatus && CUSTOMER_BLOCKED_PAYMENT_INTENT_STATUSES.has(stripeStatus)) {
-    return "draft";
-  }
-
-  if (
-    order.payment_status === "authorized" ||
-    order.payment_status === "captured" ||
-    order.payment_status === "refunded" ||
-    order.payment_status === "failed" ||
-    order.payment_status === "cancelled"
-  ) {
-    return order.payment_status as PaymentLifecycleStatus;
-  }
-
-  if (
-    order.status === "captured" ||
-    order.status === "paid" ||
-    order.status === "shipped" ||
-    order.status === "completed"
-  ) {
-    return "captured";
-  }
-
-  if (order.status === "refunded") return "refunded";
-  if (order.status === "failed") return "failed";
-  if (order.status === "draft") return "draft";
-
-  return "draft";
-}
-
 function normalizeFulfillmentStatus(order: Order): FulfillmentStatus {
   if (
     order.fulfillment_status === "review" ||
@@ -214,7 +162,7 @@ function normalizeFulfillmentStatus(order: Order): FulfillmentStatus {
 }
 
 function hasDownstreamVerificationEvidence(order: Order): boolean {
-  const payment = normalizePaymentStatus(order);
+  const payment = projectPaymentState(order, { fallback: "strict" }).status;
   const fulfillment = normalizeFulfillmentStatus(order);
 
   return (
@@ -226,7 +174,7 @@ function hasDownstreamVerificationEvidence(order: Order): boolean {
 }
 
 export function getPaymentState(order: Order): PaymentState {
-  const status = normalizePaymentStatus(order);
+  const status = projectPaymentState(order, { fallback: "strict" }).status;
 
   const labels: Record<PaymentLifecycleStatus, string> = {
     draft: "Draft",
@@ -316,6 +264,21 @@ export function getVerificationState(order: Order): VerificationState {
     };
   }
 
+  if (
+    rawStatus === "information_needed" ||
+    rawStatus === "verification_information_needed"
+  ) {
+    return {
+      status: "information_needed",
+      label: "Information Needed",
+      severity: "warning",
+      complete: false,
+      blocked: false,
+      requiresReview: false,
+      rawStatus,
+    };
+  }
+
   if (rawStatus === "rejected") {
     return {
       status: "rejected",
@@ -383,7 +346,6 @@ export function getRxSourceState(order: Order): RxSourceState {
   const hasOcrDetail =
     order.rx_status === "ocr_complete" || order.rx_status === "ocr_failed";
   const hasLegacyPrescriptionDetail =
-    order.rx_status === "uploaded" ||
     order.rx_status === "valid" ||
     order.rx_status === "expired" ||
     order.rx_status === "ocr_complete";
@@ -511,6 +473,10 @@ export function getNextAction(order: Order): NextAction {
 
   if (order.rx_status === "ocr_failed") {
     return { label: "Review prescription", severity: "warning" };
+  }
+
+  if (verification.status === "information_needed") {
+    return { label: "Request prescription details", severity: "warning" };
   }
 
   if (!rxSource.hasRxEvidence) {

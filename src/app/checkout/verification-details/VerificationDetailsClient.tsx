@@ -298,6 +298,8 @@ export default function VerificationDetailsPage() {
     if (!form.patient_zip.trim()) return "Enter ZIP.";
     if (!form.prescriber_name.trim() && !form.prescriber_practice.trim())
       return "Enter doctor or practice name.";
+    if (!form.prescriber_phone.trim() && !form.prescriber_email.trim())
+      return "Enter doctor phone or email.";
     return null;
   }
 
@@ -655,8 +657,8 @@ export default function VerificationDetailsPage() {
                 Please supply enough information to help us identify and contact
                 your doctor or their office.
                 <br />
-                <strong>At minimum:</strong> doctor name and/or practice name.
-                Phone or email helps avoid delays.
+                <strong>At minimum:</strong> doctor or practice name plus phone
+                or email.
               </div>
 
               <div className="hl-grid" style={{ marginBottom: 0 }}>
@@ -710,7 +712,7 @@ export default function VerificationDetailsPage() {
 
                 <div className="col" style={{ gridColumn: "span 4" }}>
                   <label style={{ ...labelStyle(), color: "#1e293b" }}>
-                    Phone (optional)
+                    Phone
                   </label>
                   <input
                     value={form.prescriber_phone}
@@ -789,7 +791,7 @@ export default function VerificationDetailsPage() {
 
                 <div className="col" style={{ gridColumn: "span 12" }}>
                   <label style={{ ...labelStyle(), color: "#1e293b" }}>
-                    Email (optional)
+                    Email
                   </label>
                   <input
                     type="email"
@@ -869,9 +871,9 @@ export default function VerificationDetailsPage() {
               </p>
             )}
 
-            <button
+              <button
               type="submit"
-              disabled={submitting || !accessToken}
+              disabled={submitting}
               style={{
                 marginTop: 14,
                 width: "100%",

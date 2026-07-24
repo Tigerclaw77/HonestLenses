@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseServer } from "@/lib/supabase-server";
 import { getCaptureAmountCents } from "@/lib/payments/captureAmount";
+import {
+  getCaptureReadiness,
+  getRequiredPaymentIntentId,
+} from "@/lib/orders/captureReadiness";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -23,24 +27,28 @@ export async function POST(req: Request) {
   }
 
   if (result === "verified") {
-    if (!order.payment_intent_id) {
+    const paymentIntent = getRequiredPaymentIntentId(order);
+    if (!paymentIntent.ok) {
       return NextResponse.json(
-        { error: "Missing payment_intent_id" },
+        { error: paymentIntent.error },
         { status: 400 },
       );
     }
 
     const amountToCapture = getCaptureAmountCents(order);
 
-    const intent = await stripe.paymentIntents.retrieve(order.payment_intent_id);
+    const intent = await stripe.paymentIntents.retrieve(
+      paymentIntent.paymentIntentId,
+    );
+    const readiness = getCaptureReadiness(order, intent);
 
-    if (intent.status === "requires_capture") {
-      await stripe.paymentIntents.capture(order.payment_intent_id, {
+    if (readiness.shouldCapture) {
+      await stripe.paymentIntents.capture(paymentIntent.paymentIntentId, {
         amount_to_capture: amountToCapture,
       });
-    } else if (intent.status !== "succeeded") {
+    } else if (!readiness.canProceed) {
       return NextResponse.json(
-        { error: `PaymentIntent is not capturable (status: ${intent.status})` },
+        { error: readiness.error },
         { status: 400 },
       );
     }
@@ -54,7 +62,7 @@ export async function POST(req: Request) {
         status: "captured",
       })
       .eq("id", orderId)
-      .eq("payment_intent_id", order.payment_intent_id)
+      .eq("payment_intent_id", paymentIntent.paymentIntentId)
       .select("id")
       .maybeSingle();
 

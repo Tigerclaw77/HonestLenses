@@ -7,6 +7,10 @@ import {
   type Order as NextActionOrder,
   type PaymentLifecycleStatus,
 } from "./getNextAction";
+import {
+  isCustomerBlockedPaymentIntentStatus,
+  isPaymentAuthorizedOrCaptured,
+} from "./paymentState";
 
 export type OperationalQueueBucket =
   | "active_fulfillment"
@@ -60,19 +64,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const CUSTOMER_BLOCKED_NEXT_ACTION_LABELS = new Set([
   "Await checkout",
   "Wait for customer",
-]);
-
-const CUSTOMER_BLOCKED_STRIPE_STATUSES = new Set([
-  "incomplete",
-  "open",
-  "unpaid",
-  "requires_payment_method",
-  "requires_confirmation",
-  "requires_action",
-  "requires_source",
-  "requires_source_action",
-  "processing",
-  "canceled",
 ]);
 
 const NORMAL_FULFILLMENT_ACTIONS = new Set([
@@ -167,12 +158,9 @@ function isExplicitDraftOrTest(order: OperationalQueueOrder): boolean {
 }
 
 function hasCustomerBlockedStripeStatus(order: OperationalQueueOrder): boolean {
-  const stripeStatus = normalizedText(order.stripe_payment_intent_status);
-  return CUSTOMER_BLOCKED_STRIPE_STATUSES.has(stripeStatus);
-}
-
-function isPaidOrAuthorized(status: PaymentLifecycleStatus): boolean {
-  return status === "authorized" || status === "captured";
+  return isCustomerBlockedPaymentIntentStatus(
+    order.stripe_payment_intent_status,
+  );
 }
 
 function isCustomerPaymentBlocked(
@@ -259,7 +247,7 @@ export function classifyOperationalQueue(
     return classify("customer_blocked", false, ["customer/payment"], order);
   }
 
-  if (!isPaidOrAuthorized(payment.status)) {
+  if (!isPaymentAuthorizedOrCaptured(payment.status)) {
     return classify("customer_blocked", false, ["unpaid"], order);
   }
 
@@ -273,6 +261,15 @@ export function classifyOperationalQueue(
 
   if (order.rx_status === "ocr_failed" || verification.requiresReview) {
     return classify("action_required", true, ["review prescription"], order);
+  }
+
+  if (verification.status === "information_needed") {
+    return classify(
+      "verification_pending",
+      false,
+      ["customer verification information"],
+      order,
+    );
   }
 
   if (!rxSource.hasRxEvidence || order.rx_status === "expired") {

@@ -99,6 +99,49 @@ export async function sendVerificationEmail({
 }
 
 /* ======================================
+Customer Verification Info Needed
+====================================== */
+
+export async function sendVerificationInformationNeededEmail({
+  to,
+  orderId,
+}: {
+  to: string;
+  orderId: string;
+}) {
+  const subject =
+    "Additional Information Needed for Your Honest Lenses Order";
+  const text = `Hi,
+
+Thanks for your Honest Lenses order. Before we can complete prescription verification, we need either a photo of your contact lens prescription or your prescribing doctor's name and contact information.
+
+Please reply to this email with either option so we can keep your order moving.
+
+Order ID: ${orderId}
+
+Honest Lenses`;
+
+  const html = `
+    <p>Hi,</p>
+    <p>Thanks for your Honest Lenses order. Before we can complete prescription verification, we need either:</p>
+    <ul>
+      <li>a photo of your contact lens prescription, or</li>
+      <li>your prescribing doctor's name and contact information.</li>
+    </ul>
+    <p>Please reply to this email with either option so we can keep your order moving.</p>
+    <p><strong>Order ID:</strong> ${orderId}</p>
+    <p>Honest Lenses</p>
+  `;
+
+  return await sendEmail({
+    to,
+    subject,
+    html,
+    text,
+  });
+}
+
+/* ======================================
 Internal Order Alert
 ====================================== */
 

@@ -88,7 +88,7 @@ type AuthorizedResponse = {
   error?: string;
   orderId?: string;
   next?: "success" | "verification-details";
-  mode?: "uploaded" | "passive";
+  mode?: "uploaded" | "passive" | "information_needed";
   deadline?: string;
 };
 
@@ -125,16 +125,11 @@ function buildRouteFromAuthorizedResponse(
 function isUploadedVerificationOrder(orderData: {
   rx_upload_path?: string | null;
   rx_source?: string | null;
-  verification_status?: string | null;
 }): boolean {
   return Boolean(
     orderData.rx_upload_path ||
       orderData.rx_source === "upload" ||
-      orderData.rx_source === "ocr" ||
-      orderData.verification_status === "verified" ||
-      orderData.verification_status === "ocr_verified" ||
-      orderData.verification_status === "upload_verified" ||
-      orderData.verification_status === "auto_verified",
+      orderData.rx_source === "ocr",
   );
 }
 
