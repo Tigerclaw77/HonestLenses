@@ -9,6 +9,10 @@ const REPLACEMENT_DAYS = {
 
 type ReplacementCode = keyof typeof REPLACEMENT_DAYS;
 
+const BOX_DURATION_MONTH_OVERRIDES: Readonly<Record<string, number>> = {
+  OASYS_2W_24: 12,
+};
+
 function extractPackSize(sku: string): number {
   const match = sku.match(/_(\d+)$/);
 
@@ -20,6 +24,9 @@ function extractPackSize(sku: string): number {
 }
 
 export function getSkuBoxDurationMonths(sku: string): number {
+  const durationOverride = BOX_DURATION_MONTH_OVERRIDES[sku];
+  if (durationOverride) return durationOverride;
+
   const packSize = extractPackSize(sku);
 
   const coreId = sku.replace(/_\d+$/, "");

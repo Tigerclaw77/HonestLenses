@@ -74,16 +74,16 @@ export function resolveShipping({
     };
   }
 
-  if (normalizedManufacturer === "vistakon") {
-    if (normalizedTotalMonths >= 12) {
-      return {
-        shippingCents: 0,
-        tier: "free_annual",
-        label: "Free annual supply shipping",
-        shippingMethod: "standard",
-      };
-    }
+  if (normalizedTotalMonths >= 12) {
+    return {
+      shippingCents: 0,
+      tier: "free_annual",
+      label: "Free annual supply shipping",
+      shippingMethod: "standard",
+    };
+  }
 
+  if (normalizedManufacturer === "vistakon") {
     return {
       shippingCents: 1400,
       tier: "vistakon_flat",
@@ -93,15 +93,6 @@ export function resolveShipping({
   }
 
   if (normalizedManufacturer === "alcon") {
-    if (normalizedTotalMonths >= 12) {
-      return {
-        shippingCents: 0,
-        tier: "free_annual",
-        label: "Free annual supply shipping",
-        shippingMethod: "standard",
-      };
-    }
-
     return {
       shippingCents: 1200,
       tier: "alcon_flat",
