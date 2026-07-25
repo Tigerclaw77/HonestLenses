@@ -6,11 +6,24 @@ import {
   getCaptureReadiness,
   getRequiredPaymentIntentId,
 } from "@/lib/orders/captureReadiness";
+import { hasInternalBearerAuthorization } from "@/lib/internal-auth";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 export async function POST(req: Request) {
-  const { orderId, result, notes } = await req.json();
+  if (!hasInternalBearerAuthorization(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const orderId =
+    body && typeof body.orderId === "string" ? body.orderId.trim() : "";
+  const result =
+    body && (body.result === "verified" || body.result === "rejected")
+      ? body.result
+      : null;
+  const notes =
+    body && typeof body.notes === "string" ? body.notes.trim() : null;
 
   if (!orderId || !result) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });

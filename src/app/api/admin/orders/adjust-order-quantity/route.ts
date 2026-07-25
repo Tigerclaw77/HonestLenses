@@ -4,7 +4,11 @@ import {
   logAdminAuthFailure,
   requireAdminUser,
 } from "@/lib/admin-auth";
+import { getAuthoritativeOrderQuote } from "@/lib/orders/orderPricing";
+import { getCheckoutAmountCents } from "@/lib/payments/checkoutAmount";
+import { getPaymentIntentAmountAction } from "@/lib/payments/paymentIntentAmount";
 import { supabaseServer } from "@/lib/supabase-server";
+import Stripe from "stripe";
 
 export const runtime = "nodejs";
 
@@ -32,7 +36,19 @@ type RequestBody = {
 
 type OrderRow = {
   id: string;
+  status: string;
+  sku: string | null;
+  shipping_method: "standard" | "express" | null;
+  payment_intent_id: string | null;
+  total_amount_cents: number | null;
+  feedback_credit_cents: number | null;
 };
+
+function getStripe(): Stripe {
+  const secretKey = process.env.STRIPE_SECRET_KEY?.trim();
+  if (!secretKey) throw new Error("Stripe is not configured.");
+  return new Stripe(secretKey);
+}
 
 function isOrderQuantityAdjustmentReason(
   value: unknown,
@@ -123,7 +139,9 @@ export async function POST(req: Request) {
 
   const { data: order, error: orderError } = await supabaseServer
     .from("orders")
-    .select("id")
+    .select(
+      "id, status, sku, shipping_method, payment_intent_id, total_amount_cents, feedback_credit_cents",
+    )
     .eq("id", orderId)
     .maybeSingle<OrderRow>();
 
@@ -141,6 +159,143 @@ export async function POST(req: Request) {
     );
   }
 
+  if (!order.sku) {
+    return NextResponse.json(
+      { error: "Order is missing a priceable SKU.", code: "ORDER_SKU_MISSING" },
+      { status: 400 },
+    );
+  }
+
+  if (
+    ["captured", "paid", "shipped", "completed", "refunded", "cancelled"].includes(
+      order.status,
+    )
+  ) {
+    return NextResponse.json(
+      {
+        error: "Quantity cannot be changed after payment capture.",
+        code: "ORDER_ALREADY_CAPTURED",
+      },
+      { status: 409 },
+    );
+  }
+
+  let quote;
+  try {
+    quote = getAuthoritativeOrderQuote({
+      sku: order.sku,
+      totalBoxes: totalBoxCount,
+      rightBoxCount,
+      leftBoxCount,
+      shippingMethod: order.shipping_method,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Order pricing failed.",
+        code: "ORDER_PRICING_FAILED",
+      },
+      { status: 400 },
+    );
+  }
+
+  let amountDueCents: number;
+  try {
+    amountDueCents = getCheckoutAmountCents({
+      id: order.id,
+      total_amount_cents: quote.totalAmountCents,
+      feedback_credit_cents: order.feedback_credit_cents,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Order amount is invalid.",
+        code: "ORDER_AMOUNT_INVALID",
+      },
+      { status: 400 },
+    );
+  }
+
+  let invalidatePaymentIntent = false;
+  let reauthorizationRequired = false;
+
+  if (order.payment_intent_id) {
+    let intent: Stripe.PaymentIntent;
+    try {
+      intent = await getStripe().paymentIntents.retrieve(
+        order.payment_intent_id,
+      );
+    } catch (error) {
+      console.error("Quantity adjustment PaymentIntent lookup failed:", {
+        orderId: order.id,
+        paymentIntentId: order.payment_intent_id,
+        error,
+      });
+      return NextResponse.json(
+        {
+          error: "Unable to verify the existing payment authorization.",
+          code: "PAYMENT_INTENT_LOOKUP_FAILED",
+        },
+        { status: 502 },
+      );
+    }
+
+    const paymentAction = getPaymentIntentAmountAction(intent, amountDueCents);
+
+    if (paymentAction.action === "reject_captured") {
+      return NextResponse.json(
+        {
+          error: "Quantity cannot be changed after payment capture.",
+          code: "ORDER_ALREADY_CAPTURED",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (paymentAction.action === "reject_status") {
+      return NextResponse.json(
+        {
+          error: `Payment authorization cannot be safely replaced while Stripe status is ${paymentAction.status}.`,
+          code: "PAYMENT_INTENT_NOT_REPLACEABLE",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (
+      paymentAction.action === "cancel_and_replace" ||
+      paymentAction.action === "replace_cancelled"
+    ) {
+      if (paymentAction.action === "cancel_and_replace") {
+        try {
+          await getStripe().paymentIntents.cancel(intent.id);
+        } catch (error) {
+          console.error("Quantity adjustment PaymentIntent cancel failed:", {
+            orderId: order.id,
+            paymentIntentId: intent.id,
+            error,
+          });
+          return NextResponse.json(
+            {
+              error:
+                "The existing payment authorization could not be safely cancelled.",
+              code: "PAYMENT_INTENT_CANCEL_FAILED",
+            },
+            { status: 502 },
+          );
+        }
+      }
+
+      invalidatePaymentIntent = true;
+      reauthorizationRequired = true;
+    }
+  } else if (order.status === "authorized" || order.status === "pending") {
+    invalidatePaymentIntent = true;
+    reauthorizationRequired = true;
+  }
+
   const now = new Date().toISOString();
   const adjustedBy = auth.user.email ?? auth.user.id;
 
@@ -150,9 +305,22 @@ export async function POST(req: Request) {
       adjusted_right_box_count: rightBoxCount,
       adjusted_left_box_count: leftBoxCount,
       adjusted_total_box_count: totalBoxCount,
+      manufacturer: quote.manufacturer,
+      shipping_method: quote.shippingMethod,
+      shipping_cents: quote.shippingCents,
+      total_amount_cents: quote.totalAmountCents,
+      price_reason: quote.priceReason,
+      capture_amount_cents: amountDueCents,
+      capture_adjustment_reason: reason,
+      capture_adjusted_by: adjustedBy,
+      capture_adjusted_at: now,
+      revised_total_amount_cents: null,
       order_quantity_adjustment_reason: reason,
       order_quantity_adjusted_by: adjustedBy,
       order_quantity_adjusted_at: now,
+      ...(invalidatePaymentIntent
+        ? { payment_intent_id: null, status: "draft" }
+        : {}),
       updated_at: now,
     })
     .eq("id", order.id)
@@ -176,5 +344,15 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json({ ok: true, order: updatedOrder });
+  return NextResponse.json({
+    ok: true,
+    order: updatedOrder,
+    pricing: {
+      product_subtotal_cents: quote.productSubtotalCents,
+      shipping_cents: quote.shippingCents,
+      total_amount_cents: quote.totalAmountCents,
+      amount_due_cents: amountDueCents,
+    },
+    reauthorization_required: reauthorizationRequired,
+  });
 }

@@ -7,16 +7,12 @@ import {
   getOrderAccess,
   hasOrderAccessContext,
 } from "@/lib/order-access";
-import { getPrice } from "../../../../lib/pricing/getPrice";
 import { getSkuBoxDurationMonths } from "../../../../lib/pricing/skuDefaults";
 import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
-import { deriveTotalMonths } from "../../../../lib/shipping";
 import { resolveCartEyeBoxCounts } from "@/lib/cart/resolveQuantities";
-import {
-  isShippingMethod,
-  normalizeShippingMethod,
-  resolveShipping,
-} from "../../../../lib/shipping/resolveShipping";
+import { isShippingMethod } from "../../../../lib/shipping/resolveShipping";
+import { getAuthoritativeOrderQuote } from "@/lib/orders/orderPricing";
+import { getAuthoritativeOrderQuantity } from "@/lib/orders/orderQuantity";
 import { validate as validateLensParams } from "@/LensCore";
 import { POSTHOG_EVENTS } from "../../../../lib/posthog/events";
 import {
@@ -254,6 +250,9 @@ export async function POST(req: Request) {
       total_box_count,
       right_box_count,
       left_box_count,
+      adjusted_right_box_count,
+      adjusted_left_box_count,
+      adjusted_total_box_count,
       shipping_method,
       brand_confidence,
       verification_status,
@@ -382,6 +381,20 @@ export async function POST(req: Request) {
   const monthsPerBox = getSkuBoxDurationMonths(resolvedSku);
 
   const defaultPerEye = Math.ceil(targetMonths / monthsPerBox);
+  const storedQuantity = getAuthoritativeOrderQuantity(order);
+  const hasRequestedQuantity =
+    hasOwn(body, "right_box_count") || hasOwn(body, "left_box_count");
+
+  if (storedQuantity.adjusted && hasRequestedQuantity) {
+    return NextResponse.json(
+      {
+        error:
+          "This order quantity was adjusted after review and cannot be changed from the cart.",
+        code: "ORDER_QUANTITY_LOCKED",
+      },
+      { status: 409 },
+    );
+  }
 
   const counts = resolveCartEyeBoxCounts({
     hasRightEye: Boolean(rx.right),
@@ -391,37 +404,29 @@ export async function POST(req: Request) {
     requestedLeftBoxCount: body?.left_box_count,
     hasRequestedRightBoxCount: hasOwn(body, "right_box_count"),
     hasRequestedLeftBoxCount: hasOwn(body, "left_box_count"),
-    storedRightBoxCount: order.right_box_count,
-    storedLeftBoxCount: order.left_box_count,
+    storedRightBoxCount: storedQuantity.right,
+    storedLeftBoxCount: storedQuantity.left,
   });
 
   const right = counts.right;
   const left = counts.left;
   const totalBoxes = counts.totalBoxes;
-  const totalMonths = deriveTotalMonths({
+  const quote = getAuthoritativeOrderQuote({
     sku: resolvedSku,
     totalBoxes,
-    left_box_count: left,
-    right_box_count: right,
+    rightBoxCount: right,
+    leftBoxCount: left,
+    shippingMethod: body?.shipping_method ?? order.shipping_method ?? null,
   });
+  const totalMonths = quote.totalMonths;
+  const preserveSubmittedQuantity =
+    storedQuantity.adjusted && !hasRequestedQuantity;
   console.log("RESOLVE SKU", {
     orderId: order.id,
     coreId,
     resolvedSku,
     totalBoxes,
     totalMonths,
-  });
-
-  const pricing = getPrice({ sku: resolvedSku, box_count: totalBoxes });
-  const shippingMethod = normalizeShippingMethod(
-    body?.shipping_method ?? order.shipping_method ?? null,
-  );
-  const shipping = resolveShipping({
-    manufacturer: pricing.manufacturer,
-    totalMonths,
-    itemCount: totalBoxes,
-    hasMixedSkus: false,
-    shippingMethod,
   });
 
   if (totalBoxes > 0 && totalMonths <= 0) {
@@ -432,7 +437,7 @@ export async function POST(req: Request) {
       properties: {
         order_id: order.id,
         sku: resolvedSku,
-        manufacturer: pricing.manufacturer,
+        manufacturer: quote.manufacturer,
         total_boxes: totalBoxes,
         total_months: totalMonths,
         reason: "missing_sku_duration_or_box_count",
@@ -448,14 +453,21 @@ export async function POST(req: Request) {
     .from("orders")
     .update({
       sku: resolvedSku,
-      manufacturer: pricing.manufacturer,
-      right_box_count: right,
-      left_box_count: left,
-      box_count: totalBoxes,
-      total_box_count: totalBoxes,
-      shipping_method: shipping.shippingMethod,
-      shipping_cents: shipping.shippingCents,
-      total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
+      manufacturer: quote.manufacturer,
+      right_box_count: preserveSubmittedQuantity
+        ? order.right_box_count
+        : right,
+      left_box_count: preserveSubmittedQuantity
+        ? order.left_box_count
+        : left,
+      box_count: preserveSubmittedQuantity ? order.box_count : totalBoxes,
+      total_box_count: preserveSubmittedQuantity
+        ? order.total_box_count
+        : totalBoxes,
+      shipping_method: quote.shippingMethod,
+      shipping_cents: quote.shippingCents,
+      total_amount_cents: quote.totalAmountCents,
+      price_reason: quote.priceReason,
     })
     .eq("id", order.id);
 

@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../lib/get-user-from-request";
+import { getCheckoutAmountCents } from "@/lib/payments/checkoutAmount";
 
 export async function POST(req: Request) {
   /* =========================
@@ -30,6 +31,7 @@ export async function POST(req: Request) {
       shipping_cents,
       shipping_method,
       total_amount_cents,
+      feedback_credit_cents,
       currency
     `)
     .eq("user_id", user.id)
@@ -85,12 +87,26 @@ export async function POST(req: Request) {
      3️⃣ Return Authoritative Price
      (Stripe will use this)
   ========================= */
+  let amountDueCents: number;
+  try {
+    amountDueCents = getCheckoutAmountCents(order);
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Order amount is invalid",
+      },
+      { status: 400 },
+    );
+  }
+
   return NextResponse.json({
     ok: true,
     orderId: order.id,
     sku: order.sku,
     box_count: order.box_count,
     total_amount_cents: order.total_amount_cents,
+    amount_due_cents: amountDueCents,
     currency: order.currency ?? "USD",
   });
 }

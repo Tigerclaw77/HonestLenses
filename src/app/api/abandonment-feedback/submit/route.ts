@@ -31,6 +31,7 @@ type FeedbackSubmitOrder = {
   verification_status: string | null;
   total_amount_cents: number | null;
   feedback_credit_cents: number | null;
+  capture_amount_cents: number | null;
   feedback_survey_completed_at: string | null;
   payment_intent_id: string | null;
 };
@@ -143,6 +144,7 @@ export async function POST(req: Request) {
       verification_status,
       total_amount_cents,
       feedback_credit_cents,
+      capture_amount_cents,
       feedback_survey_completed_at,
       payment_intent_id
     `,
@@ -176,6 +178,7 @@ export async function POST(req: Request) {
     .from("orders")
     .update({
       feedback_credit_cents: ABANDONMENT_FEEDBACK_CREDIT_CENTS,
+      capture_amount_cents: null,
       feedback_credit_applied_at: now,
       feedback_reason: reason,
       feedback_notes: feedbackNotes,
@@ -196,6 +199,7 @@ export async function POST(req: Request) {
       verification_status,
       total_amount_cents,
       feedback_credit_cents,
+      capture_amount_cents,
       feedback_survey_completed_at,
       payment_intent_id
     `,
@@ -220,6 +224,7 @@ export async function POST(req: Request) {
       .from("orders")
       .update({
         feedback_credit_cents: 0,
+        capture_amount_cents: order.capture_amount_cents,
         feedback_credit_applied_at: null,
         feedback_reason: null,
         feedback_notes: null,
