@@ -8,6 +8,8 @@ export type ResolveCartEyeBoxCountsInput = {
   hasRequestedLeftBoxCount?: boolean;
   storedRightBoxCount?: number | null;
   storedLeftBoxCount?: number | null;
+  hasStoredRightBoxCount?: boolean;
+  hasStoredLeftBoxCount?: boolean;
 };
 
 export type ResolvedCartEyeBoxCounts = {
@@ -30,12 +32,14 @@ function resolveEyeBoxCount({
   hasRequestedCount,
   requestedCount,
   storedCount,
+  hasStoredCount,
   defaultPerEye,
 }: {
   hasEye: boolean;
   hasRequestedCount: boolean;
   requestedCount?: number | null;
   storedCount?: number | null;
+  hasStoredCount: boolean;
   defaultPerEye: number;
 }): number | null {
   if (!hasEye) return null;
@@ -44,7 +48,7 @@ function resolveEyeBoxCount({
     return requestedCount;
   }
 
-  if (isNonNegativeInteger(storedCount)) {
+  if (hasStoredCount && isNonNegativeInteger(storedCount)) {
     return storedCount;
   }
 
@@ -61,12 +65,17 @@ export function resolveCartEyeBoxCounts({
   hasRequestedLeftBoxCount = false,
   storedRightBoxCount,
   storedLeftBoxCount,
+  hasStoredRightBoxCount,
+  hasStoredLeftBoxCount,
 }: ResolveCartEyeBoxCountsInput): ResolvedCartEyeBoxCounts {
   const right = resolveEyeBoxCount({
     hasEye: hasRightEye,
     hasRequestedCount: hasRequestedRightBoxCount,
     requestedCount: requestedRightBoxCount,
     storedCount: storedRightBoxCount,
+    hasStoredCount:
+      hasStoredRightBoxCount ??
+      (storedRightBoxCount !== null && storedRightBoxCount !== undefined),
     defaultPerEye,
   });
 
@@ -75,6 +84,9 @@ export function resolveCartEyeBoxCounts({
     hasRequestedCount: hasRequestedLeftBoxCount,
     requestedCount: requestedLeftBoxCount,
     storedCount: storedLeftBoxCount,
+    hasStoredCount:
+      hasStoredLeftBoxCount ??
+      (storedLeftBoxCount !== null && storedLeftBoxCount !== undefined),
     defaultPerEye,
   });
 
@@ -83,4 +95,10 @@ export function resolveCartEyeBoxCounts({
     left,
     totalBoxes: (right ?? 0) + (left ?? 0),
   };
+}
+
+export function hasResolvedCartQuantity(
+  counts: ResolvedCartEyeBoxCounts,
+): boolean {
+  return counts.totalBoxes > 0;
 }
