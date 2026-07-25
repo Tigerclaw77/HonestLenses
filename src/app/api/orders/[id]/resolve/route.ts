@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 import { resolveDefaultSku } from "@/lib/pricing/resolveDefaultSku";
-import { getPrice } from "@/lib/pricing/getPrice";
 import { getSkuBoxDurationMonths } from "@/lib/pricing/skuDefaults";
-import { deriveTotalBoxes, deriveTotalMonths } from "@/lib/shipping";
-import {
-  normalizeShippingMethod,
-  resolveShipping,
-} from "@/lib/shipping/resolveShipping";
+import { deriveTotalBoxes } from "@/lib/shipping";
+import { getAuthoritativeOrderQuote } from "@/lib/orders/orderPricing";
 import {
   canAccessOrder,
   getOrderAccess,
@@ -106,34 +102,24 @@ export async function POST(
       left_box_count: null,
       right_box_count: null,
     });
-    const totalMonths = deriveTotalMonths({
+    const quote = getAuthoritativeOrderQuote({
       sku,
       totalBoxes,
+      shippingMethod: order.shipping_method,
     });
     /* 5️⃣ Pricing */
-    const pricing = getPrice({
-      sku,
-      box_count: totalBoxes,
-    });
-    const shipping = resolveShipping({
-      manufacturer: pricing.manufacturer,
-      totalMonths,
-      itemCount: totalBoxes,
-      hasMixedSkus: false,
-      shippingMethod: normalizeShippingMethod(order.shipping_method),
-    });
-
     /* 6️⃣ Persist */
     const { error: updateError } = await supabase
       .from("orders")
       .update({
         sku,
-        manufacturer: pricing.manufacturer,
+        manufacturer: quote.manufacturer,
         box_count: totalBoxes,
         total_box_count: totalBoxes,
-        shipping_method: shipping.shippingMethod,
-        shipping_cents: shipping.shippingCents,
-        total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
+        shipping_method: quote.shippingMethod,
+        shipping_cents: quote.shippingCents,
+        total_amount_cents: quote.totalAmountCents,
+        price_reason: quote.priceReason,
         status: "draft",
       })
       .eq("id", orderId)
@@ -150,9 +136,9 @@ export async function POST(
       ok: true,
       sku,
       box_count: totalBoxes,
-      total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
-      shipping_cents: shipping.shippingCents,
-      totalMonths,
+      total_amount_cents: quote.totalAmountCents,
+      shipping_cents: quote.shippingCents,
+      totalMonths: quote.totalMonths,
     });
   } catch (err) {
     console.error("Resolve route crash:", err);

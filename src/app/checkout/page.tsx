@@ -63,6 +63,7 @@ type Order = {
   id: string;
   status: "draft" | "pending" | "authorized" | "captured";
   total_amount_cents: number;
+  amount_due_cents: number;
   manufacturer?: string | null;
   sku?: string | null;
   shipping_method?: "standard" | "express" | null;
@@ -80,6 +81,14 @@ type Order = {
 
 type CheckoutPayResponse = {
   clientSecret?: string;
+  payment_intent_id?: string;
+  total_amount_cents?: number;
+  amount_due_cents?: number;
+  feedback_credit_cents?: number;
+  shipping_cents?: number;
+  shipping_method?: "standard" | "express";
+  manufacturer?: string | null;
+  sku?: string | null;
   error?: string;
 };
 
@@ -94,7 +103,9 @@ type AuthorizedResponse = {
 
 type CheckoutFormProps = {
   order: Order;
+  clientSecret: string;
   mode: "uploaded" | "passive";
+  onQuoteChanged: (quote: CheckoutPayResponse) => void;
   onPaymentComplete: () => void;
 };
 
@@ -137,7 +148,13 @@ function isUploadedVerificationOrder(orderData: {
    Checkout Form
 ========================= */
 
-function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
+function CheckoutForm({
+  order,
+  clientSecret,
+  mode,
+  onQuoteChanged,
+  onPaymentComplete,
+}: CheckoutFormProps) {
   const stripe = useStripe();
   const elements = useElements();
   const router = useRouter();
@@ -155,7 +172,50 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
 
     try {
       const retryCount = incrementRetryCount(`payment_submit:${order.id}`);
-      const amountDueCents = getFeedbackAmountDueCents(order);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const quoteRes = await fetch("/api/checkout/pay", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {}),
+        },
+        body: JSON.stringify({ orderId: order.id }),
+      });
+      const quote: CheckoutPayResponse = await quoteRes.json().catch(() => ({}));
+
+      if (
+        !quoteRes.ok ||
+        !quote.clientSecret ||
+        !quote.payment_intent_id ||
+        typeof quote.amount_due_cents !== "number" ||
+        typeof quote.total_amount_cents !== "number"
+      ) {
+        throw new Error(quote.error || "Unable to verify the checkout total.");
+      }
+
+      const quoteChanged =
+        quote.amount_due_cents !== order.amount_due_cents ||
+        quote.total_amount_cents !== order.total_amount_cents ||
+        quote.payment_intent_id !== order.payment_intent_id ||
+        quote.clientSecret !== clientSecret;
+
+      if (quoteChanged) {
+        if (quote.clientSecret === clientSecret) {
+          await elements.fetchUpdates();
+        }
+        onQuoteChanged(quote);
+        setError(
+          "Your order total was refreshed. Please review the updated total and submit again.",
+        );
+        setSubmitting(false);
+        return;
+      }
+
+      const amountDueCents = order.amount_due_cents;
       markStepStart(`payment_submit:${order.id}`);
       track(POSTHOG_EVENTS.PAYMENT_STARTED, {
         order_id: order.id,
@@ -198,10 +258,6 @@ function CheckoutForm({ order, mode, onPaymentComplete }: CheckoutFormProps) {
         setSubmitting(false);
         return;
       }
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
 
       const markRes = await fetch("/api/checkout/authorized", {
         method: "POST",
@@ -395,6 +451,10 @@ function CheckoutInner() {
           id: orderData.id,
           status: orderData.status,
           total_amount_cents: orderData.total_amount_cents,
+          amount_due_cents: getFeedbackAmountDueCents({
+            total_amount_cents: orderData.total_amount_cents,
+            feedback_credit_cents: orderData.feedback_credit_cents ?? null,
+          }),
           manufacturer: orderData.manufacturer ?? null,
           sku: orderData.sku ?? null,
           shipping_cents: orderData.shipping_cents ?? null,
@@ -429,30 +489,50 @@ function CheckoutInner() {
 
         const body: CheckoutPayResponse = await res.json();
 
-        if (!res.ok || !body.clientSecret) {
+        if (
+          !res.ok ||
+          !body.clientSecret ||
+          !body.payment_intent_id ||
+          typeof body.total_amount_cents !== "number" ||
+          typeof body.amount_due_cents !== "number"
+        ) {
           throw new Error(body.error || "Payment init failed.");
         }
 
         if (!cancelled) {
           clientSecretReady.current = true;
           setOrder((current) =>
-            current ? { ...current, has_payment_intent: true } : current,
+            current
+              ? {
+                  ...current,
+                  total_amount_cents: body.total_amount_cents!,
+                  amount_due_cents: body.amount_due_cents!,
+                  manufacturer: body.manufacturer ?? current.manufacturer,
+                  sku: body.sku ?? current.sku,
+                  shipping_cents:
+                    body.shipping_cents ?? current.shipping_cents,
+                  shipping_method:
+                    body.shipping_method ?? current.shipping_method,
+                  feedback_credit_cents:
+                    body.feedback_credit_cents ??
+                    current.feedback_credit_cents,
+                  payment_intent_id: body.payment_intent_id,
+                  has_payment_intent: true,
+                }
+              : current,
           );
           setClientSecret(body.clientSecret);
           track(POSTHOG_EVENTS.CHECKOUT_STEP_TIMED, {
             step: "payment_intent_ready",
             order_id: orderId,
-            order_value_cents: orderData.total_amount_cents,
-            total_cart_value_cents: orderData.total_amount_cents,
-            amount_due_cents: getFeedbackAmountDueCents({
-              total_amount_cents: orderData.total_amount_cents,
-              feedback_credit_cents: orderData.feedback_credit_cents ?? null,
-            }),
-            feedback_credit_cents: orderData.feedback_credit_cents ?? 0,
-            manufacturer: orderData.manufacturer ?? null,
-            sku: orderData.sku ?? null,
-            shipping_cents: orderData.shipping_cents ?? null,
-            shipping_method: orderData.shipping_method ?? "standard",
+            order_value_cents: body.total_amount_cents,
+            total_cart_value_cents: body.total_amount_cents,
+            amount_due_cents: body.amount_due_cents,
+            feedback_credit_cents: body.feedback_credit_cents ?? 0,
+            manufacturer: body.manufacturer ?? null,
+            sku: body.sku ?? null,
+            shipping_cents: body.shipping_cents ?? null,
+            shipping_method: body.shipping_method ?? "standard",
             has_payment_intent: true,
             duration_ms: consumeStepDurationMs(`payment_init:${orderId}`),
           });
@@ -495,7 +575,7 @@ function CheckoutInner() {
 
     function captureAbandonment() {
       if (sessionStorage.getItem(completionKey)) return;
-      const amountDueCents = getFeedbackAmountDueCents(activeOrder);
+      const amountDueCents = activeOrder.amount_due_cents;
 
       track(POSTHOG_EVENTS.ABANDONED_CHECKOUT, {
         order_id: activeOrder.id,
@@ -551,7 +631,7 @@ function CheckoutInner() {
     normalizeFeedbackCreditCents(order.feedback_credit_cents),
     order.total_amount_cents,
   );
-  const amountDueCents = getFeedbackAmountDueCents(order);
+  const amountDueCents = order.amount_due_cents;
 
   return (
     <main>
@@ -654,12 +734,47 @@ function CheckoutInner() {
           </div>
 
           <Elements
+            key={clientSecret}
             stripe={stripePromise}
             options={{ clientSecret, appearance: stripeAppearance }}
           >
             <CheckoutForm
               order={order}
+              clientSecret={clientSecret}
               mode={mode}
+              onQuoteChanged={(quote) => {
+                if (
+                  !quote.clientSecret ||
+                  !quote.payment_intent_id ||
+                  typeof quote.total_amount_cents !== "number" ||
+                  typeof quote.amount_due_cents !== "number"
+                ) {
+                  return;
+                }
+
+                setOrder((current) =>
+                  current
+                    ? {
+                        ...current,
+                        total_amount_cents: quote.total_amount_cents!,
+                        amount_due_cents: quote.amount_due_cents!,
+                        feedback_credit_cents:
+                          quote.feedback_credit_cents ??
+                          current.feedback_credit_cents,
+                        shipping_cents:
+                          quote.shipping_cents ?? current.shipping_cents,
+                        shipping_method:
+                          quote.shipping_method ?? current.shipping_method,
+                        manufacturer:
+                          quote.manufacturer ?? current.manufacturer,
+                        sku: quote.sku ?? current.sku,
+                        payment_intent_id: quote.payment_intent_id,
+                        has_payment_intent: true,
+                      }
+                    : current,
+                );
+                setClientSecret(quote.clientSecret);
+              }}
               onPaymentComplete={() => {
                 sessionStorage.setItem(
                   `hl_checkout_completed:${order.id}`,
@@ -686,6 +801,10 @@ function CheckoutInner() {
                 ? {
                     ...current,
                     feedback_credit_cents: creditCents,
+                    amount_due_cents: getFeedbackAmountDueCents({
+                      total_amount_cents: current.total_amount_cents,
+                      feedback_credit_cents: creditCents,
+                    }),
                     feedback_credit_applied_at: new Date().toISOString(),
                     feedback_survey_completed_at: new Date().toISOString(),
                   }

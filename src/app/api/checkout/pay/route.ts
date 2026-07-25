@@ -13,7 +13,7 @@ import {
   getOrderAccess,
   hasOrderAccessContext,
 } from "@/lib/order-access";
-import { getFeedbackAmountDueCents } from "@/lib/abandonmentFeedback";
+import { getCheckoutAmountCents } from "@/lib/payments/checkoutAmount";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -22,6 +22,33 @@ const REUSABLE_STATUSES = [
   "requires_confirmation",
   "requires_capture",
 ];
+
+type CheckoutPaymentOrder = {
+  id: string;
+  total_amount_cents: number;
+  feedback_credit_cents: number | null;
+  shipping_cents: number | null;
+  shipping_method: string | null;
+  manufacturer: string | null;
+  sku: string | null;
+};
+
+function paymentResponse(
+  order: CheckoutPaymentOrder,
+  intent: Stripe.PaymentIntent,
+) {
+  return {
+    clientSecret: intent.client_secret,
+    payment_intent_id: intent.id,
+    total_amount_cents: order.total_amount_cents,
+    amount_due_cents: intent.amount,
+    feedback_credit_cents: order.feedback_credit_cents ?? 0,
+    shipping_cents: order.shipping_cents ?? 0,
+    shipping_method: order.shipping_method ?? "standard",
+    manufacturer: order.manufacturer,
+    sku: order.sku,
+  };
+}
 
 /* =========================
    Resolve Cart (PASS ORDER ID)
@@ -109,6 +136,8 @@ export async function POST(req: Request) {
         feedback_credit_cents,
         shipping_cents,
         shipping_method,
+        manufacturer,
+        sku,
         payment_intent_id
       `)
       .eq("id", orderId)
@@ -128,11 +157,17 @@ export async function POST(req: Request) {
       );
     }
 
-    const amountDueCents = getFeedbackAmountDueCents(order);
-
-    if (amountDueCents <= 0) {
+    let amountDueCents: number;
+    try {
+      amountDueCents = getCheckoutAmountCents(order);
+    } catch (error) {
       return NextResponse.json(
-        { error: "Order amount due must be greater than 0." },
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Order amount due must be greater than 0.",
+        },
         { status: 400 }
       );
     }
@@ -182,32 +217,37 @@ export async function POST(req: Request) {
 
         } else {
           if (existing.amount !== amountDueCents) {
-            const updated = await stripe.paymentIntents.update(
-              order.payment_intent_id,
-              {
-                amount: amountDueCents,
-                metadata: {
-                  order_id: order.id,
-                  user_id: access.userId ?? "",
-                  checkout_actor: access.userId ? "user" : "guest",
-                  shipping_method: order.shipping_method ?? "standard",
-                  shipping_cents: String(order.shipping_cents ?? 0),
-                  feedback_credit_cents: String(
-                    order.feedback_credit_cents ?? 0,
-                  ),
-                  amount_due_cents: String(amountDueCents),
-                },
-              }
-            );
+            if (existing.status === "requires_capture") {
+              await stripe.paymentIntents.cancel(existing.id);
+              await supabaseServer
+                .from("orders")
+                .update({ payment_intent_id: null })
+                .eq("id", order.id)
+                .eq("payment_intent_id", existing.id);
+            } else {
+              const updated = await stripe.paymentIntents.update(
+                order.payment_intent_id,
+                {
+                  amount: amountDueCents,
+                  metadata: {
+                    order_id: order.id,
+                    user_id: access.userId ?? "",
+                    checkout_actor: access.userId ? "user" : "guest",
+                    shipping_method: order.shipping_method ?? "standard",
+                    shipping_cents: String(order.shipping_cents ?? 0),
+                    feedback_credit_cents: String(
+                      order.feedback_credit_cents ?? 0,
+                    ),
+                    amount_due_cents: String(amountDueCents),
+                  },
+                }
+              );
 
-            return NextResponse.json({
-              clientSecret: updated.client_secret,
-            });
+              return NextResponse.json(paymentResponse(order, updated));
+            }
+          } else {
+            return NextResponse.json(paymentResponse(order, existing));
           }
-
-          return NextResponse.json({
-            clientSecret: existing.client_secret,
-          });
         }
       } catch (err) {
         console.warn("Existing intent invalid → resetting:", err);
@@ -283,9 +323,7 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json({
-      clientSecret: intent.client_secret,
-    });
+    return NextResponse.json(paymentResponse(order, intent));
 
   } catch (err) {
     console.error("CHECKOUT ERROR:", err);

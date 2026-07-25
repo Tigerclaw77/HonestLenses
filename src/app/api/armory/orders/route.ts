@@ -5,6 +5,7 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { classifyOperationalQueue } from "@/lib/orders/operationalQueue";
 import { getRxSourceState, getVerificationState } from "@/lib/orders/getNextAction";
+import { projectOrderCommerce } from "@/lib/orders/orderCommerce";
 import { projectPaymentState } from "@/lib/orders/paymentState";
 import { deriveTotalMonths } from "@/lib/shipping";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -34,6 +35,8 @@ const ORDER_FIELDS = [
   "archived_at",
   "passive_deadline_at",
   "total_amount_cents",
+  "feedback_credit_cents",
+  "capture_amount_cents",
   "currency",
   "shipping_method",
   "shipping_email",
@@ -81,6 +84,8 @@ type OrderRow = {
   admin_notes?: string | null;
   passive_deadline_at?: string | null;
   total_amount_cents?: number | null;
+  feedback_credit_cents?: number | null;
+  capture_amount_cents?: number | null;
   currency?: string | null;
   shipping_method?: string | null;
   shipping_email?: string | null;
@@ -173,14 +178,11 @@ function toArmoryOrder(row: OrderRow) {
   const rx = asObject(row.rx);
   const right = asObject(rx.right || rx.od || rx.OD);
   const left = asObject(rx.left || rx.os || rx.OS);
-  const rightBoxes = firstNumber(row.adjusted_right_box_count, row.right_box_count);
-  const leftBoxes = firstNumber(row.adjusted_left_box_count, row.left_box_count);
-  const totalBoxes = firstNumber(
-    row.adjusted_total_box_count,
-    row.total_box_count,
-    row.box_count,
-    sumCounts(rightBoxes, leftBoxes),
-  );
+  const commerce = projectOrderCommerce(row);
+  const quantities = commerce.quantity;
+  const rightBoxes = quantities.right;
+  const leftBoxes = quantities.left;
+  const totalBoxes = quantities.total;
   const durationMonths = deriveTotalMonths({
     sku: row.sku,
     totalBoxes: totalBoxes || 0,
@@ -237,7 +239,6 @@ function toArmoryOrder(row: OrderRow) {
     dataComplete: completeness.complete,
     missingFields: completeness.missingFields,
   });
-
   return {
     orderId: row.id,
     placedAt: row.created_at,
@@ -248,7 +249,7 @@ function toArmoryOrder(row: OrderRow) {
     verificationStatus: normalizeStatus(row.verification_status),
     fulfillmentStatus,
     shipmentStatus: deriveShipmentStatus(row.status, fulfillmentStatus),
-    revenueCents: row.total_amount_cents ?? null,
+    revenueCents: commerce.billingAmountCents,
     currency: row.currency || "USD",
     customer: {
       firstName: row.shipping_first_name || null,
@@ -566,16 +567,6 @@ function firstValue(...values: unknown[]) {
 function firstString(...values: unknown[]) {
   const value = values.find((candidate) => typeof candidate === "string" && candidate.trim());
   return typeof value === "string" ? value.trim() : null;
-}
-
-function firstNumber(...values: unknown[]) {
-  const value = values.find((candidate) => typeof candidate === "number" && Number.isFinite(candidate));
-  return typeof value === "number" ? value : null;
-}
-
-function sumCounts(right: number | null, left: number | null) {
-  if (right === null && left === null) return null;
-  return (right || 0) + (left || 0);
 }
 
 function joinName(...parts: Array<string | null | undefined>) {

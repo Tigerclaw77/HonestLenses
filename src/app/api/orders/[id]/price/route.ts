@@ -2,13 +2,9 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
-import { getPrice } from "../../../../../lib/pricing/getPrice";
-import { deriveTotalBoxes, deriveTotalMonths } from "../../../../../lib/shipping";
-import {
-  normalizeShippingMethod,
-  resolveShipping,
-  type ShippingMethod,
-} from "../../../../../lib/shipping/resolveShipping";
+import { type ShippingMethod } from "../../../../../lib/shipping/resolveShipping";
+import { getAuthoritativeOrderQuote } from "@/lib/orders/orderPricing";
+import { getAuthoritativeOrderQuantity } from "@/lib/orders/orderQuantity";
 import {
   canAccessOrder,
   getOrderAccess,
@@ -24,6 +20,9 @@ type OrderRow = {
   box_count: number | null;
   left_box_count: number | null;
   right_box_count: number | null;
+  adjusted_total_box_count: number | null;
+  adjusted_left_box_count: number | null;
+  adjusted_right_box_count: number | null;
   shipping_method: ShippingMethod | null;
   total_amount_cents: number | null;
 };
@@ -66,6 +65,9 @@ export async function POST(
       box_count,
       left_box_count,
       right_box_count,
+      adjusted_total_box_count,
+      adjusted_left_box_count,
+      adjusted_right_box_count,
       shipping_method,
       total_amount_cents
     `)
@@ -101,7 +103,8 @@ export async function POST(
     );
   }
 
-  const totalBoxes = deriveTotalBoxes(order);
+  const quantities = getAuthoritativeOrderQuantity(order);
+  const totalBoxes = quantities.total;
 
   if (totalBoxes <= 0) {
     return NextResponse.json(
@@ -110,22 +113,22 @@ export async function POST(
     );
   }
 
-  const totalMonths = deriveTotalMonths({
-    sku: order.sku,
-    totalBoxes,
-    left_box_count: order.left_box_count,
-    right_box_count: order.right_box_count,
-  });
-
   /* =========================
      4) Price resolution
   ========================= */
 
-  let pricing;
+  let quote;
   try {
-    pricing = getPrice({
+    quote = getAuthoritativeOrderQuote({
       sku: order.sku,
-      box_count: totalBoxes,
+      totalBoxes,
+      rightBoxCount: quantities.adjusted
+        ? quantities.right
+        : order.right_box_count,
+      leftBoxCount: quantities.adjusted
+        ? quantities.left
+        : order.left_box_count,
+      shippingMethod: order.shipping_method,
     });
   } catch (err) {
     return NextResponse.json(
@@ -139,14 +142,6 @@ export async function POST(
     );
   }
 
-  const shipping = resolveShipping({
-    manufacturer: pricing.manufacturer,
-    totalMonths,
-    itemCount: totalBoxes,
-    hasMixedSkus: false,
-    shippingMethod: normalizeShippingMethod(order.shipping_method),
-  });
-
   /* =========================
      5) Persist pricing
   ========================= */
@@ -154,13 +149,14 @@ export async function POST(
   const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
-      manufacturer: pricing.manufacturer,
-      box_count: totalBoxes,
-      total_box_count: totalBoxes,
-      shipping_method: shipping.shippingMethod,
-      shipping_cents: shipping.shippingCents,
-      total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
-      price_reason: pricing.price_reason,
+      manufacturer: quote.manufacturer,
+      ...(quantities.adjusted
+        ? {}
+        : { box_count: totalBoxes, total_box_count: totalBoxes }),
+      shipping_method: quote.shippingMethod,
+      shipping_cents: quote.shippingCents,
+      total_amount_cents: quote.totalAmountCents,
+      price_reason: quote.priceReason,
     })
     .eq("id", order.id);
 
@@ -173,8 +169,8 @@ export async function POST(
 
   return NextResponse.json({
     ok: true,
-    total_amount_cents: pricing.total_amount_cents + shipping.shippingCents,
-    shipping_cents: shipping.shippingCents,
-    shipping_method: shipping.shippingMethod,
+    total_amount_cents: quote.totalAmountCents,
+    shipping_cents: quote.shippingCents,
+    shipping_method: quote.shippingMethod,
   });
 }

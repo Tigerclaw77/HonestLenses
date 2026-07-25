@@ -1,23 +1,17 @@
 import assert from "node:assert/strict";
 import { getFeedbackAmountDueCents } from "@/lib/abandonmentFeedback";
-import { getPrice } from "@/lib/pricing/getPrice";
-import { resolveShipping } from "@/lib/shipping/resolveShipping";
+import { getAuthoritativeOrderQuote } from "@/lib/orders/orderPricing";
 import { resolveCartEyeBoxCounts } from "./resolveQuantities";
 
 const SKU = "OASYS_MAX_1D_90";
 const DEFAULT_PER_EYE = 4;
 
 function resolvedTotalAmountCents(totalBoxes: number): number {
-  const pricing = getPrice({ sku: SKU, box_count: totalBoxes });
-  const shipping = resolveShipping({
-    manufacturer: pricing.manufacturer,
-    totalMonths: 3 * Math.max(0, totalBoxes / 2),
-    itemCount: totalBoxes,
-    hasMixedSkus: false,
+  return getAuthoritativeOrderQuote({
+    sku: SKU,
+    totalBoxes,
     shippingMethod: "standard",
-  });
-
-  return pricing.total_amount_cents + shipping.shippingCents;
+  }).totalAmountCents;
 }
 
 function assertCounts(

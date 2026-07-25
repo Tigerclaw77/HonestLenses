@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
-import { getFeedbackAmountDueCents } from "@/lib/abandonmentFeedback";
+import { getCheckoutAmountCents } from "@/lib/payments/checkoutAmount";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -52,11 +52,17 @@ export async function POST(
     );
   }
 
-  const amountDueCents = getFeedbackAmountDueCents(order);
-
-  if (amountDueCents <= 0) {
+  let amountDueCents: number;
+  try {
+    amountDueCents = getCheckoutAmountCents(order);
+  } catch (error) {
     return NextResponse.json(
-      { error: "Order amount due must be greater than 0 before payment" },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Order amount due must be greater than 0 before payment",
+      },
       { status: 400 },
     );
   }
@@ -80,10 +86,20 @@ export async function POST(
         },
       );
 
-      return NextResponse.json({ clientSecret: updated.client_secret });
+      return NextResponse.json({
+        clientSecret: updated.client_secret,
+        payment_intent_id: updated.id,
+        total_amount_cents: order.total_amount_cents,
+        amount_due_cents: updated.amount,
+      });
     }
 
-    return NextResponse.json({ clientSecret: existing.client_secret });
+    return NextResponse.json({
+      clientSecret: existing.client_secret,
+      payment_intent_id: existing.id,
+      total_amount_cents: order.total_amount_cents,
+      amount_due_cents: existing.amount,
+    });
   }
 
   const paymentIntent = await stripe.paymentIntents.create({
@@ -110,5 +126,10 @@ export async function POST(
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
-  return NextResponse.json({ clientSecret: paymentIntent.client_secret });
+  return NextResponse.json({
+    clientSecret: paymentIntent.client_secret,
+    payment_intent_id: paymentIntent.id,
+    total_amount_cents: order.total_amount_cents,
+    amount_due_cents: paymentIntent.amount,
+  });
 }

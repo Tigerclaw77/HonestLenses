@@ -1,3 +1,5 @@
+import { projectOrderCommerce } from "@/lib/orders/orderCommerce";
+
 export const CUSTOMER_ORDER_SELECT = `
   id,
   status,
@@ -56,42 +58,10 @@ export function isCustomerOrderId(value: string): boolean {
   return UUID_PATTERN.test(value);
 }
 
-function finiteCount(value: number | null): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0
-    ? value
-    : null;
-}
-
 export function getCustomerOrderQuantities(
   order: CustomerOrder,
 ): CustomerOrderQuantities {
-  const adjustedRight = finiteCount(order.adjusted_right_box_count);
-  const adjustedLeft = finiteCount(order.adjusted_left_box_count);
-  const adjustedTotal = finiteCount(order.adjusted_total_box_count);
-  const adjusted =
-    adjustedRight !== null && adjustedLeft !== null && adjustedTotal !== null;
-
-  if (adjusted) {
-    return {
-      right: adjustedRight,
-      left: adjustedLeft,
-      total: adjustedTotal,
-      adjusted: true,
-    };
-  }
-
-  const right = finiteCount(order.right_box_count) ?? 0;
-  const left = finiteCount(order.left_box_count) ?? 0;
-
-  return {
-    right,
-    left,
-    total:
-      finiteCount(order.total_box_count) ??
-      finiteCount(order.box_count) ??
-      right + left,
-    adjusted: false,
-  };
+  return projectOrderCommerce(order).quantity;
 }
 
 export function getCustomerPaymentStatus(order: CustomerOrder): string {
@@ -149,9 +119,7 @@ export function getCustomerNextStep(order: CustomerOrder): string {
 }
 
 export function getCustomerAmountCents(order: CustomerOrder): number {
-  const total = Math.max(0, order.total_amount_cents ?? 0);
-  const credit = Math.max(0, order.feedback_credit_cents ?? 0);
-  return Math.max(0, total - credit);
+  return projectOrderCommerce(order).billingAmountCents ?? 0;
 }
 
 export function formatCustomerMoney(

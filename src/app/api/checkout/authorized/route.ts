@@ -21,6 +21,10 @@ import {
   hasOrderAccessContext,
 } from "@/lib/order-access";
 import { buildCustomerOrderEmail } from "@/lib/orders/customerOrder";
+import {
+  checkoutAmountMatchesPaymentIntent,
+  getCheckoutAmountCents,
+} from "@/lib/payments/checkoutAmount";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -156,6 +160,45 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: `Payment not authorized (status: ${intent.status})` },
       { status: 400 },
+    );
+  }
+
+  const checkoutAmountOrder = {
+    id: orderId,
+    total_amount_cents:
+      typeof orderRaw.total_amount_cents === "number"
+        ? orderRaw.total_amount_cents
+        : null,
+    feedback_credit_cents:
+      typeof orderRaw.feedback_credit_cents === "number"
+        ? orderRaw.feedback_credit_cents
+        : null,
+  };
+
+  let checkoutAmountCents: number;
+  try {
+    checkoutAmountCents = getCheckoutAmountCents(checkoutAmountOrder);
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Order checkout amount is invalid",
+      },
+      { status: 400 },
+    );
+  }
+
+  if (!checkoutAmountMatchesPaymentIntent(checkoutAmountOrder, intent.amount)) {
+    return NextResponse.json(
+      {
+        error:
+          "Checkout amount changed before authorization. Refresh checkout and approve the updated total.",
+        code: "CHECKOUT_AMOUNT_MISMATCH",
+        expected_amount_cents: checkoutAmountCents,
+      },
+      { status: 409 },
     );
   }
 

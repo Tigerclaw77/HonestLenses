@@ -269,6 +269,7 @@ type OptimisticOrdersSnapshot = {
 type AdminApiPayload = {
   error?: string;
   code?: string;
+  reauthorization_required?: boolean;
   order?: Order;
   action_required?: Order[];
   active_fulfillment?: Order[];
@@ -1846,7 +1847,9 @@ function PaymentAdjustmentPanel({
           }}
         >
           Capture amount is lower than authorization by {formatMoney(lowerBy)}.
-          Capture amount and corrected order quantity are tracked separately.
+          {hasAdjustedOrderQuantity(order)
+            ? " The corrected quantity price is the planned capture amount."
+            : ""}
         </div>
       )}
 
@@ -2485,7 +2488,9 @@ export default function AdminOrdersPage() {
       setOrderQuantityAdjustmentModal(null);
       setAdminNotice({
         tone: "success",
-        message: "Order quantity adjustment saved.",
+        message: json.reauthorization_required
+          ? "Quantity and price updated. The prior authorization was cancelled; the customer must approve the updated total."
+          : "Order quantity and billing amount updated.",
       });
     } finally {
       setSavingOrderId(null);

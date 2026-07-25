@@ -11,14 +11,13 @@ import {
   getVerificationReadiness,
   VERIFICATION_INFORMATION_NEEDED_STATUS,
 } from "@/lib/orders/verificationReadiness";
+import { hasInternalBearerAuthorization } from "@/lib/internal-auth";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 export async function POST(req: Request) {
   // ✅ 1. AUTH FIRST (before touching DB)
-  const auth = req.headers.get("authorization");
-
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!hasInternalBearerAuthorization(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
