@@ -357,6 +357,34 @@ function CheckoutForm({
         }}
       >
         <PaymentElement options={paymentElementOptions} />
+        <div
+          aria-label="Payments powered by Stripe"
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            marginTop: 18,
+          }}
+        >
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              minHeight: 30,
+              padding: "5px 10px",
+              border: "1px solid #d8dee9",
+              borderRadius: 6,
+              background: "#ffffff",
+              color: "#475569",
+              fontSize: 12,
+              fontWeight: 600,
+              lineHeight: 1,
+            }}
+          >
+            Powered by{" "}
+            <span style={{ color: "#635bff", fontWeight: 800 }}>Stripe</span>
+          </span>
+        </div>
       </div>
 
       {error && (
@@ -387,8 +415,7 @@ function CheckoutForm({
           textAlign: "center",
         }}
       >
-        Secure payments powered by Stripe. Honest Lenses does not store full
-        card numbers.
+        Honest Lenses does not store full card numbers.
       </p>
     </form>
   );

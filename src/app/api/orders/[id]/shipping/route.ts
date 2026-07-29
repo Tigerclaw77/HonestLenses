@@ -1,5 +1,3 @@
-console.log("Shipping route hit");
-
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 import {
@@ -7,6 +5,12 @@ import {
   getOrderAccess,
   hasOrderAccessContext,
 } from "@/lib/order-access";
+import {
+  boundedText,
+  isEmailAddress,
+  isUsPostalCode,
+  isUsState,
+} from "@/lib/security/inputValidation";
 
 type ShippingBody = {
   shipping_first_name?: string;
@@ -31,7 +35,10 @@ export async function POST(
   }
 
   const { id: orderId } = await context.params;
-  const body = (await req.json()) as ShippingBody;
+  const body = (await req.json().catch(() => null)) as ShippingBody | null;
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
+  }
 
   const { data: order, error: orderError } = await supabaseServer
     .from("orders")
@@ -54,20 +61,46 @@ export async function POST(
     );
   }
 
-  // You said you are NOT collecting phone from shipping
-  // so we ignore shipping_phone even if it is present.
+  const firstName = boundedText(body.shipping_first_name, 100, true);
+  const lastName = boundedText(body.shipping_last_name, 100, true);
+  const email = boundedText(body.shipping_email, 254, true)?.toLowerCase();
+  const phone = boundedText(body.shipping_phone, 30);
+  const address1 = boundedText(body.shipping_address1, 200, true);
+  const address2 = boundedText(body.shipping_address2, 200);
+  const city = boundedText(body.shipping_city, 100, true);
+  const state = boundedText(body.shipping_state, 2, true)?.toUpperCase();
+  const zip = boundedText(body.shipping_zip, 10, true);
+
+  if (
+    !firstName ||
+    !lastName ||
+    !email ||
+    !isEmailAddress(email) ||
+    phone === null ||
+    !address1 ||
+    address2 === null ||
+    !city ||
+    !state ||
+    !isUsState(state) ||
+    !zip ||
+    !isUsPostalCode(zip)
+  ) {
+    return NextResponse.json(
+      { error: "Invalid shipping details." },
+      { status: 400 },
+    );
+  }
+
   const update = {
-    shipping_first_name: body.shipping_first_name?.trim() || null,
-    shipping_last_name: body.shipping_last_name?.trim() || null,
-
-    shipping_email: body.shipping_email?.trim().toLowerCase() || null,
-    shipping_phone: body.shipping_phone?.trim() || null,
-
-    shipping_address1: body.shipping_address1?.trim() || null,
-    shipping_address2: body.shipping_address2?.trim() || null,
-    shipping_city: body.shipping_city?.trim() || null,
-    shipping_state: body.shipping_state?.trim() || null,
-    shipping_zip: body.shipping_zip?.trim() || null,
+    shipping_first_name: firstName,
+    shipping_last_name: lastName,
+    shipping_email: email,
+    shipping_phone: phone || null,
+    shipping_address1: address1,
+    shipping_address2: address2 || null,
+    shipping_city: city,
+    shipping_state: state,
+    shipping_zip: zip,
   };
 
   const { data, error } = await supabaseServer
@@ -79,7 +112,7 @@ export async function POST(
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ error: "Unable to save shipping details." }, { status: 400 });
   }
   if (!data) {
     return NextResponse.json(

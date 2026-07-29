@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse, NextRequest } from "next/server";
 import OpenAI from "openai";
+import { randomUUID } from "node:crypto";
 import { supabaseServer } from "@/lib/supabase-server";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { captureServerEvent, captureServerException } from "@/lib/posthog/server";
@@ -10,10 +11,11 @@ import {
   getOrderAccess,
   hasOrderAccessContext,
 } from "@/lib/order-access";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+import { validatePrescriptionUpload } from "@/lib/security/uploadValidation";
+import {
+  enforceRateLimit,
+  rateLimitErrorResponse,
+} from "@/lib/security/rateLimit";
 
 /* =========================
    TYPES
@@ -108,6 +110,9 @@ async function runPrescriptionInterpretation(
   base64: string,
   mimeType: string,
 ): Promise<Interpretation> {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) throw new Error("Prescription OCR is not configured");
+  const openai = new OpenAI({ apiKey });
   const prompt = `
 You are interpreting a contact lens prescription.
 
@@ -197,14 +202,11 @@ Return STRICT JSON:
     throw new Error("Interpretation returned empty output");
   }
 
-  console.log("INTERPRET RAW:", rawText);
-
   let parsed: unknown;
 
   try {
     parsed = JSON.parse(rawText);
   } catch {
-    console.error("INTERPRET PARSE FAIL:", rawText);
     throw new Error("Invalid JSON from interpretation");
   }
 
@@ -248,6 +250,14 @@ export async function POST(
       return NextResponse.json({ error: "Order is not editable" }, { status: 400 });
     }
 
+    const rateLimit = await enforceRateLimit(req, {
+      scope: "prescription-upload",
+      identity: orderId,
+      limit: 5,
+      windowSeconds: 60 * 60,
+    });
+    if (!rateLimit.allowed) return rateLimitErrorResponse(rateLimit);
+
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 
@@ -255,21 +265,29 @@ export async function POST(
       return new Response("No file uploaded", { status: 400 });
     }
 
-    const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const storagePath = `rx/${orderId}/rx_${timestamp}.${ext}`;
+    let validated: Awaited<ReturnType<typeof validatePrescriptionUpload>>;
+    try {
+      validated = await validatePrescriptionUpload(file);
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Invalid prescription image.",
+        },
+        { status: 400 },
+      );
+    }
 
-    const mimeType = file.type;
-
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const base64 = buffer.toString("base64");
+    const storagePath =
+      `rx/${orderId}/${randomUUID()}.${validated.extension}`;
 
     const { error: uploadError } = await supabaseServer.storage
       .from("prescriptions")
-      .upload(storagePath, buffer, {
-        contentType: file.type || "application/octet-stream",
-        upsert: true,
+      .upload(storagePath, validated.buffer, {
+        contentType: validated.mimeType,
+        upsert: false,
       });
 
     if (uploadError) {
@@ -277,9 +295,32 @@ export async function POST(
       return new Response("Failed to upload Rx file", { status: 500 });
     }
 
+    const { error: evidenceError } = await supabaseServer
+      .from("orders")
+      .update({
+        rx_upload_path: storagePath,
+        rx_status: "uploaded_pending_review",
+        verification_status: "pending",
+      })
+      .eq("id", orderId)
+      .in("status", ["draft", "pending", "authorized"]);
+
+    if (evidenceError) {
+      await supabaseServer.storage.from("prescriptions").remove([storagePath]);
+      return new Response("Failed to save Rx evidence", { status: 500 });
+    }
+
+    if (process.env.PRESCRIPTION_OCR_ENABLED !== "true") {
+      return NextResponse.json({
+        ok: true,
+        usable: false,
+        reviewRequired: true,
+      });
+    }
+
     const interpretation = await runPrescriptionInterpretation(
-      base64,
-      mimeType,
+      validated.buffer.toString("base64"),
+      validated.mimeType,
     );
 
     const rx = mapInterpretationToRx(interpretation);
@@ -289,14 +330,6 @@ export async function POST(
       usable &&
       interpretation.looks_like_contact_lens_rx === true &&
       (interpretation.confidence ?? 0) > 0.85;
-
-    console.log({
-      orderId,
-      usable,
-      isLikelyRx,
-      confidence: interpretation.confidence,
-      rx,
-    });
 
     if (!usable || !isLikelyRx) {
       await captureServerEvent({
@@ -316,9 +349,8 @@ export async function POST(
       .from("orders")
       .update({
         rx,
-        rx_upload_path: storagePath,
-        rx_status: usable ? "ocr_complete" : "ocr_failed",
-        verification_status: isLikelyRx ? "auto_verified" : "pending",
+        rx_status: usable ? "ocr_review_required" : "ocr_failed",
+        verification_status: "pending",
         rx_ocr_raw: interpretation,
       })
       .eq("id", orderId);

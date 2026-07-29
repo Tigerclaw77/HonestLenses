@@ -1,11 +1,9 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import Stripe from "stripe";
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+import { cancelOrderPayment } from "@/lib/payments/legacyPaymentCommands";
 
 export async function POST(
   req: Request,
@@ -32,7 +30,7 @@ export async function POST(
 
   if (error) {
     return NextResponse.json(
-      { error: error.message },
+      { error: "Unable to load the order." },
       { status: 500 },
     );
   }
@@ -61,8 +59,19 @@ export async function POST(
     );
   }
 
-  // 4️⃣ Cancel PaymentIntent
-  await stripe.paymentIntents.cancel(order.payment_intent_id);
+  // 4️⃣ Cancel PaymentIntent. A retry after Stripe succeeds but before the
+  // database update must converge on the same cancellation.
+  try {
+    await cancelOrderPayment(
+      { orderId, paymentIntentId: order.payment_intent_id },
+      "customer-cancel",
+    );
+  } catch {
+    return NextResponse.json(
+      { error: "Payment can no longer be cancelled." },
+      { status: 409 },
+    );
+  }
 
   // 5️⃣ Update order state
   const { error: updateError } = await supabaseServer
@@ -73,10 +82,16 @@ export async function POST(
 
   if (updateError) {
     return NextResponse.json(
-      { error: updateError.message },
+      { error: "Unable to save the cancellation." },
       { status: 500 },
     );
   }
+
+  await supabaseServer.from("order_events").insert({
+    order_id: orderId,
+    event_type: "order_cancelled_by_customer",
+    actor: user.id,
+  });
 
   return NextResponse.json({ ok: true });
 }

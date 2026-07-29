@@ -13,10 +13,18 @@ import {
   type PaymentLifecycleStatus,
 } from "@/lib/orders/getNextAction";
 import {
-  classifyOperationalQueue,
   isMerchantQueueBucket,
   type OperationalQueueBucket,
+  type OperationalQueueClassification,
+  type OperationalQueueIntegrityIssue,
 } from "@/lib/orders/operationalQueue";
+import {
+  ADMIN_FULFILLMENT_STATUSES,
+  assessAdminFulfillmentTransition,
+  getAdminFulfillmentStatus,
+  isAdminFulfillmentStatus,
+  type AdminFulfillmentStatus,
+} from "@/lib/orders/adminWorkflow";
 
 /* =========================
    Types
@@ -74,6 +82,7 @@ type Order = {
   payment_status?: PaymentStatus | null;
   stripe_payment_intent_status?: string | null;
   payment_status_source?: string | null;
+  operational_queue: OperationalQueueClassification;
   email_delivery_status?: string | null;
   email_last_event?: string | null;
   email_last_event_at?: string | null;
@@ -145,14 +154,7 @@ type Order = {
 
 type PaymentStatus = PaymentLifecycleStatus;
 
-type FulfillmentStatus =
-  | "review"
-  | "ready_to_order"
-  | "ordered"
-  | "shipped"
-  | "completed"
-  | "hold"
-  | "cancelled";
+type FulfillmentStatus = AdminFulfillmentStatus;
 
 type CaptureAdjustmentReason =
   | "Quantity correction"
@@ -258,6 +260,11 @@ type AdminNotice = {
   message: string;
 };
 
+type AdminQueueIntegrityIssue = OperationalQueueIntegrityIssue & {
+  orderId: string;
+  customerName: string;
+};
+
 type OptimisticOrdersSnapshot = {
   orders: Order[];
   abandonedOrders: Order[];
@@ -282,17 +289,13 @@ type AdminApiPayload = {
   archive?: Order[];
   abandoned?: Order[];
   draft?: RecoveryEmailDraft;
+  warnings?: string[];
+  event_logged?: boolean;
+  integrity_issues?: AdminQueueIntegrityIssue[];
 };
 
-const FULFILLMENT_STATUSES: FulfillmentStatus[] = [
-  "review",
-  "ready_to_order",
-  "ordered",
-  "shipped",
-  "completed",
-  "hold",
-  "cancelled",
-];
+const FULFILLMENT_STATUSES: readonly FulfillmentStatus[] =
+  ADMIN_FULFILLMENT_STATUSES;
 
 const FULFILLMENT_PROGRESS_FLOW: FulfillmentStatus[] = [
   "review",
@@ -302,15 +305,7 @@ const FULFILLMENT_PROGRESS_FLOW: FulfillmentStatus[] = [
   "completed",
 ];
 
-const PAYMENT_CAPTURE_REQUIRED_FULFILLMENT_STATUSES: FulfillmentStatus[] = [
-  "ready_to_order",
-  "ordered",
-  "shipped",
-  "completed",
-];
-
 const HIGHLIGHT_MS = 120_000;
-const RECENT_SHIPPED_DAYS = 7;
 const CUSTOMER_ACTION_RECENT_DAYS = 7;
 const MATERIAL_ACTIVITY_DIFF_MS = 5 * 60 * 1000;
 
@@ -729,18 +724,11 @@ function labelizeStatus(status: string): string {
 }
 
 function isFulfillmentStatus(value: unknown): value is FulfillmentStatus {
-  return FULFILLMENT_STATUSES.includes(value as FulfillmentStatus);
+  return isAdminFulfillmentStatus(value);
 }
 
 function normalizedFulfillmentStatus(order: Order): FulfillmentStatus {
-  if (isFulfillmentStatus(order.fulfillment_status)) {
-    return order.fulfillment_status;
-  }
-
-  if (order.status === "completed") return "completed";
-  if (order.status === "shipped") return "shipped";
-  if (order.status === "cancelled") return "cancelled";
-  return "review";
+  return getAdminFulfillmentStatus(order);
 }
 
 function normalizedPaymentStatus(order: Order): PaymentStatus {
@@ -956,6 +944,30 @@ function EmailDeliveryWarning({ order }: { order: Order }) {
   );
 }
 
+function OperationalReasonBanner({ order }: { order: Order }) {
+  const classification = getOrderOperationalClassification(order);
+  if (classification.bucket !== "action_required") return null;
+
+  return (
+    <div
+      role="status"
+      style={{
+        border: "1px solid rgba(251,191,36,0.7)",
+        borderRadius: 8,
+        background: "rgba(120,53,15,0.24)",
+        color: "#fde68a",
+        padding: "10px 12px",
+        marginBottom: 10,
+      }}
+    >
+      <div style={{ fontWeight: 900 }}>Action Required</div>
+      <div style={{ marginTop: 3, fontSize: 12, fontWeight: 750 }}>
+        Reason: {classification.reasons.join("; ")}
+      </div>
+    </div>
+  );
+}
+
 function nextFulfillmentStatus(status: FulfillmentStatus): FulfillmentStatus | null {
   const currentIndex = FULFILLMENT_PROGRESS_FLOW.indexOf(status);
   if (currentIndex < 0) return null;
@@ -968,17 +980,6 @@ function previousFulfillmentStatus(
   const currentIndex = FULFILLMENT_PROGRESS_FLOW.indexOf(status);
   if (currentIndex <= 0) return null;
   return FULFILLMENT_PROGRESS_FLOW[currentIndex - 1] ?? null;
-}
-
-function canSetFulfillmentStatus(
-  order: Order,
-  status: FulfillmentStatus,
-): boolean {
-  if (!PAYMENT_CAPTURE_REQUIRED_FULFILLMENT_STATUSES.includes(status)) {
-    return true;
-  }
-
-  return normalizedPaymentStatus(order) === "captured";
 }
 
 function workflowActionLabel(
@@ -1012,10 +1013,14 @@ function canPermanentlyDelete(order: Order): boolean {
   );
 }
 
+function getOrderOperationalClassification(
+  order: Order,
+): OperationalQueueClassification {
+  return order.operational_queue;
+}
+
 function getOrderOperationalBucket(order: Order): OperationalQueueBucket {
-  return classifyOperationalQueue(order, {
-    recentShippedDays: RECENT_SHIPPED_DAYS,
-  }).bucket;
+  return getOrderOperationalClassification(order).bucket;
 }
 
 function shouldDefaultCollapse(order: Order): boolean {
@@ -1993,6 +1998,9 @@ export default function AdminOrdersPage() {
   );
   const [adminError, setAdminError] = useState<string | null>(null);
   const [adminNotice, setAdminNotice] = useState<AdminNotice | null>(null);
+  const [queueIntegrityIssues, setQueueIntegrityIssues] = useState<
+    AdminQueueIntegrityIssue[]
+  >([]);
   const knownPaymentIntentOrderIds = useRef<Set<string>>(new Set());
   const notifiedPaymentIntentOrderIds = useRef<Set<string>>(new Set());
   const optimisticallyHiddenOrderIds = useRef<Set<string>>(new Set());
@@ -2069,6 +2077,7 @@ export default function AdminOrdersPage() {
     }
 
     setAdminError(null);
+    setQueueIntegrityIssues(json.integrity_issues ?? []);
 
     const hasQueueGroups =
       json.action_required !== undefined ||
@@ -2230,6 +2239,21 @@ export default function AdminOrdersPage() {
         return false;
       }
 
+      if (json.warnings?.length) {
+        setAdminNotice({
+          tone: "info",
+          message: `Admin override saved. Warning: ${json.warnings.join(" ")}`,
+        });
+      }
+
+      if (json.event_logged === false) {
+        setAdminNotice({
+          tone: "info",
+          message:
+            "Order updated, but its audit event could not be recorded. Review server logs.",
+        });
+      }
+
       await fetchData();
       return true;
     } finally {
@@ -2238,10 +2262,31 @@ export default function AdminOrdersPage() {
   }
 
   async function updateFulfillmentStatus(
-    orderId: string,
+    order: Order,
     newStatus: FulfillmentStatus,
   ) {
-    await updateAdminOrder(orderId, { fulfillment_status: newStatus });
+    const transition = assessAdminFulfillmentTransition(order, newStatus);
+    if (!transition.valid || !transition.allowed) {
+      setAdminError("Invalid fulfillment status.");
+      return;
+    }
+
+    if (
+      transition.warnings.length > 0 &&
+      !window.confirm(
+        [
+          `Override fulfillment to ${newStatus.replace(/_/g, " ")}?`,
+          "",
+          ...transition.warnings.map((warning) => `• ${warning}`),
+          "",
+          "This warning will not block the admin override.",
+        ].join("\n"),
+      )
+    ) {
+      return;
+    }
+
+    await updateAdminOrder(order.id, { fulfillment_status: newStatus });
   }
 
   function openNotes(order: Order, patientName: string) {
@@ -2910,14 +2955,8 @@ export default function AdminOrdersPage() {
     const nextAction = getNextAction(o);
     const queueBucket = getOrderOperationalBucket(o);
     const isMerchantLane = isMerchantQueueBucket(queueBucket);
-    const nextFulfillment = isMerchantLane
-      ? nextFulfillmentStatus(fulfillment)
-      : null;
-    const previousFulfillment = isMerchantLane
-      ? previousFulfillmentStatus(fulfillment)
-      : null;
-    const canAdvanceFulfillment =
-      !nextFulfillment || canSetFulfillmentStatus(o, nextFulfillment);
+    const nextFulfillment = nextFulfillmentStatus(fulfillment);
+    const previousFulfillment = previousFulfillmentStatus(fulfillment);
     const patientName = getPatientName(o);
     const customerName = getCustomerName(o);
     const showPatientName = namesDiffer(patientName, customerName);
@@ -2934,6 +2973,7 @@ export default function AdminOrdersPage() {
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        <OperationalReasonBanner order={o} />
         <NextActionBanner order={o} />
         <EmailDeliveryWarning order={o} />
 
@@ -3094,116 +3134,97 @@ export default function AdminOrdersPage() {
 
         <RxDetailsPanel order={o} />
 
-        {isMerchantLane && (
+        <div
+          style={{
+            ...mutedPanelStyle(),
+            display: "grid",
+            gap: 10,
+            marginBottom: 12,
+          }}
+        >
           <div
             style={{
-              ...mutedPanelStyle(),
-              display: "grid",
-              gap: 10,
-              marginBottom: 12,
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              flexWrap: "wrap",
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-                flexWrap: "wrap",
-              }}
-            >
-              {previousFulfillment && (
-                <button
-                  type="button"
-                  disabled={savingOrderId === o.id}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    updateFulfillmentStatus(o.id, previousFulfillment);
-                  }}
-                  style={buttonStyle()}
-                >
-                  Undo to {labelizeStatus(previousFulfillment)}
-                </button>
-              )}
+            {previousFulfillment && (
+              <button
+                type="button"
+                disabled={savingOrderId === o.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  updateFulfillmentStatus(o, previousFulfillment);
+                }}
+                style={buttonStyle()}
+              >
+                Undo to {labelizeStatus(previousFulfillment)}
+              </button>
+            )}
 
-              {nextFulfillment && (
-                <button
-                  type="button"
-                  disabled={savingOrderId === o.id || !canAdvanceFulfillment}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!canAdvanceFulfillment) return;
-                    updateFulfillmentStatus(o.id, nextFulfillment);
-                  }}
-                  style={buttonStyle({
-                    background: "rgba(20,184,166,0.22)",
-                    opacity: canAdvanceFulfillment ? 1 : 0.5,
-                  })}
-                  title={
-                    canAdvanceFulfillment
-                      ? undefined
-                      : "Capture payment before advancing fulfillment."
+            {nextFulfillment && (
+              <button
+                type="button"
+                disabled={savingOrderId === o.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  updateFulfillmentStatus(o, nextFulfillment);
+                }}
+                style={buttonStyle({
+                  background: "rgba(20,184,166,0.22)",
+                })}
+              >
+                {workflowActionLabel(fulfillment, nextFulfillment)}
+              </button>
+            )}
+
+            {fulfillment === "completed" && orderSupportsAdminNotes(o) && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  startReturnRefund(o, customerName);
+                }}
+                style={buttonStyle({
+                  background: "rgba(236,72,153,0.18)",
+                })}
+              >
+                Start Return / Refund
+              </button>
+            )}
+
+            <label style={{ fontWeight: 700 }}>
+              Advanced override
+              <select
+                value={fulfillment}
+                disabled={savingOrderId === o.id}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  const next = e.target.value;
+                  if (isFulfillmentStatus(next)) {
+                    updateFulfillmentStatus(o, next);
                   }
-                >
-                  {workflowActionLabel(fulfillment, nextFulfillment)}
-                </button>
-              )}
+                }}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  marginLeft: 8,
+                  padding: "4px 8px",
+                  borderRadius: 4,
+                }}
+              >
+                {FULFILLMENT_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-              {fulfillment === "completed" && orderSupportsAdminNotes(o) && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    startReturnRefund(o, customerName);
-                  }}
-                  style={buttonStyle({
-                    background: "rgba(236,72,153,0.18)",
-                  })}
-                >
-                  Start Return / Refund
-                </button>
-              )}
-
-              <label style={{ fontWeight: 700 }}>
-                Advanced override
-                <select
-                  value={fulfillment}
-                  disabled={savingOrderId === o.id}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    const next = e.target.value;
-                    if (isFulfillmentStatus(next)) {
-                      if (!canSetFulfillmentStatus(o, next)) {
-                        setAdminError(
-                          "Capture payment before advancing fulfillment.",
-                        );
-                        return;
-                      }
-                      updateFulfillmentStatus(o.id, next);
-                    }
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{
-                    marginLeft: 8,
-                    padding: "4px 8px",
-                    borderRadius: 4,
-                  }}
-                >
-                  {FULFILLMENT_STATUSES.map((status) => (
-                    <option
-                      key={status}
-                      value={status}
-                      disabled={!canSetFulfillmentStatus(o, status)}
-                    >
-                      {status}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {savingOrderId === o.id && <span>Saving...</span>}
-            </div>
+            {savingOrderId === o.id && <span>Saving...</span>}
           </div>
-        )}
+        </div>
 
         <div
           style={{
@@ -3691,6 +3712,36 @@ export default function AdminOrdersPage() {
         </div>
       )}
 
+      {queueIntegrityIssues.length > 0 && (
+        <div
+          role="alert"
+          style={{
+            border: "2px solid rgba(248,113,113,0.75)",
+            borderRadius: 10,
+            background: "rgba(127,29,29,0.28)",
+            color: "#fecaca",
+            padding: "12px 14px",
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ fontWeight: 950 }}>
+            Workflow integrity warning ({queueIntegrityIssues.length})
+          </div>
+          <div style={{ marginTop: 4, fontSize: 12 }}>
+            These orders remain visible in an operational queue. Review the
+            conflicting state before relying on automation.
+          </div>
+          <ul style={{ margin: "8px 0 0", paddingLeft: 20, fontSize: 12 }}>
+            {queueIntegrityIssues.map((issue) => (
+              <li key={`${issue.orderId}-${issue.code}`}>
+                <strong>{issue.customerName}</strong> ({issue.orderId}):{" "}
+                {issue.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
         {activeOrderSections.map((section) => (
           <section key={section.key}>
@@ -3747,14 +3798,8 @@ export default function AdminOrdersPage() {
           const fulfillment = normalizedFulfillmentStatus(o);
           const queueBucket = getOrderOperationalBucket(o);
           const isMerchantLane = isMerchantQueueBucket(queueBucket);
-          const nextFulfillment = isMerchantLane
-            ? nextFulfillmentStatus(fulfillment)
-            : null;
-          const previousFulfillment = isMerchantLane
-            ? previousFulfillmentStatus(fulfillment)
-            : null;
-          const canAdvanceFulfillment =
-            !nextFulfillment || canSetFulfillmentStatus(o, nextFulfillment);
+          const nextFulfillment = nextFulfillmentStatus(fulfillment);
+          const previousFulfillment = previousFulfillmentStatus(fulfillment);
           const submittedQuantityDisplay = formatSubmittedOrderQuantity(o);
           const adjustedQuantityDisplay = hasAdjustedOrderQuantity(o)
             ? formatAdjustedOrderQuantity(o)
@@ -3979,6 +4024,20 @@ export default function AdminOrdersPage() {
                     <div style={{ marginTop: 5, fontWeight: 800 }}>
                       Next: {nextAction.label}
                     </div>
+                    {queueBucket === "action_required" && (
+                      <div
+                        style={{
+                          marginTop: 5,
+                          color: "#fde68a",
+                          fontWeight: 850,
+                        }}
+                      >
+                        Reason:{" "}
+                        {getOrderOperationalClassification(o).reasons.join(
+                          "; ",
+                        )}
+                      </div>
+                    )}
 
                     <div
                       style={{
@@ -4035,6 +4094,7 @@ export default function AdminOrdersPage() {
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
+                  <OperationalReasonBanner order={o} />
                   <NextActionBanner order={o} />
                   <EmailDeliveryWarning order={o} />
 
@@ -4227,119 +4287,100 @@ export default function AdminOrdersPage() {
 
                   <RxDetailsPanel order={o} />
 
-                  {isMerchantLane && (
+                  <div
+                    style={{
+                      ...mutedPanelStyle(),
+                      display: "grid",
+                      gap: 10,
+                      marginBottom: 12,
+                    }}
+                  >
                     <div
                       style={{
-                        ...mutedPanelStyle(),
-                        display: "grid",
-                        gap: 10,
-                        marginBottom: 12,
+                        display: "flex",
+                        gap: 8,
+                        alignItems: "center",
+                        flexWrap: "wrap",
                       }}
                     >
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          alignItems: "center",
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        {previousFulfillment && (
-                          <button
-                            type="button"
-                            disabled={savingOrderId === o.id}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              updateFulfillmentStatus(o.id, previousFulfillment);
-                            }}
-                            style={buttonStyle()}
-                          >
-                            Undo to {labelizeStatus(previousFulfillment)}
-                          </button>
-                        )}
+                      {previousFulfillment && (
+                        <button
+                          type="button"
+                          disabled={savingOrderId === o.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            updateFulfillmentStatus(o, previousFulfillment);
+                          }}
+                          style={buttonStyle()}
+                        >
+                          Undo to {labelizeStatus(previousFulfillment)}
+                        </button>
+                      )}
 
-                        {nextFulfillment && (
-                          <button
-                            type="button"
-                            disabled={savingOrderId === o.id || !canAdvanceFulfillment}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!canAdvanceFulfillment) return;
-                              updateFulfillmentStatus(o.id, nextFulfillment);
-                            }}
-                            style={buttonStyle({
-                              background: "rgba(20,184,166,0.22)",
-                              opacity: canAdvanceFulfillment ? 1 : 0.5,
-                            })}
-                            title={
-                              canAdvanceFulfillment
-                                ? undefined
-                                : "Capture payment before advancing fulfillment."
+                      {nextFulfillment && (
+                        <button
+                          type="button"
+                          disabled={savingOrderId === o.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            updateFulfillmentStatus(o, nextFulfillment);
+                          }}
+                          style={buttonStyle({
+                            background: "rgba(20,184,166,0.22)",
+                          })}
+                        >
+                          {workflowActionLabel(fulfillment, nextFulfillment)}
+                        </button>
+                      )}
+
+                      {fulfillment === "completed" && orderSupportsAdminNotes(o) && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startReturnRefund(
+                              o,
+                              customerName,
+                            );
+                          }}
+                          style={buttonStyle({
+                            background: "rgba(236,72,153,0.18)",
+                          })}
+                        >
+                          Start Return / Refund
+                        </button>
+                      )}
+
+                      <label style={{ fontWeight: 700 }}>
+                        Advanced override
+                        <select
+                          value={fulfillment}
+                          disabled={savingOrderId === o.id}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            const next = e.target.value;
+                            if (isFulfillmentStatus(next)) {
+                              updateFulfillmentStatus(o, next);
                             }
-                          >
-                            {workflowActionLabel(fulfillment, nextFulfillment)}
-                          </button>
-                        )}
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            marginLeft: 8,
+                            padding: "4px 8px",
+                            borderRadius: 4,
+                          }}
+                        >
+                          {FULFILLMENT_STATUSES.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
 
-                        {fulfillment === "completed" && orderSupportsAdminNotes(o) && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              startReturnRefund(
-                                o,
-                                customerName,
-                              );
-                            }}
-                            style={buttonStyle({
-                              background: "rgba(236,72,153,0.18)",
-                            })}
-                          >
-                            Start Return / Refund
-                          </button>
-                        )}
-
-                        <label style={{ fontWeight: 700 }}>
-                          Advanced override
-                          <select
-                            value={fulfillment}
-                            disabled={savingOrderId === o.id}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              const next = e.target.value;
-                              if (isFulfillmentStatus(next)) {
-                                if (!canSetFulfillmentStatus(o, next)) {
-                                  setAdminError(
-                                    "Capture payment before advancing fulfillment.",
-                                  );
-                                  return;
-                                }
-                                updateFulfillmentStatus(o.id, next);
-                              }
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            style={{
-                              marginLeft: 8,
-                              padding: "4px 8px",
-                              borderRadius: 4,
-                            }}
-                          >
-                            {FULFILLMENT_STATUSES.map((status) => (
-                              <option
-                                key={status}
-                                value={status}
-                                disabled={!canSetFulfillmentStatus(o, status)}
-                              >
-                                {status}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-
-                        {savingOrderId === o.id && <span>Saving...</span>}
-                      </div>
+                      {savingOrderId === o.id && <span>Saving...</span>}
                     </div>
-                  )}
+                  </div>
 
                   <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
                     {orderSupportsAdminNotes(o) && (
@@ -4393,8 +4434,9 @@ export default function AdminOrdersPage() {
           History / Archive ({archiveCount})
         </h2>
         <p style={{ marginTop: 0, opacity: 0.72, fontSize: 13 }}>
-          Shipped, completed, cancelled, refunded, and manually archived orders
-          are compressed by default.
+          Completed, cancelled, refunded, and other terminal orders are
+          compressed by default. Nonterminal orders remain in an operational
+          queue.
         </p>
         {archiveCount === 0 ? (
           <div style={{ ...mutedPanelStyle(), opacity: 0.72 }}>

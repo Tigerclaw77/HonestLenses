@@ -119,7 +119,7 @@ export async function POST(
     .maybeSingle<OrderRow>();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to load the checkout." }, { status: 500 });
   }
 
   if (!order) {
@@ -213,7 +213,7 @@ export async function POST(
       .is("payment_intent_id", null);
 
     if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+      return NextResponse.json({ error: "Unable to delete the checkout." }, { status: 500 });
     }
 
     return NextResponse.json({ ok: true, action: body.action });
@@ -233,7 +233,7 @@ export async function POST(
     .maybeSingle();
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to update the checkout." }, { status: 500 });
   }
 
   if (!updated) {

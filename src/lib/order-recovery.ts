@@ -31,12 +31,9 @@ export type ResumeDestination = {
 };
 
 function getRecoverySecret(): string {
-  return (
-    process.env.ORDER_RESUME_TOKEN_SECRET ||
-    process.env.GUEST_ORDER_COOKIE_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    "local-dev-order-resume-secret"
-  );
+  const secret = process.env.ORDER_RESUME_TOKEN_SECRET?.trim();
+  if (!secret) throw new Error("ORDER_RESUME_TOKEN_SECRET is required");
+  return secret;
 }
 
 function isObject(value: unknown): value is JsonObject {

@@ -1,8 +1,10 @@
 import { NextRequest } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
-import { getUserFromRequest } from "@/lib/get-user-from-request";
-
-const ADMIN_EMAILS = ["pauldriggers@aol.com"];
+import {
+  adminAuthErrorResponse,
+  logAdminAuthFailure,
+  requireAdminUser,
+} from "@/lib/admin-auth";
 
 export async function POST(
   req: NextRequest,
@@ -11,25 +13,19 @@ export async function POST(
   try {
     const { id } = await context.params;
 
-    const user = await getUserFromRequest(req);
-
-    if (!user) {
-      return new Response("Unauthorized", { status: 401 });
+    const auth = await requireAdminUser(req);
+    if (!auth.ok) {
+      logAdminAuthFailure("POST /api/orders/[id]/archive", auth);
+      return adminAuthErrorResponse(auth);
     }
 
-    const isAdmin = ADMIN_EMAILS.includes(user.email ?? "");
-
-    let query = supabaseServer
+    const query = supabaseServer
       .from("orders")
       .update({
         archived: true,
         archived_at: new Date().toISOString(),
       })
       .eq("id", id);
-
-    if (!isAdmin) {
-      query = query.eq("user_id", user.id);
-    }
 
     const { data, error } = await query.select("id").maybeSingle();
 
@@ -41,6 +37,12 @@ export async function POST(
     if (!data) {
       return new Response("Order not found or not authorized", { status: 404 });
     }
+
+    await supabaseServer.from("order_events").insert({
+      order_id: id,
+      event_type: "admin_order_archived",
+      actor: auth.user.email ?? auth.user.id,
+    });
 
     return Response.json({ success: true });
   } catch (err) {

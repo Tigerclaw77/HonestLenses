@@ -25,7 +25,7 @@ export async function GET(req: Request) {
   const { data: orders, error } = await query;
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to load cart." }, { status: 500 });
   }
 
   return NextResponse.json({

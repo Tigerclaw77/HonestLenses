@@ -4,7 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "test": "tsx src/lib/cart/resolveQuantities.test.ts && tsx src/lib/shipping/annualSupply.test.ts && tsx src/lib/emailDelivery.test.ts && tsx src/lib/internal-auth.test.ts && tsx src/lib/orders/operationalQueue.matrix.ts && tsx src/lib/orders/customerOrder.test.ts && tsx src/lib/orders/productionIntegrity.test.ts",
+    "test": "tsx src/lib/auth/securityRegression.test.ts && tsx src/lib/security/writeDrain.test.ts && tsx src/lib/security/uploadValidation.test.ts && tsx src/lib/cart/resolveQuantities.test.ts && tsx src/lib/shipping/annualSupply.test.ts && tsx src/lib/emailDelivery.test.ts && tsx src/lib/internal-auth.test.ts && tsx src/lib/orders/adminWorkflow.test.ts && tsx src/lib/orders/operationalQueue.matrix.ts && tsx src/lib/orders/customerOrder.test.ts && tsx src/lib/orders/productionIntegrity.test.ts && tsx src/lib/commerce-v2/commerceV2.test.ts && tsx src/lib/commerce-v2/schemaContract.test.ts",
+    "test:security:database": "node scripts/security/run-database-gate.mjs",
+    "test:security:hosted-supabase": "node scripts/security/run-hosted-supabase-gate.mjs",
+    "test:security:stripe": "tsx scripts/security/run-stripe-test-gate.ts",
+    "test:security:baseline-toolchain": "node scripts/security/run-baseline-toolchain-gate.mjs",
+    "write-drain:sign": "node --experimental-strip-types scripts/security/create-write-drain-canary-signature.mjs",
     "test:integrity:http": "node scripts/verify-production-integrity.mjs",
     "build": "npm run check:lenses && npm run check:validation && next build",
     "start": "next start",

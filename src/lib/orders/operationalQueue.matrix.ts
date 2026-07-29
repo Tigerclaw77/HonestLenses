@@ -1,5 +1,9 @@
 import { strict as assert } from "node:assert";
-import { classifyOperationalQueue, type OperationalQueueOrder } from "./operationalQueue";
+import {
+  classifyOperationalQueue,
+  groupOperationalQueueOrders,
+  type OperationalQueueOrder,
+} from "./operationalQueue";
 import { getNextAction } from "./getNextAction";
 
 type MatrixCase = {
@@ -157,6 +161,63 @@ const cases: MatrixCase[] = [
     expectedActionable: true,
   },
   {
+    scenario: "captured Stripe payment with stale authorized order row",
+    order: {
+      id: "matrix-cameron-drift",
+      status: "authorized",
+      payment_intent_id: "pi_captured_stale_row",
+      stripe_payment_intent_status: "succeeded",
+      verification_status: "pending",
+      fulfillment_status: "review",
+      rx_status: "uploaded",
+      rx: verifiedRx,
+    },
+    expectedBucket: "active_fulfillment",
+    expectedActionable: true,
+  },
+  {
+    scenario: "Stripe lookup failure is explicit action required",
+    order: {
+      id: "matrix-stripe-lookup-failed",
+      status: "authorized",
+      payment_intent_id: "pi_lookup_failed",
+      payment_status_source: "stripe_lookup_failed",
+      verification_status: "pending",
+      rx: verifiedRx,
+    },
+    expectedBucket: "action_required",
+    expectedActionable: true,
+  },
+  {
+    scenario: "nonterminal archived order remains operationally visible",
+    order: {
+      id: "matrix-archived-active",
+      status: "captured",
+      payment_intent_id: "pi_archived_active",
+      stripe_payment_intent_status: "succeeded",
+      verification_status: "verified",
+      fulfillment_status: "ordered",
+      archived: true,
+      rx: verifiedRx,
+    },
+    expectedBucket: "action_required",
+    expectedActionable: true,
+  },
+  {
+    scenario: "unknown fulfillment state is flagged with a reason",
+    order: {
+      id: "matrix-unknown-fulfillment",
+      status: "captured",
+      payment_intent_id: "pi_unknown_fulfillment",
+      stripe_payment_intent_status: "succeeded",
+      verification_status: "verified",
+      fulfillment_status: "lost_between_queues",
+      rx: verifiedRx,
+    },
+    expectedBucket: "action_required",
+    expectedActionable: true,
+  },
+  {
     scenario: "test/internal order",
     order: {
       id: "matrix-test",
@@ -178,6 +239,16 @@ const rows = cases.map((matrixCase) => {
     matrixCase.expectedBucket,
     `${matrixCase.scenario} bucket`,
   );
+  if (classification.bucket === "action_required") {
+    assert.ok(
+      classification.reasons.length > 0,
+      `${matrixCase.scenario} Action Required reason`,
+    );
+    assert.ok(
+      classification.reasons.every((reason) => reason.trim().length > 0),
+      `${matrixCase.scenario} Action Required reasons are explicit`,
+    );
+  }
   assert.equal(
     classification.operatorActionable,
     matrixCase.expectedActionable,
@@ -198,6 +269,38 @@ const rows = cases.map((matrixCase) => {
     nextAction: nextAction.label,
   };
 });
+
+const grouped = groupOperationalQueueOrders(cases.map((entry) => entry.order));
+const assignments = Object.values(grouped).flat();
+assert.equal(
+  assignments.length,
+  cases.length,
+  "every input order has exactly one queue assignment",
+);
+assert.equal(
+  new Set(assignments.map((order) => order.id)).size,
+  cases.length,
+  "no order is duplicated across queues",
+);
+for (const order of assignments) {
+  assert.equal(
+    order.operational_queue.bucket,
+    Object.entries(grouped).find(([, rows]) =>
+      rows.some((row) => row.id === order.id),
+    )?.[0],
+    `${order.id} metadata agrees with its queue`,
+  );
+}
+
+const paymentDriftOrder = assignments.find(
+  (order) => order.id === "matrix-cameron-drift",
+);
+assert.ok(
+  paymentDriftOrder?.operational_queue.integrityIssues.some(
+    (issue) => issue.code === "PAYMENT_STATE_DRIFT",
+  ),
+  "captured Stripe payment with stale local state is surfaced as integrity drift",
+);
 
 console.log("| Scenario | Bucket | Actionable | Next action |");
 console.log("|---|---|---|---|");

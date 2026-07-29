@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 import {
+  canAccessOrder,
+  getOrderAccess,
+  hasOrderAccessContext,
+} from "@/lib/order-access";
+import {
   buildCustomerReceiptHtml,
   CUSTOMER_ORDER_SELECT,
   isCustomerOrderId,
@@ -19,13 +24,18 @@ export async function GET(
     return new Response("Receipt not found.", { status: 404 });
   }
 
+  const access = await getOrderAccess(request);
+  if (!hasOrderAccessContext(access)) {
+    return new Response("Receipt not found.", { status: 404 });
+  }
+
   const { data: order, error } = await supabaseServer
     .from("orders")
     .select(CUSTOMER_ORDER_SELECT)
     .eq("id", orderId)
     .single<CustomerOrder>();
 
-  if (error || !order) {
+  if (error || !order || !canAccessOrder(access, order)) {
     return new Response("Receipt not found.", { status: 404 });
   }
 

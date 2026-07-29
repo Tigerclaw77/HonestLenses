@@ -15,17 +15,11 @@ import {
   validate as validateLensParams,
 } from "@/LensCore";
 import { getColorOptions } from "../../../../../data/lensColors";
+import { boundedText, isIsoDate } from "@/lib/security/inputValidation";
 
 /* =========================
    Types
 ========================= */
-
-type VerificationStatus =
-  | "auto_verified"
-  | "flagged"
-  | "requires_review"
-  | "verified"
-  | "pending";
 
 type EyeRx = {
   coreId: string | null;
@@ -48,7 +42,6 @@ type RxData = {
   expires: string;
   right?: EyeRx;
   left?: EyeRx;
-  verification_status?: VerificationStatus;
 } & RxMeta;
 
 /* =========================
@@ -134,11 +127,6 @@ function sanitizeAndValidateEyeRx(
   };
 }
 
-function isVerifiedLike(v: unknown): boolean {
-  if (typeof v !== "string") return false;
-  return v === "verified" || v === "ocr_verified";
-}
-
 /* =========================
    POST /api/orders/:id/rx
 ========================= */
@@ -151,8 +139,6 @@ export async function POST(
      0️⃣ Params
   ========================= */
   const { id: orderId } = await context.params;
-  console.log("🟣 [RX] ROUTE HIT", { orderId });
-
   /* =========================
      1️⃣ Auth
   ========================= */
@@ -172,21 +158,25 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const incomingVerificationStatus: VerificationStatus | null =
-    rx.verification_status ?? null;
-
   /* =========================
      3️⃣ Extract metadata
   ========================= */
 
-  const patient_name =
-    typeof rx.patient_name === "string" ? rx.patient_name.trim() : null;
-
-  const prescriber_name =
-    typeof rx.prescriber_name === "string" ? rx.prescriber_name.trim() : null;
-
-  const prescriber_phone =
-    typeof rx.prescriber_phone === "string" ? rx.prescriber_phone.trim() : null;
+  const patient_name = boundedText(rx.patient_name, 200);
+  const prescriber_name = boundedText(rx.prescriber_name, 200);
+  const prescriber_phone = boundedText(rx.prescriber_phone, 30);
+  if (
+    patient_name === null ||
+    prescriber_name === null ||
+    prescriber_phone === null ||
+    typeof rx.expires !== "string" ||
+    !isIsoDate(rx.expires)
+  ) {
+    return NextResponse.json(
+      { error: "Invalid prescription metadata." },
+      { status: 400 },
+    );
+  }
 
   /* =========================
      4️⃣ Extract coreId
@@ -194,8 +184,7 @@ export async function POST(
 
   const coreId = rx?.right?.coreId ?? rx?.left?.coreId ?? null;
 
-  // 🔥 FIX: allow null ONLY for requires_review
-  if (!coreId && incomingVerificationStatus !== "requires_review") {
+  if (!coreId) {
     return NextResponse.json({ error: "RX missing coreId" }, { status: 400 });
   }
 
@@ -269,32 +258,10 @@ export async function POST(
      8️⃣ FINAL VERIFICATION STATUS
   ========================= */
 
-  const existingVs = order.verification_status;
-
-  const isUploadOrOcrOrder =
-    order.rx_source === "upload" ||
-    order.rx_source === "ocr" ||
-    Boolean(order.rx_upload_path);
-
-  let nextVerificationStatus: VerificationStatus;
-
-  // ✅ TRUST FRONTEND IF PROVIDED
-  if (
-    incomingVerificationStatus === "auto_verified" ||
-    incomingVerificationStatus === "flagged" ||
-    incomingVerificationStatus === "requires_review"
-  ) {
-    nextVerificationStatus = incomingVerificationStatus;
-  }
-
-  // fallback logic
-  else if (isVerifiedLike(existingVs)) {
-    nextVerificationStatus = existingVs as VerificationStatus;
-  } else if (isUploadOrOcrOrder) {
-    nextVerificationStatus = "verified";
-  } else {
-    nextVerificationStatus = "pending";
-  }
+  // Customer input is evidence, never an authorization to verify. Any
+  // customer edit invalidates a previous outcome until the server-side
+  // verification workflow evaluates the new evidence.
+  const nextVerificationStatus = "pending";
 
   /* =========================
      9️⃣ Persist
@@ -306,15 +273,15 @@ export async function POST(
       rx: sanitizedRx,
       sku,
       verification_status: nextVerificationStatus,
-      patient_name,
-      prescriber_name,
-      prescriber_phone,
+      patient_name: patient_name || null,
+      prescriber_name: prescriber_name || null,
+      prescriber_phone: prescriber_phone || null,
     })
     .eq("id", orderId)
     .eq("status", order.status);
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to save the prescription." }, { status: 500 });
   }
 
   return NextResponse.json({

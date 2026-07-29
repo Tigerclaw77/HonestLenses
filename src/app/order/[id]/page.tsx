@@ -2,6 +2,11 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import {
+  canAccessOrder,
+  getServerOrderAccess,
+  hasOrderAccessContext,
+} from "@/lib/order-access";
+import {
   CUSTOMER_ORDER_SELECT,
   formatCustomerMoney,
   getCustomerAmountCents,
@@ -30,14 +35,16 @@ export default async function OrderPage({ params }: PageProps) {
   const { id: orderId } = await params;
   if (!isCustomerOrderId(orderId)) return notFound();
 
-  // Existing email links use the random order UUID as their bearer credential.
+  const access = await getServerOrderAccess();
+  if (!hasOrderAccessContext(access)) return notFound();
+
   const { data: order, error } = await supabaseServer
     .from("orders")
     .select(CUSTOMER_ORDER_SELECT)
     .eq("id", orderId)
     .single<CustomerOrder>();
 
-  if (error || !order) return notFound();
+  if (error || !order || !canAccessOrder(access, order)) return notFound();
 
   const quantities = getCustomerOrderQuantities(order);
   const paymentStatus = getCustomerPaymentStatus(order);

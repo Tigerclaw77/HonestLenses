@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { classifyOperationalQueue } from "@/lib/orders/operationalQueue";
 import { getRxSourceState, getVerificationState } from "@/lib/orders/getNextAction";
@@ -9,14 +9,19 @@ import { projectOrderCommerce } from "@/lib/orders/orderCommerce";
 import { projectPaymentState } from "@/lib/orders/paymentState";
 import { deriveTotalMonths } from "@/lib/shipping";
 import { supabaseServer } from "@/lib/supabase-server";
+import { hasValidSignedRequest } from "@/lib/security/signedRequest";
+import {
+  enforceRateLimit,
+  rateLimitErrorResponse,
+} from "@/lib/security/rateLimit";
 
-const DEFAULT_LIMIT = 500;
-const MAX_LIMIT = 1000;
+const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 100;
 const DEFAULT_TIME_ZONE = "America/Chicago";
 const READ_HEADERS = {
   "Cache-Control": "private, no-store, max-age=0",
   Pragma: "no-cache",
-  Vary: "Authorization",
+  Vary: "x-hl-signature, x-hl-timestamp",
 };
 
 const ORDER_FIELDS = [
@@ -119,25 +124,40 @@ type OrderRow = {
 export async function GET(request: Request) {
   const requestId = randomUUID();
   const startedAt = Date.now();
-  const expectedToken = process.env.ARMORY_READ_TOKEN?.trim() || "";
+  const signingSecret = process.env.ARMORY_SIGNING_SECRET;
 
-  if (expectedToken.length < 32) {
+  if (!signingSecret || signingSecret.trim().length < 32) {
     logAccess({ requestId, outcome: "server_not_configured", startedAt });
     return json({ error: "Armory order bridge is not configured." }, 503);
   }
 
-  const suppliedToken = bearerToken(request.headers.get("authorization"));
-  if (!suppliedToken || !tokensMatch(suppliedToken, expectedToken)) {
+  if (!hasValidSignedRequest(request, signingSecret)) {
     logAccess({ requestId, outcome: "unauthorized", startedAt });
     return json({ error: "Unauthorized" }, 401);
   }
 
+  const rateLimit = await enforceRateLimit(request, {
+    scope: "armory-orders-read",
+    limit: 60,
+    windowSeconds: 60,
+  });
+  if (!rateLimit.allowed) return rateLimitErrorResponse(rateLimit);
+
   const limit = configuredLimit(process.env.ARMORY_ORDER_READ_LIMIT);
-  const { data, error, count } = await supabaseServer
+  const cursor = new URL(request.url).searchParams.get("cursor");
+  let query = supabaseServer
     .from("orders")
     .select(ORDER_FIELDS, { count: "exact" })
     .order("created_at", { ascending: false })
     .limit(limit);
+  if (cursor) {
+    const cursorDate = new Date(cursor);
+    if (Number.isNaN(cursorDate.getTime())) {
+      return json({ error: "Invalid cursor." }, 400);
+    }
+    query = query.lt("created_at", cursorDate.toISOString());
+  }
+  const { data, error, count } = await query;
 
   if (error) {
     logAccess({
@@ -169,6 +189,10 @@ export async function GET(request: Request) {
       readOnly: true,
       totalCount: count ?? orders.length,
       returnedCount: orders.length,
+      nextCursor:
+        orders.length === limit
+          ? orders[orders.length - 1]?.placedAt ?? null
+          : null,
       generatedAt: new Date().toISOString(),
     },
   });
@@ -498,17 +522,6 @@ function deriveShipmentStatus(statusValue: unknown, fulfillmentValue: unknown) {
   const status = normalizeStatus(statusValue);
   if (["shipped", "completed", "delivered"].includes(status)) return status;
   return "pending";
-}
-
-function bearerToken(header: string | null) {
-  const match = header?.match(/^Bearer\s+([^\s]+)$/i);
-  return match?.[1] || null;
-}
-
-function tokensMatch(supplied: string, expected: string) {
-  const suppliedHash = createHash("sha256").update(supplied).digest();
-  const expectedHash = createHash("sha256").update(expected).digest();
-  return timingSafeEqual(suppliedHash, expectedHash);
 }
 
 function configuredLimit(value?: string) {

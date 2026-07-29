@@ -153,7 +153,7 @@ export async function POST(req: Request) {
     .maybeSingle<FeedbackSubmitOrder>();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to load the order." }, { status: 500 });
   }
 
   if (!order || !canAccessOrder(access, order)) {
@@ -207,7 +207,7 @@ export async function POST(req: Request) {
     .maybeSingle<FeedbackSubmitOrder>();
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to save feedback." }, { status: 500 });
   }
 
   if (!updatedOrder) {

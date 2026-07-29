@@ -9,6 +9,13 @@ import {
   getOrderAccess,
   hasOrderAccessContext,
 } from "@/lib/order-access";
+import { getTrustedSiteOrigin } from "@/lib/security/siteOrigin";
+import {
+  isEmailAddress,
+  isIsoDate,
+  isUsPostalCode,
+  isUsState,
+} from "@/lib/security/inputValidation";
 
 type Body = {
   orderId?: string;
@@ -193,25 +200,50 @@ export async function POST(req: Request) {
       .eq("status", "authorized");
 
     if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
+      return NextResponse.json({ error: "Unable to save verification details." }, { status: 500 });
     }
 
     /* =========================
        7️⃣ Trigger verification email
     ========================= */
-    const baseUrl =
-      process.env.SITE_URL ||
-      (process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : "http://localhost:3000");
+    const baseUrl = getTrustedSiteOrigin();
+    const forwardedHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (access.source === "bearer") {
+      forwardedHeaders.Authorization =
+        req.headers.get("authorization") || "";
+    } else {
+      forwardedHeaders.Cookie = req.headers.get("cookie") || "";
+      const requestOrigin = req.headers.get("origin");
+      if (requestOrigin) forwardedHeaders.Origin = requestOrigin;
+    }
+
+    const stringValues = Object.entries(body).filter(
+      ([key, value]) => key !== "orderId" && typeof value === "string",
+    ) as Array<[string, string]>;
+    if (stringValues.some(([, value]) => value.trim().length > 300)) {
+      return NextResponse.json(
+        { error: "Verification details are too long." },
+        { status: 400 },
+      );
+    }
+    if (
+      !isIsoDate(body.patient_dob!) ||
+      !isUsState(body.patient_state!.trim().toUpperCase()) ||
+      !isUsPostalCode(body.patient_zip!.trim()) ||
+      (isNonEmpty(body.prescriber_email) &&
+        !isEmailAddress(body.prescriber_email.trim().toLowerCase()))
+    ) {
+      return NextResponse.json(
+        { error: "Invalid verification details." },
+        { status: 400 },
+      );
+    }
 
     const sendRes = await fetch(`${baseUrl}/api/verification/send`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: req.headers.get("authorization") || "",
-        Cookie: req.headers.get("cookie") || "",
-      },
+      headers: forwardedHeaders,
       body: JSON.stringify({ orderId: order.id }),
       cache: "no-store",
     });
@@ -255,7 +287,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(
       {
-        error: err instanceof Error ? err.message : "Unexpected server error",
+        error: "Unable to save verification details.",
       },
       { status: 500 },
     );

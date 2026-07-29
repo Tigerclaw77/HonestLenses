@@ -6,11 +6,7 @@ import { supabase } from "@/lib/supabase-client";
 import { POSTHOG_EVENTS } from "@/lib/posthog/client";
 import { captureClientError } from "@/lib/telemetry/clientErrors";
 import { trackFunnelEvent } from "@/lib/telemetry/funnel";
-
-function safeNextPath(value: string | null): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
-  return value;
-}
+import { safeInternalPath } from "@/lib/auth/safeRedirect";
 
 async function waitForSession(maxAttempts = 5) {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -37,7 +33,7 @@ export default function AuthCallbackClient() {
     let alive = true;
 
     async function finish() {
-      const next = safeNextPath(searchParams.get("next"));
+      const next = safeInternalPath(searchParams.get("next"));
       const code = searchParams.get("code");
       const error = searchParams.get("error");
       const errorDescription = searchParams.get("error_description");

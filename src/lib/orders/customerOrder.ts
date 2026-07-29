@@ -2,6 +2,7 @@ import { projectOrderCommerce } from "@/lib/orders/orderCommerce";
 
 export const CUSTOMER_ORDER_SELECT = `
   id,
+  user_id,
   status,
   created_at,
   sku,
@@ -24,6 +25,7 @@ export const CUSTOMER_ORDER_SELECT = `
 
 export type CustomerOrder = {
   id: string;
+  user_id?: string | null;
   status: string;
   created_at: string;
   sku: string | null;
@@ -154,7 +156,7 @@ export function buildCustomerOrderEmail({
 }): { subject: string; html: string; text: string; orderUrl: string } {
   const orderUrl = getCustomerOrderUrl(orderId, siteUrl);
   const verificationMessage = isUploaded
-    ? "Your prescription has been received and verified. Your order is moving into fulfillment."
+    ? "Your prescription has been received and is awaiting required review."
     : "We will contact your doctor to verify your prescription before shipping.";
 
   return {

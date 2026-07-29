@@ -13,11 +13,33 @@ function secretsMatch(supplied: string, expected: string): boolean {
 
 export function hasInternalBearerAuthorization(
   request: Request,
-  configuredSecret = process.env.CRON_SECRET,
+  configuredSecret: string | undefined,
 ): boolean {
   const expected = configuredSecret?.trim() ?? "";
   if (!expected) return false;
 
   const supplied = bearerToken(request.headers.get("authorization"));
   return Boolean(supplied && secretsMatch(supplied, expected));
+}
+
+export type InternalScope =
+  | "commerce:reconcile"
+  | "verification:process"
+  | "verification:complete";
+
+function getInternalScopeSecret(scope: InternalScope): string | undefined {
+  if (scope === "commerce:reconcile") {
+    return process.env.COMMERCE_RECONCILE_SECRET;
+  }
+  if (scope === "verification:process") {
+    return process.env.VERIFICATION_PROCESS_SECRET;
+  }
+  return process.env.VERIFICATION_COMPLETE_SECRET;
+}
+
+export function hasInternalScopeAuthorization(
+  request: Request,
+  scope: InternalScope,
+): boolean {
+  return hasInternalBearerAuthorization(request, getInternalScopeSecret(scope));
 }

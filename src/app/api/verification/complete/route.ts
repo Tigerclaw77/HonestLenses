@@ -1,17 +1,13 @@
 import { NextResponse } from "next/server";
-import Stripe from "stripe";
 import { supabaseServer } from "@/lib/supabase-server";
-import { getCaptureAmountCents } from "@/lib/payments/captureAmount";
+import { hasInternalScopeAuthorization } from "@/lib/internal-auth";
 import {
-  getCaptureReadiness,
-  getRequiredPaymentIntentId,
-} from "@/lib/orders/captureReadiness";
-import { hasInternalBearerAuthorization } from "@/lib/internal-auth";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+  cancelOrderPayment,
+  captureAuthorizedOrderPayment,
+} from "@/lib/payments/legacyPaymentCommands";
 
 export async function POST(req: Request) {
-  if (!hasInternalBearerAuthorization(req)) {
+  if (!hasInternalScopeAuthorization(req, "verification:complete")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -40,28 +36,20 @@ export async function POST(req: Request) {
   }
 
   if (result === "verified") {
-    const paymentIntent = getRequiredPaymentIntentId(order);
-    if (!paymentIntent.ok) {
-      return NextResponse.json(
-        { error: paymentIntent.error },
-        { status: 400 },
+    let capture;
+    try {
+      capture = await captureAuthorizedOrderPayment(
+        order,
+        "active-verification",
       );
-    }
-
-    const amountToCapture = getCaptureAmountCents(order);
-
-    const intent = await stripe.paymentIntents.retrieve(
-      paymentIntent.paymentIntentId,
-    );
-    const readiness = getCaptureReadiness(order, intent);
-
-    if (readiness.shouldCapture) {
-      await stripe.paymentIntents.capture(paymentIntent.paymentIntentId, {
-        amount_to_capture: amountToCapture,
-      });
-    } else if (!readiness.canProceed) {
+    } catch (error) {
       return NextResponse.json(
-        { error: readiness.error },
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Payment could not be captured.",
+        },
         { status: 400 },
       );
     }
@@ -75,7 +63,7 @@ export async function POST(req: Request) {
         status: "captured",
       })
       .eq("id", orderId)
-      .eq("payment_intent_id", paymentIntent.paymentIntentId)
+      .eq("payment_intent_id", capture.paymentIntentId)
       .select("id")
       .maybeSingle();
 
@@ -92,7 +80,17 @@ export async function POST(req: Request) {
 
   if (result === "rejected") {
     if (order.payment_intent_id) {
-      await stripe.paymentIntents.cancel(order.payment_intent_id);
+      try {
+        await cancelOrderPayment(
+          { orderId, paymentIntentId: order.payment_intent_id },
+          "verification-rejected",
+        );
+      } catch {
+        return NextResponse.json(
+          { error: "Payment can no longer be cancelled." },
+          { status: 409 },
+        );
+      }
     }
 
     const { data: updatedOrder, error: updateError } = await supabaseServer
