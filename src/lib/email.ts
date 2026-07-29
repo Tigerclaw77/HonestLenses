@@ -3,6 +3,7 @@ import {
   recordTransactionalEmailSend,
   type TransactionalEmailTracking,
 } from "@/lib/emailDeliveryServer";
+import { escapeHtml, sanitizeEmailHeader } from "@/lib/email/html";
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
 
@@ -40,7 +41,7 @@ export async function sendEmail({
   const result = await resend.emails.send({
     from: FROM_SUPPORT,
     to,
-    subject,
+    subject: sanitizeEmailHeader(subject),
     html,
     text,
     replyTo: REPLY_TO_SUPPORT,
@@ -129,7 +130,7 @@ Honest Lenses`;
       <li>your prescribing doctor's name and contact information.</li>
     </ul>
     <p>Please reply to this email with either option so we can keep your order moving.</p>
-    <p><strong>Order ID:</strong> ${orderId}</p>
+    <p><strong>Order ID:</strong> ${escapeHtml(orderId)}</p>
     <p>Honest Lenses</p>
   `;
 
@@ -154,12 +155,16 @@ export async function sendOrderAlert({
   total?: number;
   customerEmail?: string;
 }) {
+  const adminAlertEmail = process.env.ADMIN_ALERT_EMAIL?.trim();
+  if (!adminAlertEmail) {
+    throw new Error("ADMIN_ALERT_EMAIL is required");
+  }
   const html = `
     <h2>New HonestLenses Order</h2>
 
-    <p><b>Order ID:</b> ${orderId}</p>
+    <p><b>Order ID:</b> ${escapeHtml(orderId)}</p>
     ${total ? `<p><b>Total:</b> $${(total / 100).toFixed(2)}</p>` : ""}
-    ${customerEmail ? `<p><b>Customer:</b> ${customerEmail}</p>` : ""}
+    ${customerEmail ? `<p><b>Customer:</b> ${escapeHtml(customerEmail)}</p>` : ""}
 
     <hr/>
 
@@ -168,8 +173,8 @@ export async function sendOrderAlert({
 
   return await resend.emails.send({
     from: FROM_ORDERS,
-    to: "pauldriggers@aol.com",
-    subject: `New HonestLenses Order ${orderId}`,
+    to: adminAlertEmail,
+    subject: sanitizeEmailHeader(`New HonestLenses Order ${orderId}`),
     html,
     replyTo: REPLY_TO_SUPPORT,
   });

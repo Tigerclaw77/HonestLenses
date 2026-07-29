@@ -50,9 +50,9 @@ export function getPublicPostHogConfig(): PublicPostHogConfig {
     host: normalized.host,
     rawHost,
     enabled: Boolean(key),
-    replayEnabled: process.env.NEXT_PUBLIC_POSTHOG_SESSION_REPLAY !== "false",
+    replayEnabled: process.env.NEXT_PUBLIC_POSTHOG_SESSION_REPLAY === "true",
     captureExceptionsEnabled:
-      process.env.NEXT_PUBLIC_POSTHOG_CAPTURE_EXCEPTIONS !== "false",
+      process.env.NEXT_PUBLIC_POSTHOG_CAPTURE_EXCEPTIONS === "true",
     debugEnabled:
       process.env.NODE_ENV === "development" &&
       process.env.NEXT_PUBLIC_POSTHOG_DEBUG !== "false",

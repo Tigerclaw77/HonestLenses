@@ -1,0 +1,3 @@
+docs/production-deployment/** text eol=lf
+supabase/migrations/*.sql text eol=lf
+output/pdf/*.pdf -text -diff

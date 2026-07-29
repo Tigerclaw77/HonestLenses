@@ -3,6 +3,10 @@ import { resolveBrand } from "@/lib/resolveBrand";
 import { supabaseServer } from "@/lib/supabase-server";
 import { lenses } from "@/LensCore";
 import { resolveBrandAI } from "../../../lib/server/resolveBrandAI";
+import {
+  enforceRateLimit,
+  rateLimitErrorResponse,
+} from "@/lib/security/rateLimit";
 
 export const runtime = "nodejs";
 
@@ -84,6 +88,13 @@ export async function POST(req: Request) {
   const debug = shouldDebug(req);
 
   try {
+    const rateLimit = await enforceRateLimit(req, {
+      scope: "lens-resolution",
+      limit: 30,
+      windowSeconds: 60,
+    });
+    if (!rateLimit.allowed) return rateLimitErrorResponse(rateLimit);
+
     const body: ResolveRequestBody = await req.json();
     const { rawString, hasCyl = false, bc, dia } = body;
 

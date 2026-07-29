@@ -14,12 +14,14 @@ import {
   hasOrderAccessContext,
 } from "@/lib/order-access";
 import { getCheckoutAmountCents } from "@/lib/payments/checkoutAmount";
+import { getTrustedSiteOrigin } from "@/lib/security/siteOrigin";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 const REUSABLE_STATUSES = [
   "requires_payment_method",
   "requires_confirmation",
+  "requires_action",
   "requires_capture",
 ];
 
@@ -31,6 +33,7 @@ type CheckoutPaymentOrder = {
   shipping_method: string | null;
   manufacturer: string | null;
   sku: string | null;
+  payment_attempt_generation: number;
 };
 
 function paymentResponse(
@@ -54,18 +57,26 @@ function paymentResponse(
    Resolve Cart (PASS ORDER ID)
 ========================= */
 
-async function resolveCartForUser(req: Request, orderId: string) {
-  const origin =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    new URL(req.url).origin;
+async function resolveCartForUser(
+  req: Request,
+  orderId: string,
+  source: "bearer" | "cookie" | "guest" | null,
+) {
+  const origin = getTrustedSiteOrigin();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (source === "bearer") {
+    headers.Authorization = req.headers.get("authorization") ?? "";
+  } else if (source === "cookie" || source === "guest") {
+    headers.Cookie = req.headers.get("cookie") ?? "";
+    const requestOrigin = req.headers.get("origin");
+    if (requestOrigin) headers.Origin = requestOrigin;
+  }
 
   const res = await fetch(`${origin}/api/cart/resolve`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: req.headers.get("Authorization") ?? "",
-      Cookie: req.headers.get("cookie") ?? "",
-    },
+    headers,
     body: JSON.stringify({ order_id: orderId }),
     cache: "no-store",
   });
@@ -97,7 +108,6 @@ export async function POST(req: Request) {
     }
 
     userId = access.distinctId;
-    console.log("CHECKOUT USER ID:", access.userId);
 
     /* =========================
        2️⃣ Parse body (GET order_id)
@@ -114,13 +124,12 @@ export async function POST(req: Request) {
     }
 
     orderIdForTelemetry = orderId;
-    console.log("CHECKOUT ORDER ID:", orderId);
 
     /* =========================
        3️⃣ Resolve THIS order
     ========================= */
 
-    await resolveCartForUser(req, orderId);
+    await resolveCartForUser(req, orderId, access.source);
 
     /* =========================
        4️⃣ Load EXACT order (NO GUESSING)
@@ -138,16 +147,15 @@ export async function POST(req: Request) {
         shipping_method,
         manufacturer,
         sku,
-        payment_intent_id
+        payment_intent_id,
+        payment_attempt_generation
       `)
       .eq("id", orderId)
       .eq("status", "draft")
       .maybeSingle();
 
-    console.log("ORDER FOUND:", order, error);
-
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: "Unable to load checkout." }, { status: 500 });
     }
 
     if (!order) {
@@ -204,26 +212,73 @@ export async function POST(req: Request) {
         }
 
         if (!REUSABLE_STATUSES.includes(existing.status)) {
-          try {
-            await stripe.paymentIntents.cancel(order.payment_intent_id);
-          } catch (err) {
-            console.warn("Cancel failed:", err);
+          if (existing.status === "succeeded") {
+            return NextResponse.json(
+              { error: "This order has already been paid." },
+              { status: 409 },
+            );
+          }
+          if (existing.status !== "canceled") {
+            return NextResponse.json(
+              { error: "The existing payment is still processing." },
+              { status: 409 },
+            );
           }
 
-          await supabaseServer
+          const { data: advanced, error: advanceError } = await supabaseServer
             .from("orders")
-            .update({ payment_intent_id: null })
-            .eq("id", order.id);
+            .update({
+              payment_intent_id: null,
+              payment_attempt_generation:
+                order.payment_attempt_generation + 1,
+            })
+            .eq("id", order.id)
+            .eq("payment_intent_id", existing.id)
+            .select("payment_attempt_generation")
+            .maybeSingle();
 
+          if (advanceError || !advanced) {
+            return NextResponse.json(
+              { error: "Unable to advance the payment attempt." },
+              { status: 409 },
+            );
+          }
+          order.payment_attempt_generation =
+            advanced.payment_attempt_generation;
+          order.payment_intent_id = null;
         } else {
           if (existing.amount !== amountDueCents) {
             if (existing.status === "requires_capture") {
-              await stripe.paymentIntents.cancel(existing.id);
-              await supabaseServer
+              await stripe.paymentIntents.cancel(
+                existing.id,
+                undefined,
+                {
+                  idempotencyKey:
+                    `legacy:${order.id}:cancel:${existing.id}`,
+                },
+              );
+              const { data: advanced, error: advanceError } =
+                await supabaseServer
                 .from("orders")
-                .update({ payment_intent_id: null })
+                .update({
+                  payment_intent_id: null,
+                  payment_attempt_generation:
+                    order.payment_attempt_generation + 1,
+                })
                 .eq("id", order.id)
-                .eq("payment_intent_id", existing.id);
+                .eq("payment_intent_id", existing.id)
+                .select("payment_attempt_generation")
+                .maybeSingle();
+
+              if (advanceError || !advanced) {
+                return NextResponse.json(
+                  { error: "Unable to advance the payment attempt." },
+                  { status: 409 },
+                );
+              }
+              order.payment_attempt_generation =
+                advanced.payment_attempt_generation;
+              order.payment_intent_id = null;
             } else {
               const updated = await stripe.paymentIntents.update(
                 order.payment_intent_id,
@@ -240,7 +295,11 @@ export async function POST(req: Request) {
                     ),
                     amount_due_cents: String(amountDueCents),
                   },
-                }
+                },
+                {
+                  idempotencyKey:
+                    `legacy:${order.id}:update:${existing.id}:${amountDueCents}`,
+                },
               );
 
               return NextResponse.json(paymentResponse(order, updated));
@@ -249,13 +308,11 @@ export async function POST(req: Request) {
             return NextResponse.json(paymentResponse(order, existing));
           }
         }
-      } catch (err) {
-        console.warn("Existing intent invalid → resetting:", err);
-
-        await supabaseServer
-          .from("orders")
-          .update({ payment_intent_id: null })
-          .eq("id", order.id);
+      } catch {
+        return NextResponse.json(
+          { error: "Unable to verify the existing payment right now." },
+          { status: 503 },
+        );
       }
     }
 
@@ -263,21 +320,30 @@ export async function POST(req: Request) {
        6️⃣ Create PaymentIntent
     ========================= */
 
-    const intent = await stripe.paymentIntents.create({
-      amount: amountDueCents,
-      currency: "usd",
-      capture_method: "manual",
-      automatic_payment_methods: { enabled: true },
-      metadata: {
-        order_id: order.id,
-        user_id: access.userId ?? "",
-        checkout_actor: access.userId ? "user" : "guest",
-        shipping_method: order.shipping_method ?? "standard",
-        shipping_cents: String(order.shipping_cents ?? 0),
-        feedback_credit_cents: String(order.feedback_credit_cents ?? 0),
-        amount_due_cents: String(amountDueCents),
+    const intent = await stripe.paymentIntents.create(
+      {
+        amount: amountDueCents,
+        currency: "usd",
+        capture_method: "manual",
+        automatic_payment_methods: { enabled: true },
+        metadata: {
+          order_id: order.id,
+          user_id: access.userId ?? "",
+          checkout_actor: access.userId ? "user" : "guest",
+          shipping_method: order.shipping_method ?? "standard",
+          shipping_cents: String(order.shipping_cents ?? 0),
+          feedback_credit_cents: String(order.feedback_credit_cents ?? 0),
+          amount_due_cents: String(amountDueCents),
+          payment_attempt_generation: String(
+            order.payment_attempt_generation,
+          ),
+        },
       },
-    });
+      {
+        idempotencyKey:
+          `legacy:${order.id}:create:${order.payment_attempt_generation}`,
+      },
+    );
 
     if (!intent.client_secret) {
       return NextResponse.json(
@@ -302,7 +368,7 @@ export async function POST(req: Request) {
 
     if (updateError) {
       return NextResponse.json(
-        { error: updateError.message },
+        { error: "Unable to save payment initialization." },
         { status: 500 }
       );
     }

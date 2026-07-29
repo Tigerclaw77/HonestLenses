@@ -105,7 +105,7 @@ export async function POST(req: Request) {
 
   if (orderError) {
     return NextResponse.json(
-      { error: orderError.message, code: "ORDER_LOOKUP_FAILED" },
+      { error: "Unable to load the order.", code: "ORDER_LOOKUP_FAILED" },
       { status: 500 },
     );
   }
@@ -170,7 +170,7 @@ export async function POST(req: Request) {
 
   if (updateError) {
     return NextResponse.json(
-      { error: updateError.message, code: "CAPTURE_ADJUSTMENT_SAVE_FAILED" },
+      { error: "Unable to save the capture adjustment.", code: "CAPTURE_ADJUSTMENT_SAVE_FAILED" },
       { status: 500 },
     );
   }

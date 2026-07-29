@@ -14,6 +14,10 @@ import {
   type RecoverableOrder,
 } from "@/lib/order-recovery";
 import { supabaseServer } from "@/lib/supabase-server";
+import {
+  enforceRateLimit,
+  rateLimitErrorResponse,
+} from "@/lib/security/rateLimit";
 
 type RequestBody = {
   email?: unknown;
@@ -38,6 +42,14 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+
+  const rateLimit = await enforceRateLimit(req, {
+    scope: "order-recovery-email",
+    identity: email,
+    limit: 5,
+    windowSeconds: 60 * 60,
+  });
+  if (!rateLimit.allowed) return rateLimitErrorResponse(rateLimit);
 
   const { data: orders, error } = await supabaseServer
     .from("orders")
@@ -80,7 +92,7 @@ export async function POST(req: Request) {
     ) ?? null;
 
   if (!order) {
-    return NextResponse.json({ ok: true, found: false });
+    return NextResponse.json({ ok: true });
   }
 
   const token = createOrderResumeToken();
@@ -135,5 +147,5 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json({ ok: true, found: true });
+  return NextResponse.json({ ok: true });
 }

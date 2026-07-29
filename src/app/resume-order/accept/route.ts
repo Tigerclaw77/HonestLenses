@@ -19,7 +19,15 @@ type ResumeTokenRow = {
 };
 
 function redirectToStatus(req: NextRequest, status: "expired" | "invalid") {
-  return NextResponse.redirect(new URL(`/resume-order?status=${status}`, req.url));
+  return protectRedirect(
+    NextResponse.redirect(new URL(`/resume-order?status=${status}`, req.url)),
+  );
+}
+
+function protectRedirect(response: NextResponse) {
+  response.headers.set("Cache-Control", "private, no-store, max-age=0");
+  response.headers.set("Referrer-Policy", "no-referrer");
+  return response;
 }
 
 export async function GET(req: NextRequest) {
@@ -91,6 +99,8 @@ export async function GET(req: NextRequest) {
     return redirectToStatus(req, "expired");
   }
 
-  const response = NextResponse.redirect(new URL(destination.path, req.url));
+  const response = protectRedirect(
+    NextResponse.redirect(new URL(destination.path, req.url)),
+  );
   return setGuestOrderCookie(response, order.id);
 }

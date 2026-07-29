@@ -32,7 +32,7 @@ export async function GET(req: Request) {
 
   if (error) {
     return NextResponse.json(
-      { error: error.message },
+      { error: "Unable to load orders." },
       { status: 500 }
     );
   }

@@ -46,10 +46,7 @@ function isRxData(value: unknown): value is RxData {
 ========================= */
 
 export async function GET(req: Request) {
-  console.log("CART ROUTE HIT");
-
   const access = await getOrderAccess(req);
-  console.log("CART USER:", access.userId);
 
   if (!hasOrderAccessContext(access)) {
     return NextResponse.json({ hasCart: false, order: null });
@@ -94,15 +91,12 @@ export async function GET(req: Request) {
 
   const { data: orders, error } = await query;
 
-  console.log("RAW ORDERS:", orders, error);
-
   if (error) {
-    console.error("CART QUERY ERROR:", error);
+    console.error("Cart query failed", { code: error.code });
     return NextResponse.json({ hasCart: false, order: null });
   }
 
   if (!orders || orders.length === 0) {
-    console.log("NO DRAFT ORDERS FOUND FOR USER:", access.userId);
     return NextResponse.json({ hasCart: false, order: null });
   }
 
@@ -121,14 +115,7 @@ export async function GET(req: Request) {
     return age <= TWO_HOURS_MS;
   });
 
-  console.log(
-    "RECENT ORDERS:",
-    recentOrders.map((o) => o.id),
-  );
-
   if (recentOrders.length === 0) {
-    console.log("ONLY STALE DRAFTS FOUND — forcing new order");
-
     return NextResponse.json({
       hasCart: false,
       order: null,
@@ -152,8 +139,6 @@ export async function GET(req: Request) {
   }
 
   if (!validOrder) {
-    console.log("NO VALID DRAFT FOUND FOR USER:", access.userId);
-
     return NextResponse.json({
       hasCart: false,
       order: null,
@@ -162,8 +147,6 @@ export async function GET(req: Request) {
 
   const coreId =
     validOrder.rx.right?.coreId ?? validOrder.rx.left?.coreId ?? null;
-
-  console.log("USING ORDER:", validOrder.id);
 
   return NextResponse.json({
     hasCart: true,

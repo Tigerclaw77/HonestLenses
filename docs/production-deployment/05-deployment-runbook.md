@@ -1,0 +1,234 @@
+# Production deployment runbook
+
+This document is preparation only. Do not execute it without a separate,
+explicit production authorization.
+
+## Roles
+
+- Founder/incident commander: final go/no-go and restore authority.
+- Database operator: executes the reviewed CLI commands.
+- Application operator: controls write drain, application release, and flags.
+- Stripe operator: verifies account/events and executes an approved canary.
+- Recorder/observer: records every result and timestamp.
+
+The database operator must not self-approve a failed or ambiguous gate.
+
+## T-24 hours
+
+1. Freeze database migrations and production DDL.
+2. Check out annotated tag `hl-security-rc1-2026-07-29`, verify its commit,
+   and require `git status --porcelain` to return no output.
+3. Complete [Production baseline capture](01-production-baseline.md).
+4. Complete [Drift verification](02-drift-verification.md).
+5. Complete [Backup verification](03-backup-verification.md).
+6. Verify all migration filenames and hashes in
+   [Migration package](04-migration-package.md).
+7. In a clean PowerShell session define the native-exit guard and run the full
+   release suite:
+
+   ```powershell
+   function Assert-NativeSuccess([string]$Operation) {
+     if ($LASTEXITCODE -ne 0) {
+       throw "$Operation failed with native exit code $LASTEXITCODE"
+     }
+   }
+
+   npm.cmd test
+   Assert-NativeSuccess 'npm test'
+   npm.cmd run lint
+   Assert-NativeSuccess 'npm run lint'
+   npx.cmd tsc --noEmit
+   Assert-NativeSuccess 'TypeScript check'
+   npm.cmd run build
+   Assert-NativeSuccess 'production build'
+   npm.cmd run test:security:database
+   Assert-NativeSuccess 'database security gate'
+   npm.cmd run test:security:baseline-toolchain
+   Assert-NativeSuccess 'baseline toolchain gate'
+   git diff --check
+   Assert-NativeSuccess 'conflict/whitespace check'
+   ```
+
+8. Confirm previous hosted Supabase/RLS and Stripe test-mode evidence remains
+   attached to the release.
+9. Confirm `COMMERCE_V2_ENABLED=false` in every production runtime and worker.
+10. Confirm no scheduled job or webhook consumer writes to `commerce_v2`.
+11. Verify production Supabase project ref, region, direct connection, and
+    migration role `postgres`.
+12. Verify production Stripe account ID, webhook endpoint, signing-secret
+    mapping, and livemode separation read-only.
+13. Prepare and verify the executable
+    [production write drain](11-write-drain.md), including the canary secret,
+    exact same-commit deployment artifacts for every mode, operator, and
+    rollback-to-`all` artifact.
+14. Review [Rollback guide](07-rollback-guide.md), named restore operator,
+    accepted RPO/RTO, and Stripe replay plan.
+15. Create the [deployment log](10-deployment-log-template.md).
+
+Any missing item is `NO-GO`.
+
+## T-30 minutes
+
+Record:
+
+- database CPU/connections/locks/long transactions;
+- API 5xx, latency, and authorization-error baseline;
+- current order count and shared guest UUID count;
+- webhook backlog and last successfully processed Stripe event;
+- open reconciliation findings;
+- admin Action Required and fulfillment queue counts;
+- current Commerce v2 row count, which must be zero/absent.
+
+Reject go if:
+
+- database health is degraded;
+- any transaction touching `public.orders` has run longer than 30 seconds;
+- migration history/catalog changed after baseline approval;
+- a Stripe webhook backlog or unresolved reconciliation issue exists;
+- founder checklist has a required item other than `PASS`.
+
+## T-10 minutes: write drain
+
+1. Announce the write window.
+2. Follow [Production write drain](11-write-drain.md) to promote the exact
+   release commit with `PRODUCTION_WRITE_DRAIN_MODE=all`.
+3. Prove a normal write is blocked and a representative read succeeds.
+4. Let requests admitted by the previous deployment complete.
+5. Capture two `write-drain-observation.sql` results 30 seconds apart.
+6. Require no active/prepared writer and identical table-write counters.
+7. Capture final rollback rows and pre-migration assertions.
+8. Record the exact UTC checkpoint and verified restore point.
+
+Reads may stay available if the application supports it safely.
+
+## Dry run
+
+Pin session safety:
+
+```powershell
+$env:PGOPTIONS='-c lock_timeout=5s -c statement_timeout=120s'
+supabase.cmd --version
+$cliVersion=$LASTEXITCODE
+if ($cliVersion -ne 0) { throw "Supabase version check failed: $cliVersion" }
+
+$dryRun=supabase.cmd db push `
+  --db-url $env:HL_PRODUCTION_DIRECT_DATABASE_URL `
+  --dry-run
+Assert-NativeSuccess 'Supabase migration dry run'
+$dryRun | Set-Content -Encoding utf8 '<evidence-folder>\db-push-dry-run.txt'
+```
+
+Expected:
+
+```text
+20260729144510_create_commerce_v2_phase1.sql
+20260729160750_security_remediation_least_privilege.sql
+```
+
+The Resend migration must not appear. No other migration may appear.
+
+The dry run lists pending migrations; it does not prove their SQL will succeed.
+The exact SQL was already validated locally and in the disposable hosted
+rehearsal.
+
+## Final go/no-go
+
+The founder reads and signs [Founder Go/No-Go](09-founder-go-no-go.md).
+
+Proceed only when every required row is `PASS`.
+
+## Migration execution
+
+Run once:
+
+```powershell
+supabase.cmd db push `
+  --db-url $env:HL_PRODUCTION_DIRECT_DATABASE_URL
+Assert-NativeSuccess 'Supabase migration push'
+```
+
+Do not add `--include-all`, `--include-seed`, or `--include-roles`.
+
+Expected behavior:
+
+1. CLI applies `20260729144510` and its history row in one transaction.
+2. CLI applies `20260729160750` and its history row in a separate transaction.
+3. Total idle hosted time is expected under one minute.
+4. A lock wait longer than five seconds aborts rather than queues.
+
+Record the start/end/result for each migration from CLI output. If Commerce v2
+commits and security remediation fails, keep Commerce v2 disabled and dormant,
+investigate the security failure, and do not reopen writes.
+
+## Immediate database verification
+
+```powershell
+$psql=Join-Path $env:LOCALAPPDATA `
+  'HonestLensesTools\PostgreSQL-17.10\pgsql\bin\psql.exe'
+$postAssertions=& $psql -X --set ON_ERROR_STOP=1 --tuples-only --no-align `
+  --dbname $env:HL_PRODUCTION_READONLY_DATABASE_URL `
+  --file 'docs/production-deployment/sql/post-migration-assertions.sql'
+Assert-NativeSuccess 'post-migration assertions'
+$postAssertions | Set-Content -Encoding utf8 `
+  '<evidence-folder>\post-migration-assertions.json'
+```
+
+Expected: all 12 checks are `PASS`.
+
+Then run:
+
+```powershell
+$advisorOutput=supabase.cmd --output-format json db advisors `
+  --db-url $env:HL_PRODUCTION_READONLY_DATABASE_URL `
+  --type security `
+  --level info `
+  --fail-on warn
+Assert-NativeSuccess 'Supabase Security Advisor'
+$advisorOutput | Set-Content -Encoding utf8 `
+  '<evidence-folder>\security-advisor.json'
+
+$finalCatalog=& $psql -X --set ON_ERROR_STOP=1 --tuples-only --no-align `
+  --dbname $env:HL_PRODUCTION_READONLY_DATABASE_URL `
+  --file 'docs/production-deployment/sql/production-catalog-export.sql'
+Assert-NativeSuccess 'final production catalog'
+$finalCatalog | Set-Content -Encoding utf8 `
+  '<evidence-folder>\post-migration-catalog.json'
+```
+
+Expected:
+
+- exit zero;
+- no `WARN` or `ERROR`;
+- any `INFO` is individually classified against the approved deny-by-default
+  model.
+
+Capture a fresh catalog and manifest. Verify expected post-migration object,
+owner, RLS, grant, default-ACL, function, trigger, view, enum, index, and
+Storage state.
+
+## Smoke tests and phased reopening
+
+The reviewed application release is already active in mode `all`. Do not
+switch commits while reopening.
+
+1. Confirm `COMMERCE_V2_ENABLED=false`.
+2. Run the read-only HTTP matrix and signed customer/admin canaries.
+3. Execute [Production smoke tests](06-production-smoke-tests.md) in order.
+4. Reopen through same-commit deployments in exact mode order:
+   `webhooks`, `operations`, `off`.
+5. At every phase, prove the next group remains blocked and complete the
+   observation interval in [Production write drain](11-write-drain.md).
+6. Do not resume broad traffic on a partial pass.
+
+## Remain live
+
+Production may remain live only if:
+
+- migration/assertion/advisor results pass;
+- Commerce v2 remains disabled and empty;
+- all critical smoke tests pass;
+- Stripe state reconciles;
+- no abort threshold fires during the first hour;
+- the incident commander records an explicit “remain live” decision.
+
+Follow [Monitoring](08-monitoring.md) for 24 hours.

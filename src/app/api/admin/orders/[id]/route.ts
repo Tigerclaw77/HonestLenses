@@ -5,27 +5,15 @@ import {
   logAdminAuthFailure,
   requireAdminUser,
 } from "@/lib/admin-auth";
-
-const FULFILLMENT_STATUSES = [
-  "review",
-  "ready_to_order",
-  "ordered",
-  "shipped",
-  "completed",
-  "hold",
-  "cancelled",
-] as const;
-
-type FulfillmentStatus = (typeof FULFILLMENT_STATUSES)[number];
+import {
+  assessAdminFulfillmentTransition,
+  isAdminFulfillmentStatus,
+} from "@/lib/orders/adminWorkflow";
 
 type PatchBody = {
   fulfillment_status?: unknown;
   admin_notes?: unknown;
 };
-
-function isFulfillmentStatus(value: unknown): value is FulfillmentStatus {
-  return FULFILLMENT_STATUSES.includes(value as FulfillmentStatus);
-}
 
 async function parseBody(req: NextRequest): Promise<PatchBody> {
   try {
@@ -51,7 +39,7 @@ export async function PATCH(
   const update: Record<string, unknown> = {};
 
   if ("fulfillment_status" in body) {
-    if (!isFulfillmentStatus(body.fulfillment_status)) {
+    if (!isAdminFulfillmentStatus(body.fulfillment_status)) {
       return NextResponse.json(
         { error: "Invalid fulfillment status" },
         { status: 400 },
@@ -76,6 +64,40 @@ export async function PATCH(
     return NextResponse.json({ error: "No changes supplied" }, { status: 400 });
   }
 
+  const { data: currentOrder, error: currentOrderError } = await supabaseServer
+    .from("orders")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (currentOrderError) {
+    return NextResponse.json(
+      { error: "Unable to load the order." },
+      { status: 500 },
+    );
+  }
+
+  if (!currentOrder) {
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+  }
+
+  const transition =
+    "fulfillment_status" in body
+      ? assessAdminFulfillmentTransition(
+          currentOrder,
+          body.fulfillment_status,
+        )
+      : null;
+
+  // Every valid admin target is an override. Warnings are returned and logged,
+  // but they never block the update.
+  if (transition && (!transition.valid || !transition.allowed)) {
+    return NextResponse.json(
+      { error: "Invalid fulfillment transition" },
+      { status: 400 },
+    );
+  }
+
   update.updated_at = new Date().toISOString();
 
   const { data, error } = await supabaseServer
@@ -86,12 +108,48 @@ export async function PATCH(
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to update the order." }, { status: 500 });
   }
 
   if (!data) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ ok: true, order: data });
+  let eventLogged = true;
+  if (transition?.targetStatus) {
+    const actor = auth.user.email ?? auth.user.id;
+    const message = [
+      `Admin changed fulfillment from ${transition.currentStatus} to ${transition.targetStatus}.`,
+      ...transition.warnings,
+    ].join(" ");
+    const { error: eventError } = await supabaseServer
+      .from("order_events")
+      .insert({
+        order_id: id,
+        event_type: "admin_fulfillment_override",
+        actor,
+        message,
+        before: {
+          fulfillment_status: transition.currentStatus,
+        },
+        after: {
+          fulfillment_status: transition.targetStatus,
+        },
+      });
+
+    if (eventError) {
+      eventLogged = false;
+      console.warn("Admin fulfillment event logging failed", {
+        orderId: id,
+        error: eventError.message,
+      });
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    order: data,
+    warnings: transition?.warnings ?? [],
+    event_logged: eventLogged,
+  });
 }

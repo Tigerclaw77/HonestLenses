@@ -169,8 +169,8 @@ function normalizePhone(s: string) {
 
 function clearManualRxLocalStorage() {
   // wipe all manual RX keys
-  localStorage.removeItem("rx_manual_order_draft");
-  localStorage.removeItem("rx_manual_form_state");
+  sessionStorage.removeItem("rx_manual_order_draft");
+  sessionStorage.removeItem("rx_manual_form_state");
   localStorage.removeItem("rx_upload_order_d");
 }
 

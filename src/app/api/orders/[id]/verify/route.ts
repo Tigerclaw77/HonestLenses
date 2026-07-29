@@ -2,7 +2,12 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../../lib/supabase-server";
-import { getUserFromRequest } from "../../../../../lib/get-user-from-request";
+import {
+  adminAuthErrorResponse,
+  logAdminAuthFailure,
+  requireAdminUser,
+} from "@/lib/admin-auth";
+import { captureAuthorizedOrderPayment } from "@/lib/payments/legacyPaymentCommands";
 
 type VerifyPayload = {
   revised_total_amount_cents?: number;
@@ -15,26 +20,10 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   // 1️⃣ Require authenticated user
-  const user = await getUserFromRequest(req);
-  if (!user) {
-    return NextResponse.json(
-      { error: "Unauthorized" },
-      { status: 401 }
-    );
-  }
-
-  // 2️⃣ Admin-only authorization
-  const { data: profile, error: profileError } = await supabaseServer
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profileError || profile?.role !== "admin") {
-    return NextResponse.json(
-      { error: "Forbidden" },
-      { status: 403 }
-    );
+  const auth = await requireAdminUser(req);
+  if (!auth.ok) {
+    logAdminAuthFailure("POST /api/orders/[id]/verify", auth);
+    return adminAuthErrorResponse(auth);
   }
 
   const { id: orderId } = await context.params;
@@ -45,7 +34,13 @@ export async function POST(
     .from("orders")
     .select(`
       id,
+      status,
+      verification_status,
       total_amount_cents,
+      capture_amount_cents,
+      feedback_credit_cents,
+      payment_intent_id,
+      authorization_expires_at,
       revised_total_amount_cents,
       allow_price_increase,
       allow_price_decrease
@@ -62,16 +57,35 @@ export async function POST(
 
   const originalCents = order.total_amount_cents;
 
-  const revisedCents =
-    typeof body.revised_total_amount_cents === "number"
-      ? body.revised_total_amount_cents
-      : null;
+  let revisedCents: number | null = null;
+  if (body.revised_total_amount_cents !== undefined) {
+    if (
+      !Number.isInteger(body.revised_total_amount_cents) ||
+      body.revised_total_amount_cents < 0 ||
+      body.revised_total_amount_cents > 10_000_000
+    ) {
+      return NextResponse.json(
+        { error: "Invalid revised total." },
+        { status: 400 },
+      );
+    }
+    revisedCents = body.revised_total_amount_cents;
+  }
+  if (
+    (body.price_reason?.length ?? 0) > 500 ||
+    (body.verified_lens?.length ?? 0) > 300
+  ) {
+    return NextResponse.json(
+      { error: "Verification override details are too long." },
+      { status: 400 },
+    );
+  }
 
   const priceChanged =
     revisedCents !== null && revisedCents !== originalCents;
 
   // 4️⃣ Enforce admin pricing constraints
-  if (priceChanged) {
+  if (priceChanged && revisedCents !== null) {
     if (revisedCents > originalCents && !order.allow_price_increase) {
       return NextResponse.json(
         { error: "Price increases not allowed for this order" },
@@ -87,24 +101,65 @@ export async function POST(
     }
   }
 
+  let capturePaymentIntentId: string | null = null;
+  if (!priceChanged) {
+    if (order.status !== "authorized") {
+      return NextResponse.json(
+        { error: "Only an authorized order can be verified and captured." },
+        { status: 409 },
+      );
+    }
+    try {
+      const capture = await captureAuthorizedOrderPayment(
+        order,
+        "admin-verification",
+      );
+      capturePaymentIntentId = capture.paymentIntentId;
+    } catch {
+      return NextResponse.json(
+        { error: "The authorized payment could not be captured." },
+        { status: 409 },
+      );
+    }
+  }
+
   // 5️⃣ Apply verification outcome
   const { error: updateError } = await supabaseServer
     .from("orders")
     .update({
       verification_status: priceChanged ? "altered" : "verified",
+      verification_passed: !priceChanged,
+      verification_completed_at: !priceChanged
+        ? new Date().toISOString()
+        : null,
+      status: priceChanged ? order.status : "captured",
       revised_total_amount_cents: priceChanged ? revisedCents : null,
       price_reason: priceChanged ? body.price_reason ?? null : null,
       verified_lens: body.verified_lens ?? null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", orderId);
+    .eq("id", orderId)
+    .eq("status", order.status);
 
   if (updateError) {
     return NextResponse.json(
-      { error: updateError.message },
+      { error: "Unable to save the verification override." },
       { status: 500 }
     );
   }
+
+  await supabaseServer.from("order_events").insert({
+    order_id: orderId,
+    event_type: "admin_verification_override",
+    actor: auth.user.email ?? auth.user.id,
+    message: body.price_reason?.slice(0, 500) ?? null,
+    before: { verification_status: order.verification_status },
+    after: {
+      verification_status: priceChanged ? "altered" : "verified",
+      revised_total_amount_cents: priceChanged ? revisedCents : null,
+      payment_intent_id: capturePaymentIntentId,
+    },
+  });
 
   return NextResponse.json({
     ok: true,

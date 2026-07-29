@@ -274,7 +274,7 @@ export async function POST(req: Request) {
   const { data: rows, error } = await query;
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to load cart." }, { status: 500 });
   }
 
   const order = rows?.[0] ?? null;
@@ -314,22 +314,6 @@ export async function POST(req: Request) {
         error: "Invalid prescription parameters.",
         details: rxValidationErrors,
       },
-      { status: 400 },
-    );
-  }
-
-  /* =========================
-   AUTO VERIFICATION GATE
-========================= */
-
-  if (
-    order.verification_status !== "auto_verified" &&
-    order.verification_status !== "verified"
-  ) {
-    console.log("🚫 BLOCKED: verification_status =", order.verification_status);
-
-    return NextResponse.json(
-      { error: "Order requires verification before proceeding." },
       { status: 400 },
     );
   }
@@ -482,7 +466,7 @@ export async function POST(req: Request) {
         order_id: order.id,
       },
     });
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to update cart." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true, orderId: order.id });

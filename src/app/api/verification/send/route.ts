@@ -15,6 +15,14 @@ import {
   getOrderAccess,
   hasOrderAccessContext,
 } from "@/lib/order-access";
+import {
+  enforceRateLimit,
+  rateLimitErrorResponse,
+} from "@/lib/security/rateLimit";
+import {
+  plainTextToHtml,
+  sanitizeEmailHeader,
+} from "@/lib/email/html";
 
 function isVerifiedLike(v: unknown): boolean {
   if (typeof v !== "string") return false;
@@ -40,6 +48,14 @@ export async function POST(req: Request) {
       typeof (rawBody as { orderId?: unknown }).orderId === "string"
         ? (rawBody as { orderId: string }).orderId
         : null;
+
+    const rateLimit = await enforceRateLimit(req, {
+      scope: "verification-email",
+      identity: requestedOrderId ?? access.distinctId,
+      limit: 3,
+      windowSeconds: 60 * 60,
+    });
+    if (!rateLimit.allowed) return rateLimitErrorResponse(rateLimit);
 
     /* =========================
        2️⃣ Load most recent pending order
@@ -230,7 +246,9 @@ export async function POST(req: Request) {
       .filter(Boolean)
       .join(" ");
 
-    const subject = `Prescription Verification Request – ${fullName} – Order ${order.id.slice(0, 8)}`;
+    const subject = sanitizeEmailHeader(
+      `Prescription Verification Request – ${fullName} – Order ${order.id.slice(0, 8)}`,
+    );
 
     const deadlineDisplay = new Date(passiveDeadline).toLocaleString("en-US", {
       timeZone: prescriberTimeZone,
@@ -271,13 +289,39 @@ Honest Lenses
 Verification Department
 `;
 
-    const htmlBody = textBody.replace(/\n/g, "<br>");
+    const htmlBody = plainTextToHtml(textBody);
 
     /* =========================
        5️⃣ Send Email
     ========================= */
 
     const recipient = order.prescriber_email;
+    const { data: claimed, error: claimError } = await supabaseServer
+      .from("orders")
+      .update({
+        verification_sent_at: nowIso,
+        passive_deadline_at: passiveDeadline,
+        verification_status: "pending",
+        verification_method: "email",
+      })
+      .eq("id", order.id)
+      .is("verification_sent_at", null)
+      .select("id")
+      .maybeSingle();
+
+    if (claimError) {
+      return NextResponse.json(
+        { error: "Unable to reserve verification delivery." },
+        { status: 500 },
+      );
+    }
+    if (!claimed) {
+      return NextResponse.json({
+        ok: true,
+        passive_deadline_at: order.passive_deadline_at,
+        note: "Verification already sent.",
+      });
+    }
 
     try {
       await sendVerificationEmail({
@@ -292,30 +336,18 @@ Verification Department
       });
     } catch (err) {
       console.error("Verification email failed:", err);
+      await supabaseServer
+        .from("orders")
+        .update({
+          verification_sent_at: null,
+          passive_deadline_at: null,
+          verification_method: null,
+        })
+        .eq("id", order.id)
+        .eq("verification_sent_at", nowIso);
 
       return NextResponse.json(
         { error: "Failed to send verification email" },
-        { status: 500 },
-      );
-    }
-
-    /* =========================
-       6️⃣ Update Order
-    ========================= */
-
-    const { error: updateError } = await supabaseServer
-      .from("orders")
-      .update({
-        verification_sent_at: nowIso,
-        passive_deadline_at: passiveDeadline,
-        verification_status: "pending",
-        verification_method: "email",
-      })
-      .eq("id", order.id);
-
-    if (updateError) {
-      return NextResponse.json(
-        { error: "Order update failed" },
         { status: 500 },
       );
     }
@@ -324,10 +356,10 @@ Verification Department
       ok: true,
       passive_deadline_at: passiveDeadline,
     });
-  } catch (err: unknown) {
+    } catch {
     return NextResponse.json(
       {
-        error: err instanceof Error ? err.message : "Unexpected server error",
+        error: "Unable to send verification.",
       },
       { status: 500 },
     );

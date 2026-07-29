@@ -1,23 +1,16 @@
 import { NextResponse } from "next/server";
-import Stripe from "stripe";
 import { supabaseServer } from "@/lib/supabase-server";
-import { getCaptureAmountCents } from "@/lib/payments/captureAmount";
-import {
-  getCaptureReadiness,
-  getRequiredPaymentIntentId,
-} from "@/lib/orders/captureReadiness";
 import { sendVerificationInformationNeededEmail } from "@/lib/email";
 import {
   getVerificationReadiness,
   VERIFICATION_INFORMATION_NEEDED_STATUS,
 } from "@/lib/orders/verificationReadiness";
-import { hasInternalBearerAuthorization } from "@/lib/internal-auth";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+import { hasInternalScopeAuthorization } from "@/lib/internal-auth";
+import { captureAuthorizedOrderPayment } from "@/lib/payments/legacyPaymentCommands";
 
 export async function POST(req: Request) {
   // ✅ 1. AUTH FIRST (before touching DB)
-  if (!hasInternalBearerAuthorization(req)) {
+  if (!hasInternalScopeAuthorization(req, "verification:process")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -34,7 +27,7 @@ export async function POST(req: Request) {
     .lte("passive_deadline_at", now);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to load verification work." }, { status: 500 });
   }
 
   if (!orders?.length) {
@@ -73,66 +66,15 @@ export async function POST(req: Request) {
     }
 
     if (order.rx_upload_path) continue;
-    const paymentIntent = getRequiredPaymentIntentId(order);
-    if (!paymentIntent.ok) continue;
-
-    const intent = await stripe.paymentIntents.retrieve(
-      paymentIntent.paymentIntentId,
-    );
-    const readiness = getCaptureReadiness(order, intent);
-
-    if (readiness.reason === "already_captured") {
-      const { data: updatedOrder, error: updateError } = await supabaseServer
-        .from("orders")
-        .update({
-          status: "captured",
-          verification_status: "verified",
-          verification_passed: true,
-          verification_completed_at: now,
-        })
-        .eq("id", order.id)
-        .eq("payment_intent_id", paymentIntent.paymentIntentId)
-        .select("id")
-        .maybeSingle();
-
-      if (updateError || !updatedOrder) {
-        console.warn("Skipping - captured status sync failed", {
-          orderId: order.id,
-          error: updateError?.message ?? "No order row matched",
-        });
-        continue;
-      }
-
-      await supabaseServer.from("order_events").insert({
-        order_id: order.id,
-        event_type: "verification_passive_already_captured",
-        actor: "system",
-      });
-      continue;
-    }
-
-    if (!readiness.canProceed) {
-      console.log("Skipping - not capturable", {
-        orderId: order.id,
-        status: readiness.status,
-      });
-      continue;
-    }
-
-    let amountToCapture: number;
+    let capture;
     try {
-      amountToCapture = getCaptureAmountCents(order);
-    } catch (err) {
-      console.warn("Skipping - invalid capture amount", {
-        orderId: order.id,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      capture = await captureAuthorizedOrderPayment(
+        order,
+        "passive-verification",
+      );
+    } catch {
       continue;
     }
-
-    await stripe.paymentIntents.capture(paymentIntent.paymentIntentId, {
-      amount_to_capture: amountToCapture,
-    });
 
     const { data: updatedOrder, error: updateError } = await supabaseServer
       .from("orders")
@@ -143,7 +85,7 @@ export async function POST(req: Request) {
         verification_completed_at: now,
       })
       .eq("id", order.id)
-      .eq("payment_intent_id", paymentIntent.paymentIntentId)
+      .eq("payment_intent_id", capture.paymentIntentId)
       .select("id")
       .maybeSingle();
 
@@ -157,7 +99,9 @@ export async function POST(req: Request) {
 
     await supabaseServer.from("order_events").insert({
       order_id: order.id,
-      event_type: "verification_passive_auto",
+      event_type: capture.alreadyCaptured
+        ? "verification_passive_already_captured"
+        : "verification_passive_auto",
       actor: "system",
     });
   }

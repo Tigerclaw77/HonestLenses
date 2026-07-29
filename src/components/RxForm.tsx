@@ -589,7 +589,7 @@ export default function RxForm({
       return;
     }
 
-    const raw = localStorage.getItem(LS_RX_DRAFT);
+    const raw = sessionStorage.getItem(LS_RX_DRAFT);
 
     if (!raw) {
       setHydrated(true);
@@ -744,7 +744,7 @@ export default function RxForm({
   }
 
   /* =========================
-     Persist to localStorage (manual only)
+     Persist to sessionStorage (manual only)
   ========================= */
 
   useEffect(() => {
@@ -773,7 +773,7 @@ export default function RxForm({
       expires,
     };
 
-    localStorage.setItem(LS_RX_DRAFT, JSON.stringify(draft));
+    sessionStorage.setItem(LS_RX_DRAFT, JSON.stringify(draft));
   }, [
     hydrated,
     mode,

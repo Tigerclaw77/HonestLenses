@@ -9,7 +9,6 @@ import {
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { captureServerEvent } from "@/lib/posthog/server";
-import { getCaptureAmountCents } from "@/lib/payments/captureAmount";
 import { getRequiredPaymentIntentId } from "@/lib/orders/captureReadiness";
 import {
   getVerificationReadiness,
@@ -25,6 +24,7 @@ import {
   checkoutAmountMatchesPaymentIntent,
   getCheckoutAmountCents,
 } from "@/lib/payments/checkoutAmount";
+import { escapeHtml } from "@/lib/email/html";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -97,7 +97,7 @@ export async function POST(req: Request) {
         .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to load checkout." }, { status: 500 });
   }
 
   if (!orderRaw || !isRecord(orderRaw)) {
@@ -211,7 +211,7 @@ export async function POST(req: Request) {
   const canEnterPendingVerification =
     verificationReadiness.canEnterPendingVerification;
   const nextVerificationStatus = isUploaded
-    ? "auto_verified"
+    ? "pending"
     : canEnterPendingVerification
       ? "pending"
       : VERIFICATION_INFORMATION_NEEDED_STATUS;
@@ -224,71 +224,12 @@ export async function POST(req: Request) {
     nextVerificationStatus === VERIFICATION_INFORMATION_NEEDED_STATUS &&
     verificationStatus !== VERIFICATION_INFORMATION_NEEDED_STATUS;
 
-  console.log("UPLOAD CHECK", {
-    orderId,
-    rx_upload_path: orderRaw.rx_upload_path,
-    isUploaded,
-    verificationMode,
-    verificationReadiness,
-  });
-
-  /* =========================
-     5️⃣ Capture if Upload Flow
-  ========================= */
-
-  if (isUploaded && intent.status === "requires_capture") {
-    try {
-      const amountToCapture = getCaptureAmountCents({
-        id: orderId,
-        total_amount_cents:
-          typeof orderRaw.total_amount_cents === "number"
-            ? orderRaw.total_amount_cents
-            : null,
-        capture_amount_cents:
-          typeof orderRaw.capture_amount_cents === "number"
-            ? orderRaw.capture_amount_cents
-            : null,
-        feedback_credit_cents:
-          typeof orderRaw.feedback_credit_cents === "number"
-            ? orderRaw.feedback_credit_cents
-            : null,
-      });
-
-      const capturedIntent = await stripe.paymentIntents.capture(intent.id, {
-        amount_to_capture: amountToCapture,
-      });
-
-      console.log("Stripe capture success", {
-        orderId,
-        paymentIntentId: capturedIntent.id,
-        status: capturedIntent.status,
-        amount: capturedIntent.amount_received,
-        amountToCapture,
-      });
-    } catch (err) {
-      console.error("Stripe capture failed", {
-        orderId,
-        paymentIntentId,
-        error: err,
-      });
-      return NextResponse.json(
-        {
-          error:
-            err instanceof Error
-              ? err.message
-              : "Stripe capture failed",
-        },
-        { status: 400 },
-      );
-    }
-  }
-
   /* =========================
      6️⃣ Update Order
   ========================= */
 
   const updatePayload: Record<string, unknown> = {
-    status: isUploaded ? "captured" : "authorized",
+    status: "authorized",
     verification_status: nextVerificationStatus,
   };
 
@@ -301,7 +242,7 @@ export async function POST(req: Request) {
     .select("id");
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to finalize checkout." }, { status: 500 });
   }
 
   if (!updatedRows?.length) {
@@ -322,7 +263,7 @@ export async function POST(req: Request) {
     properties: {
       order_id: orderId,
       order_status_before: orderStatus,
-      order_status_after: isUploaded ? "captured" : "authorized",
+      order_status_after: "authorized",
       verification_mode: verificationMode,
       order_value_cents:
         typeof orderRaw.total_amount_cents === "number"
@@ -331,7 +272,7 @@ export async function POST(req: Request) {
       has_uploaded_rx: isUploaded,
       has_payment_intent: true,
       stripe_intent_status: intent.status,
-      captured_immediately: isUploaded,
+      captured_immediately: false,
       next_step: isUploaded ? "success" : "verification-details",
     },
   });
@@ -343,7 +284,7 @@ export async function POST(req: Request) {
     properties: {
       order_id: orderId,
       order_status_before: orderStatus,
-      order_status_after: isUploaded ? "captured" : "authorized",
+      order_status_after: "authorized",
       verification_mode: verificationMode,
       order_value_cents:
         typeof orderRaw.total_amount_cents === "number"
@@ -355,25 +296,6 @@ export async function POST(req: Request) {
       next_step: isUploaded ? "success" : "verification-details",
     },
   });
-
-  if (isUploaded) {
-    await captureServerEvent({
-      event: POSTHOG_EVENTS.ORDER_CAPTURED,
-      distinctId: access.distinctId,
-      request: req,
-      properties: {
-        order_id: orderId,
-        verification_mode: "uploaded",
-        order_value_cents:
-          typeof orderRaw.total_amount_cents === "number"
-            ? orderRaw.total_amount_cents
-            : null,
-        has_uploaded_rx: true,
-        has_payment_intent: true,
-        capture_reason: "uploaded_rx_auto_capture",
-      },
-    });
-  }
 
   const customerEmail = getCustomerEmail(orderRaw, access.userEmail);
 
@@ -401,55 +323,57 @@ export async function POST(req: Request) {
 
     const left = isRecord(rx?.left) ? rx.left : null;
     const right = isRecord(rx?.right) ? rx.right : null;
+    const adminAlertEmail = process.env.ADMIN_ALERT_EMAIL?.trim();
+    if (!adminAlertEmail) throw new Error("ADMIN_ALERT_EMAIL is required");
 
     await sendEmail({
-      to: "pauldriggers@aol.com",
+      to: adminAlertEmail,
       subject: `New Honest Lenses Order ${orderId}`,
       html: `
         <h2>New Order Authorized</h2>
 
-        <p><strong>Order ID:</strong> ${orderId}</p>
-        <p><strong>Customer:</strong> ${access.userId ?? "Guest checkout"}</p>
-        <p><strong>Total:</strong> ${total}</p>
+        <p><strong>Order ID:</strong> ${escapeHtml(orderId)}</p>
+        <p><strong>Customer:</strong> ${escapeHtml(access.userId ?? "Guest checkout")}</p>
+        <p><strong>Total:</strong> ${escapeHtml(total)}</p>
 
         <hr/>
 
         <h3>Prescription</h3>
 
         <p><strong>Left:</strong>
-        ${left?.sphere ?? "?"} /
-        BC ${left?.base_curve ?? "?"}
-        (${left?.coreId ?? ""})
+        ${escapeHtml(left?.sphere ?? "?")} /
+        BC ${escapeHtml(left?.base_curve ?? "?")}
+        (${escapeHtml(left?.coreId ?? "")})
         </p>
 
         <p><strong>Right:</strong>
-        ${right?.sphere ?? "?"} /
-        BC ${right?.base_curve ?? "?"}
-        (${right?.coreId ?? ""})
+        ${escapeHtml(right?.sphere ?? "?")} /
+        BC ${escapeHtml(right?.base_curve ?? "?")}
+        (${escapeHtml(right?.coreId ?? "")})
         </p>
 
-        <p><strong>Expires:</strong> ${rx?.expires ?? "Unknown"}</p>
+        <p><strong>Expires:</strong> ${escapeHtml(rx?.expires ?? "Unknown")}</p>
 
         <hr/>
 
         <h3>Doctor</h3>
 
-        <p><strong>Name:</strong> ${prescriber}</p>
-        <p><strong>Phone:</strong> ${prescriberPhone}</p>
+        <p><strong>Name:</strong> ${escapeHtml(prescriber)}</p>
+        <p><strong>Phone:</strong> ${escapeHtml(prescriberPhone)}</p>
 
         <hr/>
 
         <p><strong>Mode:</strong>
         ${
           isUploaded
-            ? "Upload (Verified)"
+            ? "Upload received (review pending)"
             : canEnterPendingVerification
               ? "Passive (Verification Pending)"
               : "Verification Information Needed"
         }
         </p>
 
-        <p><strong>Stripe Intent:</strong> ${paymentIntentId}</p>
+        <p><strong>Stripe Intent:</strong> ${escapeHtml(paymentIntentId)}</p>
       `,
     });
   } catch (err) {

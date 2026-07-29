@@ -3,43 +3,20 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../lib/supabase-server";
 import { getOrderAccess, setGuestOrderCookie } from "@/lib/order-access";
-
-const GUEST_CHECKOUT_USER_ID =
-  process.env.GUEST_CHECKOUT_USER_ID ??
-  "11111111-1111-4111-8111-111111111111";
-const GUEST_CHECKOUT_EMAIL =
-  process.env.GUEST_CHECKOUT_EMAIL ?? "guest-checkout@honestlenses.com";
-
-async function ensureGuestCheckoutUser() {
-  const {
-    data: { user },
-    error: getError,
-  } = await supabaseServer.auth.admin.getUserById(GUEST_CHECKOUT_USER_ID);
-
-  if (user) return;
-
-  if (getError && getError.status !== 404) {
-    throw getError;
-  }
-
-  const { error: createError } = await supabaseServer.auth.admin.createUser({
-    id: GUEST_CHECKOUT_USER_ID,
-    email: GUEST_CHECKOUT_EMAIL,
-    email_confirm: true,
-    app_metadata: {
-      role: "guest_checkout",
-      system_user: true,
-    },
-    user_metadata: {
-      name: "Guest Checkout",
-    },
-  });
-
-  if (createError) throw createError;
-}
+import {
+  enforceRateLimit,
+  rateLimitErrorResponse,
+} from "@/lib/security/rateLimit";
 
 export async function POST(req: Request) {
   try {
+    const rateLimit = await enforceRateLimit(req, {
+      scope: "order-create",
+      limit: 10,
+      windowSeconds: 60 * 60,
+    });
+    if (!rateLimit.allowed) return rateLimitErrorResponse(rateLimit);
+
     /* =========================
        1️⃣ Auth
     ========================= */
@@ -74,7 +51,7 @@ export async function POST(req: Request) {
 
     if (existingError) {
       return NextResponse.json(
-        { error: existingError.message },
+        { error: "Unable to find an existing order." },
         { status: 500 }
       );
     }
@@ -88,18 +65,10 @@ export async function POST(req: Request) {
     });
 
     if (recentDraft?.id) {
-      console.log("REUSING RECENT DRAFT:", recentDraft.id);
-
       const response = NextResponse.json({ orderId: recentDraft.id });
       return access.guestOrderId || !user
         ? setGuestOrderCookie(response, recentDraft.id)
         : response;
-    }
-
-    console.log("NO RECENT DRAFT — creating new order");
-
-    if (!user) {
-      await ensureGuestCheckoutUser();
     }
 
     /* =========================
@@ -110,7 +79,9 @@ export async function POST(req: Request) {
       await supabaseServer
         .from("orders")
         .insert({
-          user_id: user?.id ?? GUEST_CHECKOUT_USER_ID,
+          // Guest ownership is represented only by the scoped guest cookie.
+          // It must never share a Supabase Auth principal with other guests.
+          user_id: user?.id ?? null,
           status: "draft",
           currency: "USD",
           box_count: 0,
@@ -120,7 +91,7 @@ export async function POST(req: Request) {
 
     if (insertError) {
       return NextResponse.json(
-        { error: insertError.message },
+        { error: "Unable to create an order." },
         { status: 500 }
       );
     }
@@ -131,8 +102,6 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
-
-    console.log("CREATED NEW DRAFT:", newOrder.id);
 
     const response = NextResponse.json({ orderId: newOrder.id });
     return user ? response : setGuestOrderCookie(response, newOrder.id);

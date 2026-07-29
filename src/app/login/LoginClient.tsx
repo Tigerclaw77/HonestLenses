@@ -6,11 +6,12 @@ import { supabase } from "@/lib/supabase-client";
 import { POSTHOG_EVENTS } from "@/lib/posthog/client";
 import { captureClientError } from "@/lib/telemetry/clientErrors";
 import { trackFunnelEvent } from "@/lib/telemetry/funnel";
+import { safeInternalPath } from "@/lib/auth/safeRedirect";
 
 export default function LoginClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next");
+  const next = safeInternalPath(searchParams.get("next"));
 
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
@@ -26,9 +27,9 @@ export default function LoginClient() {
         void trackFunnelEvent(POSTHOG_EVENTS.AUTH_SESSION_RESTORED, {
           restored: true,
           source: "login_page_existing_session",
-          next_route: next ?? "/",
+          next_route: next,
         });
-        router.replace(next ?? "/");
+        router.replace(next);
       }
     }
 
@@ -46,12 +47,12 @@ export default function LoginClient() {
     setMessage(null);
 
     const redirectTo = `${window.location.origin}/auth/callback${
-      next ? `?next=${encodeURIComponent(next)}` : ""
+      next !== "/" ? `?next=${encodeURIComponent(next)}` : ""
     }`;
 
     void trackFunnelEvent(POSTHOG_EVENTS.LOGIN_REDIRECT_STARTED, {
       source: "login_form",
-      next_route: next ?? "/",
+      next_route: next,
       method: "email_otp",
     });
 

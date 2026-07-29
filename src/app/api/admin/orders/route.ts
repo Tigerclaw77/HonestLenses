@@ -13,7 +13,11 @@ import {
   logAdminAuthFailure,
   requireAdminUser,
 } from "@/lib/admin-auth";
-import { classifyOperationalQueue } from "@/lib/orders/operationalQueue";
+import {
+  groupOperationalQueueOrders,
+  type ClassifiedOperationalOrder,
+  type OperationalQueueIntegrityIssue,
+} from "@/lib/orders/operationalQueue";
 import {
   projectPaymentState,
   type PaymentLifecycleStatus,
@@ -77,7 +81,12 @@ type OrderRow = {
   payment_intent_id?: string | null;
   payment_status?: PaymentStatus | null;
   stripe_payment_intent_status?: string | null;
-  payment_status_source?: "stripe" | "order_fallback" | "missing_intent" | null;
+  payment_status_source?:
+    | "stripe"
+    | "order_fallback"
+    | "missing_intent"
+    | "stripe_lookup_failed"
+    | null;
   fulfillment_status?: string | null;
   email_delivery_status?: string | null;
   email_last_event?: string | null;
@@ -87,6 +96,13 @@ type OrderRow = {
   confirmation_email_sent_at?: string | null;
   confirmation_email_delivered_at?: string | null;
   admin_notes?: string | null;
+};
+
+type AdminOrderRow = ClassifiedOperationalOrder<OrderRow>;
+
+type AdminQueueIntegrityIssue = OperationalQueueIntegrityIssue & {
+  orderId: string;
+  customerName: string;
 };
 
 type AbandonedOrderRow = OrderRow & {
@@ -193,7 +209,7 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       ...order,
       payment_status: projection.status,
       stripe_payment_intent_status: null,
-      payment_status_source: "order_fallback",
+      payment_status_source: "stripe_lookup_failed",
     };
   }
 }
@@ -278,28 +294,37 @@ export async function GET(req: Request) {
       });
     }
 
-    const actionRequired: OrderRow[] = [];
-    const activeFulfillment: OrderRow[] = [];
-    const verificationPending: OrderRow[] = [];
-    const customerBlocked: OrderRow[] = [];
-    const draftOrTest: OrderRow[] = [];
-    const archivedOrders: OrderRow[] = [];
+    const groupedOrders = groupOperationalQueueOrders(orders);
+    const actionRequired: AdminOrderRow[] =
+      groupedOrders.action_required;
+    const activeFulfillment: AdminOrderRow[] =
+      groupedOrders.active_fulfillment;
+    const verificationPending: AdminOrderRow[] =
+      groupedOrders.verification_pending;
+    const customerBlocked: AdminOrderRow[] =
+      groupedOrders.customer_blocked;
+    const draftOrTest: AdminOrderRow[] = groupedOrders.draft_or_test;
+    const archivedOrders: AdminOrderRow[] =
+      groupedOrders.history_archive;
+    const integrityIssues: AdminQueueIntegrityIssue[] = [];
 
-    for (const order of orders) {
-      const classification = classifyOperationalQueue(order);
+    for (const order of Object.values(groupedOrders).flat()) {
+      const classification = order.operational_queue;
+      const customerName =
+        [order.shipping_first_name, order.shipping_last_name]
+          .filter(Boolean)
+          .join(" ")
+          .trim() ||
+        order.patient_name?.trim() ||
+        order.patient_full_name?.trim() ||
+        order.id;
 
-      if (classification.bucket === "action_required") {
-        actionRequired.push(order);
-      } else if (classification.bucket === "active_fulfillment") {
-        activeFulfillment.push(order);
-      } else if (classification.bucket === "verification_pending") {
-        verificationPending.push(order);
-      } else if (classification.bucket === "customer_blocked") {
-        customerBlocked.push(order);
-      } else if (classification.bucket === "draft_or_test") {
-        draftOrTest.push(order);
-      } else {
-        archivedOrders.push(order);
+      for (const issue of classification.integrityIssues) {
+        integrityIssues.push({
+          ...issue,
+          orderId: order.id,
+          customerName,
+        });
       }
     }
 
@@ -314,6 +339,7 @@ export async function GET(req: Request) {
       stalled: verificationPending,
       pipeline: activeFulfillment,
       abandoned,
+      integrity_issues: integrityIssues,
     });
   } catch (err) {
     console.error("Admin route crash:", err);

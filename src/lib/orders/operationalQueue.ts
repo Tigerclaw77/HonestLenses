@@ -26,6 +26,19 @@ export type OperationalQueueClassification = {
   reasons: string[];
   nextActionLabel: string;
   paymentStatus: PaymentLifecycleStatus;
+  integrityIssues: OperationalQueueIntegrityIssue[];
+};
+
+export type OperationalQueueIntegrityIssue = {
+  code:
+    | "ACTION_REQUIRED_WITHOUT_REASON"
+    | "COMPLETED_WITHOUT_VERIFICATION"
+    | "FULFILLMENT_WITHOUT_CAPTURE"
+    | "PAYMENT_STATE_DRIFT"
+    | "STRIPE_STATUS_UNAVAILABLE"
+    | "UNKNOWN_FULFILLMENT_STATE"
+    | "UNKNOWN_VERIFICATION_STATE";
+  message: string;
 };
 
 export type OperationalQueueOrder = NextActionOrder & {
@@ -41,8 +54,18 @@ export type OperationalQueueOrder = NextActionOrder & {
   archived?: boolean | null;
   archived_at?: string | null;
   fulfillment_status?: string | null;
+  payment_status_source?: string | null;
   abandoned_checkout?: { isAbandoned?: boolean | null } | null;
 };
+
+export type ClassifiedOperationalOrder<T extends OperationalQueueOrder> = T & {
+  operational_queue: OperationalQueueClassification;
+};
+
+export type OperationalQueueGroups<T extends OperationalQueueOrder> = Record<
+  OperationalQueueBucket,
+  ClassifiedOperationalOrder<T>[]
+>;
 
 type FulfillmentStatus =
   | "review"
@@ -57,9 +80,6 @@ type OperationalQueueOptions = {
   now?: Date;
   recentShippedDays?: number;
 };
-
-const DEFAULT_RECENT_SHIPPED_DAYS = 7;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 const CUSTOMER_BLOCKED_NEXT_ACTION_LABELS = new Set([
   "Await checkout",
@@ -91,28 +111,6 @@ function normalizedFulfillmentStatus(
   if (order.status === "shipped") return "shipped";
   if (order.status === "cancelled") return "cancelled";
   return "review";
-}
-
-function getTimestamp(value: string | null | undefined): number {
-  if (!value) return 0;
-
-  const time = new Date(value).getTime();
-  return Number.isFinite(time) ? time : 0;
-}
-
-function getActivityTimestamp(order: OperationalQueueOrder): number {
-  return getTimestamp(order.updated_at) || getTimestamp(order.created_at);
-}
-
-function isWithinDays(
-  order: OperationalQueueOrder,
-  days: number,
-  now: Date,
-): boolean {
-  const activityTime = getActivityTimestamp(order);
-  if (!activityTime) return false;
-
-  return now.getTime() - activityTime <= days * DAY_MS;
 }
 
 function normalizedText(value: string | null | undefined): string {
@@ -184,33 +182,109 @@ function classify(
   order: OperationalQueueOrder,
 ): OperationalQueueClassification {
   const payment = getPaymentState(order);
+  const verification = getVerificationState(order);
   const nextAction = getNextAction(order);
+  const fulfillment = normalizedFulfillmentStatus(order);
+  const integrityIssues: OperationalQueueIntegrityIssue[] = [];
+  const explicitReasons = reasons
+    .map((reason) => reason.trim())
+    .filter(Boolean);
+
+  if (bucket === "action_required" && explicitReasons.length === 0) {
+    integrityIssues.push({
+      code: "ACTION_REQUIRED_WITHOUT_REASON",
+      message: "Action Required has no operator-facing reason.",
+    });
+    explicitReasons.push("workflow integrity issue: reason missing");
+  }
+
+  if (
+    order.fulfillment_status &&
+    ![
+      "review",
+      "ready_to_order",
+      "ordered",
+      "shipped",
+      "completed",
+      "hold",
+      "cancelled",
+    ].includes(order.fulfillment_status)
+  ) {
+    integrityIssues.push({
+      code: "UNKNOWN_FULFILLMENT_STATE",
+      message: `Unknown fulfillment state: ${order.fulfillment_status}.`,
+    });
+  }
+
+  if (verification.status === "unknown") {
+    integrityIssues.push({
+      code: "UNKNOWN_VERIFICATION_STATE",
+      message: `Unknown verification state: ${verification.rawStatus ?? "empty"}.`,
+    });
+  }
+
+  if (order.payment_status_source === "stripe_lookup_failed") {
+    integrityIssues.push({
+      code: "STRIPE_STATUS_UNAVAILABLE",
+      message:
+        "Stripe payment status could not be refreshed; the stored order state may be stale.",
+    });
+  }
+
+  const localStatus = normalizedText(order.status);
+  const stripeStatus = normalizedText(order.stripe_payment_intent_status);
+  if (
+    (stripeStatus === "succeeded" &&
+      localStatus !== "captured" &&
+      localStatus !== "completed") ||
+    (stripeStatus === "requires_capture" &&
+      (localStatus === "captured" || localStatus === "completed"))
+  ) {
+    integrityIssues.push({
+      code: "PAYMENT_STATE_DRIFT",
+      message: `Stored order payment state (${localStatus || "empty"}) disagrees with Stripe (${stripeStatus}).`,
+    });
+  }
+
+  if (
+    ["ready_to_order", "ordered", "shipped", "completed"].includes(
+      fulfillment,
+    ) &&
+    payment.status !== "captured"
+  ) {
+    integrityIssues.push({
+      code: "FULFILLMENT_WITHOUT_CAPTURE",
+      message: `${fulfillment.replace(/_/g, " ")} fulfillment has a ${payment.label.toLowerCase()} payment.`,
+    });
+  }
+
+  if (fulfillment === "completed" && !verification.complete) {
+    integrityIssues.push({
+      code: "COMPLETED_WITHOUT_VERIFICATION",
+      message: `Completed order has ${verification.label.toLowerCase()} verification.`,
+    });
+  }
 
   return {
     bucket,
     operatorActionable,
-    reasons,
+    reasons: explicitReasons,
     nextActionLabel: nextAction.label,
     paymentStatus: payment.status,
+    integrityIssues,
   };
 }
 
 export function classifyOperationalQueue(
   order: OperationalQueueOrder,
-  options: OperationalQueueOptions = {},
+  _options: OperationalQueueOptions = {},
 ): OperationalQueueClassification {
-  const now = options.now ?? new Date();
-  const recentShippedDays =
-    options.recentShippedDays ?? DEFAULT_RECENT_SHIPPED_DAYS;
+  void _options;
   const payment = getPaymentState(order);
   const verification = getVerificationState(order);
   const rxSource = getRxSourceState(order);
   const nextAction = getNextAction(order);
   const fulfillment = normalizedFulfillmentStatus(order);
-
-  if (order.archived || order.archived_at) {
-    return classify("history_archive", false, ["archived"], order);
-  }
 
   if (isExplicitDraftOrTest(order)) {
     return classify("draft_or_test", false, ["test/internal"], order);
@@ -233,11 +307,53 @@ export function classifyOperationalQueue(
     return classify("history_archive", false, ["terminal"], order);
   }
 
+  if (order.archived || order.archived_at) {
+    return classify(
+      "action_required",
+      true,
+      ["archived before completion"],
+      order,
+    );
+  }
+
+  if (order.payment_status_source === "stripe_lookup_failed") {
+    return classify(
+      "action_required",
+      true,
+      ["Stripe payment status unavailable"],
+      order,
+    );
+  }
+
   if (
-    fulfillment === "shipped" &&
-    !isWithinDays(order, recentShippedDays, now)
+    order.fulfillment_status &&
+    ![
+      "review",
+      "ready_to_order",
+      "ordered",
+      "shipped",
+      "completed",
+      "hold",
+      "cancelled",
+    ].includes(order.fulfillment_status)
   ) {
-    return classify("history_archive", false, ["stale shipped"], order);
+    return classify(
+      "action_required",
+      true,
+      [`unknown fulfillment status: ${order.fulfillment_status}`],
+      order,
+    );
+  }
+
+  if (verification.status === "unknown") {
+    return classify(
+      "action_required",
+      true,
+      [
+        `unknown verification status: ${verification.rawStatus ?? "empty"}`,
+      ],
+      order,
+    );
   }
 
   if (
@@ -294,4 +410,33 @@ export function classifyOperationalQueue(
 
 export function isMerchantQueueBucket(bucket: OperationalQueueBucket): boolean {
   return bucket === "active_fulfillment" || bucket === "action_required";
+}
+
+/**
+ * Partitions each input row exactly once using the canonical classifier.
+ * Consumers should render these assignments directly instead of reclassifying
+ * rows independently.
+ */
+export function groupOperationalQueueOrders<T extends OperationalQueueOrder>(
+  orders: T[],
+  options: OperationalQueueOptions = {},
+): OperationalQueueGroups<T> {
+  const groups: OperationalQueueGroups<T> = {
+    active_fulfillment: [],
+    action_required: [],
+    verification_pending: [],
+    customer_blocked: [],
+    draft_or_test: [],
+    history_archive: [],
+  };
+
+  for (const order of orders) {
+    const operationalQueue = classifyOperationalQueue(order, options);
+    groups[operationalQueue.bucket].push({
+      ...order,
+      operational_queue: operationalQueue,
+    });
+  }
+
+  return groups;
 }

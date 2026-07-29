@@ -4,6 +4,7 @@ import {
   logAdminAuthFailure,
   requireAdminUser,
 } from "@/lib/admin-auth";
+import { cancelOrderPayment } from "@/lib/payments/legacyPaymentCommands";
 import { getAuthoritativeOrderQuote } from "@/lib/orders/orderPricing";
 import { getCheckoutAmountCents } from "@/lib/payments/checkoutAmount";
 import { getPaymentIntentAmountAction } from "@/lib/payments/paymentIntentAmount";
@@ -147,7 +148,7 @@ export async function POST(req: Request) {
 
   if (orderError) {
     return NextResponse.json(
-      { error: orderError.message, code: "ORDER_LOOKUP_FAILED" },
+      { error: "Unable to load the order.", code: "ORDER_LOOKUP_FAILED" },
       { status: 500 },
     );
   }
@@ -270,7 +271,10 @@ export async function POST(req: Request) {
     ) {
       if (paymentAction.action === "cancel_and_replace") {
         try {
-          await getStripe().paymentIntents.cancel(intent.id);
+          await cancelOrderPayment(
+            { orderId, paymentIntentId: intent.id },
+            "admin-quantity-change",
+          );
         } catch (error) {
           console.error("Quantity adjustment PaymentIntent cancel failed:", {
             orderId: order.id,
@@ -330,7 +334,7 @@ export async function POST(req: Request) {
   if (updateError) {
     return NextResponse.json(
       {
-        error: updateError.message,
+        error: "Unable to save the quantity adjustment.",
         code: "ORDER_QUANTITY_ADJUSTMENT_SAVE_FAILED",
       },
       { status: 500 },
