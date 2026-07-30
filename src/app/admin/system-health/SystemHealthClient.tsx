@@ -16,7 +16,7 @@ const LABELS: Record<keyof Metrics, string> = {
   orphaned_orders: "Orphaned orders",
   impossible_states: "Impossible states",
   stripe_database_mismatches: "Stripe/database mismatches",
-  missing_action_required_reasons: "Missing Action Required reasons",
+  missing_action_required_reasons: "Missing Resolve Exception reasons",
   webhook_failures: "Webhook failures",
   reconciliation_failures: "Reconciliation failures",
 };

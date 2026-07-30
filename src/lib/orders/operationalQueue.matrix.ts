@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import {
+  ADMIN_WORK_QUEUE_SECTIONS,
   classifyOperationalQueue,
   groupOperationalQueueOrders,
   type OperationalQueueOrder,
@@ -19,6 +20,25 @@ const verifiedRx = {
   left: { coreId: "OASYS_1D", sphere: "-1.25" },
 };
 
+assert.deepEqual(
+  ADMIN_WORK_QUEUE_SECTIONS.map(({ key, title }) => ({ key, title })),
+  [
+    {
+      key: "awaiting_verification",
+      title: "Awaiting Verification",
+    },
+    {
+      key: "ready_to_order",
+      title: "Ready to Order",
+    },
+    {
+      key: "resolve_exception",
+      title: "Resolve Exception",
+    },
+  ],
+  "the admin dashboard exposes exactly the three approved work-queue groups",
+);
+
 const cases: MatrixCase[] = [
   {
     scenario: "local draft + Stripe requires_capture",
@@ -30,7 +50,7 @@ const cases: MatrixCase[] = [
       verification_status: "verified",
       rx: verifiedRx,
     },
-    expectedBucket: "active_fulfillment",
+    expectedBucket: "ready_to_order",
     expectedActionable: true,
   },
   {
@@ -43,7 +63,7 @@ const cases: MatrixCase[] = [
       verification_status: "verified",
       rx: verifiedRx,
     },
-    expectedBucket: "active_fulfillment",
+    expectedBucket: "resolve_exception",
     expectedActionable: true,
   },
   {
@@ -80,7 +100,7 @@ const cases: MatrixCase[] = [
       rx_source: "doctor",
       prescriber_name: "Dr. Example",
     },
-    expectedBucket: "verification_pending",
+    expectedBucket: "awaiting_verification",
     expectedActionable: false,
   },
   {
@@ -95,7 +115,7 @@ const cases: MatrixCase[] = [
       rx_status: "uploaded",
       rx_upload_path: null,
     },
-    expectedBucket: "verification_pending",
+    expectedBucket: "awaiting_verification",
     expectedActionable: false,
     expectedNextAction: "Request prescription details",
   },
@@ -110,7 +130,7 @@ const cases: MatrixCase[] = [
       rx_status: "uploaded",
       rx_upload_path: null,
     },
-    expectedBucket: "verification_pending",
+    expectedBucket: "awaiting_verification",
     expectedActionable: false,
     expectedNextAction: "Request prescription details",
   },
@@ -125,7 +145,7 @@ const cases: MatrixCase[] = [
       fulfillment_status: "review",
       rx: verifiedRx,
     },
-    expectedBucket: "active_fulfillment",
+    expectedBucket: "ready_to_order",
     expectedActionable: true,
   },
   {
@@ -141,7 +161,7 @@ const cases: MatrixCase[] = [
       email_delivery_status: "bounced",
       email_delivery_requires_attention: true,
     },
-    expectedBucket: "action_required",
+    expectedBucket: "resolve_exception",
     expectedActionable: true,
   },
   {
@@ -157,7 +177,7 @@ const cases: MatrixCase[] = [
       email_delivery_status: "delivered",
       email_delivery_requires_attention: false,
     },
-    expectedBucket: "active_fulfillment",
+    expectedBucket: "ready_to_order",
     expectedActionable: true,
   },
   {
@@ -172,7 +192,7 @@ const cases: MatrixCase[] = [
       rx_status: "uploaded",
       rx: verifiedRx,
     },
-    expectedBucket: "active_fulfillment",
+    expectedBucket: "resolve_exception",
     expectedActionable: true,
   },
   {
@@ -185,7 +205,7 @@ const cases: MatrixCase[] = [
       verification_status: "pending",
       rx: verifiedRx,
     },
-    expectedBucket: "action_required",
+    expectedBucket: "resolve_exception",
     expectedActionable: true,
   },
   {
@@ -200,7 +220,7 @@ const cases: MatrixCase[] = [
       archived: true,
       rx: verifiedRx,
     },
-    expectedBucket: "action_required",
+    expectedBucket: "resolve_exception",
     expectedActionable: true,
   },
   {
@@ -214,7 +234,65 @@ const cases: MatrixCase[] = [
       fulfillment_status: "lost_between_queues",
       rx: verifiedRx,
     },
-    expectedBucket: "action_required",
+    expectedBucket: "resolve_exception",
+    expectedActionable: true,
+  },
+  {
+    scenario: "normal supplier-ordered order is owned by Armory",
+    order: {
+      id: "matrix-ordered-armory",
+      status: "captured",
+      payment_intent_id: "pi_ordered_armory",
+      stripe_payment_intent_status: "succeeded",
+      verification_status: "verified",
+      fulfillment_status: "ordered",
+      rx: verifiedRx,
+    },
+    expectedBucket: "supplier_managed",
+    expectedActionable: false,
+  },
+  {
+    scenario: "normal shipped order remains outside the founder queue",
+    order: {
+      id: "matrix-shipped-armory",
+      status: "captured",
+      payment_intent_id: "pi_shipped_armory",
+      stripe_payment_intent_status: "succeeded",
+      verification_status: "verified",
+      fulfillment_status: "shipped",
+      rx: verifiedRx,
+    },
+    expectedBucket: "supplier_managed",
+    expectedActionable: false,
+  },
+  {
+    scenario: "backorder without founder action remains with Armory",
+    order: {
+      id: "matrix-backordered-armory",
+      status: "captured",
+      payment_intent_id: "pi_backordered_armory",
+      stripe_payment_intent_status: "succeeded",
+      verification_status: "verified",
+      fulfillment_status: "backordered",
+      rx: verifiedRx,
+    },
+    expectedBucket: "supplier_managed",
+    expectedActionable: false,
+  },
+  {
+    scenario: "Armory exception with a specific founder reason returns to queue",
+    order: {
+      id: "matrix-armory-founder-exception",
+      status: "captured",
+      payment_intent_id: "pi_armory_exception",
+      stripe_payment_intent_status: "succeeded",
+      verification_status: "verified",
+      fulfillment_status: "ordered",
+      admin_notes:
+        "Armory exception: Supplier requires founder approval for a product substitution.",
+      rx: verifiedRx,
+    },
+    expectedBucket: "resolve_exception",
     expectedActionable: true,
   },
   {
@@ -239,14 +317,23 @@ const rows = cases.map((matrixCase) => {
     matrixCase.expectedBucket,
     `${matrixCase.scenario} bucket`,
   );
-  if (classification.bucket === "action_required") {
+  if (classification.bucket === "resolve_exception") {
     assert.ok(
       classification.reasons.length > 0,
-      `${matrixCase.scenario} Action Required reason`,
+      `${matrixCase.scenario} Resolve Exception reason`,
     );
     assert.ok(
-      classification.reasons.every((reason) => reason.trim().length > 0),
-      `${matrixCase.scenario} Action Required reasons are explicit`,
+      classification.reasons.every(
+        (reason) =>
+          reason.trim().length >= 20 &&
+          ![
+            "hold",
+            "review prescription",
+            "verify prescription",
+            "fulfillment",
+          ].includes(reason.trim().toLowerCase()),
+      ),
+      `${matrixCase.scenario} Resolve Exception reasons are specific and human-readable`,
     );
   }
   assert.equal(
@@ -295,6 +382,32 @@ for (const order of assignments) {
 const paymentDriftOrder = assignments.find(
   (order) => order.id === "matrix-cameron-drift",
 );
+
+for (const order of assignments) {
+  if (order.operational_queue.operatorActionable) {
+    assert.ok(
+      [
+        "awaiting_verification",
+        "ready_to_order",
+        "resolve_exception",
+      ].includes(order.operational_queue.bucket),
+      `${order.id} requiring founder action cannot disappear from the active dashboard`,
+    );
+  }
+}
+
+for (const orderId of [
+  "matrix-ordered-armory",
+  "matrix-shipped-armory",
+  "matrix-backordered-armory",
+]) {
+  const order = assignments.find((candidate) => candidate.id === orderId);
+  assert.equal(
+    order?.operational_queue.bucket,
+    "supplier_managed",
+    `${orderId} does not clutter the active dashboard`,
+  );
+}
 assert.ok(
   paymentDriftOrder?.operational_queue.integrityIssues.some(
     (issue) => issue.code === "PAYMENT_STATE_DRIFT",

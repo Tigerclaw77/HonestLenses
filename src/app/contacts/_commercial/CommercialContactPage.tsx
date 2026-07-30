@@ -6,6 +6,7 @@ import type { LensCore } from "@/LensCore/types";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import { getPopularityRank } from "@/data/lensPopularityTiers";
+import { getLensImage } from "@/lib/display/getLensImage";
 import { getLensSkus } from "@/lib/pricing/getLensSkus";
 import { getLowestPrice } from "@/lib/pricing/getLowestPrice";
 import { getLensSlug, SITE_URL } from "@/lib/seo/contactSeoRoutes";
@@ -84,7 +85,7 @@ function ProductCard({ lens }: { lens: LensCore }) {
     <article className={styles.productCard}>
       <Link href={`/contacts/${slug}`} className={styles.productImageLink}>
         <Image
-          src={`/lens-images/${lens.coreId}.webp`}
+          src={getLensImage(lens.coreId)}
           alt={`${lens.displayName} contact lenses`}
           width={176}
           height={116}

@@ -295,17 +295,22 @@ export async function GET(req: Request) {
     }
 
     const groupedOrders = groupOperationalQueueOrders(orders);
-    const actionRequired: AdminOrderRow[] =
-      groupedOrders.action_required;
-    const activeFulfillment: AdminOrderRow[] =
-      groupedOrders.active_fulfillment;
-    const verificationPending: AdminOrderRow[] =
-      groupedOrders.verification_pending;
+    const awaitingVerification: AdminOrderRow[] =
+      groupedOrders.awaiting_verification;
+    const readyToOrder: AdminOrderRow[] = groupedOrders.ready_to_order;
+    const resolveException: AdminOrderRow[] =
+      groupedOrders.resolve_exception;
+    const supplierManaged: AdminOrderRow[] =
+      groupedOrders.supplier_managed;
     const customerBlocked: AdminOrderRow[] =
       groupedOrders.customer_blocked;
     const draftOrTest: AdminOrderRow[] = groupedOrders.draft_or_test;
-    const archivedOrders: AdminOrderRow[] =
-      groupedOrders.history_archive;
+    const archivedOrders: AdminOrderRow[] = [
+      ...supplierManaged,
+      ...customerBlocked,
+      ...draftOrTest,
+      ...groupedOrders.history_archive,
+    ];
     const integrityIssues: AdminQueueIntegrityIssue[] = [];
 
     for (const order of Object.values(groupedOrders).flat()) {
@@ -329,15 +334,10 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json({
-      action_required: actionRequired,
-      active_fulfillment: activeFulfillment,
-      verification_pending: verificationPending,
-      customer_blocked: customerBlocked,
-      draft_or_test: draftOrTest,
+      awaiting_verification: awaitingVerification,
+      ready_to_order: readyToOrder,
+      resolve_exception: resolveException,
       archive: archivedOrders,
-      needsAction: actionRequired,
-      stalled: verificationPending,
-      pipeline: activeFulfillment,
       abandoned,
       integrity_issues: integrityIssues,
     });
