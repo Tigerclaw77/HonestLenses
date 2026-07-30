@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import {
   ADMIN_WORK_QUEUE_SECTIONS,
   classifyOperationalQueue,
+  getLastOperationalActivity,
   groupOperationalQueueOrders,
   type OperationalQueueOrder,
 } from "./operationalQueue";
@@ -196,17 +197,32 @@ const cases: MatrixCase[] = [
     expectedActionable: true,
   },
   {
-    scenario: "Stripe lookup failure is explicit action required",
+    scenario: "Stripe lookup failure remains diagnostic, not founder work",
     order: {
       id: "matrix-stripe-lookup-failed",
       status: "authorized",
       payment_intent_id: "pi_lookup_failed",
+      payment_status: "authorized",
       payment_status_source: "stripe_lookup_failed",
       verification_status: "pending",
       rx: verifiedRx,
     },
-    expectedBucket: "resolve_exception",
+    expectedBucket: "awaiting_verification",
     expectedActionable: true,
+  },
+  {
+    scenario: "completed historical payment drift stays out of active work",
+    order: {
+      id: "matrix-completed-historical-drift",
+      status: "completed",
+      payment_intent_id: "pi_completed_historical_drift",
+      stripe_payment_intent_status: "requires_capture",
+      verification_status: "pending",
+      fulfillment_status: "completed",
+      rx: verifiedRx,
+    },
+    expectedBucket: "history_archive",
+    expectedActionable: false,
   },
   {
     scenario: "nonterminal archived order remains operationally visible",
@@ -382,6 +398,9 @@ for (const order of assignments) {
 const paymentDriftOrder = assignments.find(
   (order) => order.id === "matrix-cameron-drift",
 );
+const historicalPaymentDriftOrder = assignments.find(
+  (order) => order.id === "matrix-completed-historical-drift",
+);
 
 for (const order of assignments) {
   if (order.operational_queue.operatorActionable) {
@@ -413,6 +432,37 @@ assert.ok(
     (issue) => issue.code === "PAYMENT_STATE_DRIFT",
   ),
   "captured Stripe payment with stale local state is surfaced as integrity drift",
+);
+assert.ok(
+  historicalPaymentDriftOrder?.operational_queue.integrityIssues.some(
+    (issue) => issue.code === "PAYMENT_STATE_DRIFT",
+  ),
+  "historical payment drift remains available as a diagnostic",
+);
+
+assert.deepEqual(
+  getLastOperationalActivity({
+    created_at: "2025-01-01T12:00:00.000Z",
+    updated_at: "2026-07-30T18:00:00.000Z",
+  }),
+  {
+    at: "2025-01-01T12:00:00.000Z",
+    reason: "Order created",
+  },
+  "bulk migration updates do not become operational activity",
+);
+
+assert.deepEqual(
+  getLastOperationalActivity({
+    created_at: "2025-01-01T12:00:00.000Z",
+    updated_at: "2026-07-30T18:00:00.000Z",
+    verification_details_submitted_at: "2025-01-02T09:00:00.000Z",
+  }),
+  {
+    at: "2025-01-02T09:00:00.000Z",
+    reason: "Verification details submitted",
+  },
+  "the latest meaningful operational timestamp is displayed",
 );
 
 console.log("| Scenario | Bucket | Actionable | Next action |");

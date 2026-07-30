@@ -5,11 +5,14 @@ import type { CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase-client";
 import { getLensDisplayName } from "@/lib/cart/display";
 import {
+  formatAdminDateTime,
+  formatAdminDateTimeParts,
+} from "@/lib/admin/time";
+import {
   getNextAction,
   getPaymentState,
   getRxSourceState,
   getVerificationState,
-  hasEmailDeliveryAttention,
   type PaymentLifecycleStatus,
 } from "@/lib/orders/getNextAction";
 import {
@@ -26,6 +29,11 @@ import {
   isAdminFulfillmentStatus,
   type AdminFulfillmentStatus,
 } from "@/lib/orders/adminWorkflow";
+import {
+  getAdminExceptionBadges,
+  type AdminExceptionBadge,
+} from "@/lib/orders/adminPresentation";
+import type { ManualVerificationAttemptMethod } from "@/lib/orders/verificationAttempts";
 
 /* =========================
    Types
@@ -76,6 +84,9 @@ type Order = {
   id: string;
   status: string;
   verification_status: string;
+  verification_sent_at?: string | null;
+  verification_phone_attempted_at?: string | null;
+  verification_fax_attempted_at?: string | null;
   rx_status?: string | null;
   archived?: boolean;
   archived_at?: string | null;
@@ -130,6 +141,7 @@ type Order = {
   prescriber_name?: string | null;
   prescriber_email?: string | null;
   prescriber_phone?: string | null;
+  prescriber_fax?: string | null;
 
   shipping_first_name?: string | null;
   shipping_last_name?: string | null;
@@ -181,11 +193,7 @@ type BadgeTone =
   | "capture"
   | "refund";
 
-type OrderStatusFlag = {
-  label: string;
-  tone: BadgeTone;
-  title: string;
-};
+type OrderStatusFlag = AdminExceptionBadge;
 
 type NotesModalState = {
   orderId: string;
@@ -487,71 +495,11 @@ function effectiveCaptureAmountCents(order: Order): number | undefined {
     : undefined;
 }
 
-function captureDifferenceCents(order: Order): number | null {
-  const captureAmount = effectiveCaptureAmountCents(order);
-
-  if (
-    typeof captureAmount !== "number" ||
-    typeof order.total_amount_cents !== "number"
-  ) {
-    return null;
-  }
-
-  return captureAmount - order.total_amount_cents;
-}
-
-function hasCaptureAdjustment(order: Order): boolean {
-  return (
-    typeof order.capture_amount_cents === "number" &&
-    typeof order.total_amount_cents === "number" &&
-    order.capture_amount_cents !== order.total_amount_cents
-  );
-}
-
-function formatDateTime(value?: string | null): string {
-  if (!value) return "-";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-
-  return `${new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Chicago",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date)} CT`;
-}
-
-function formatAdminOrderDateTimeCentral(value?: string | null): {
-  date: string;
-  time: string;
-} {
-  if (!value) return { date: "-", time: "-" };
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return { date: "-", time: "-" };
-
-  return {
-    date: new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Chicago",
-      month: "short",
-      day: "numeric",
-    }).format(date),
-    time: `${new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Chicago",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(date)} CT`,
-  };
-}
-
 function formatOrderCreatedDate(order: Order): {
   date: string;
   time: string;
 } {
-  return formatAdminOrderDateTimeCentral(order.created_at);
+  return formatAdminDateTimeParts(order.created_at);
 }
 
 function getTimestamp(value?: string | null): number {
@@ -603,7 +551,7 @@ function formatOrderActivitySummary(order: Order): {
 } {
   const activityAt = getLastOperationalActivityTimestamp(order);
   const createdAt = getOrderCreatedTimestamp(order);
-  const dateTime = formatAdminOrderDateTimeCentral(
+  const dateTime = formatAdminDateTimeParts(
     activityAt ? new Date(activityAt).toISOString() : null,
   );
   const reason = order.lastOperationalActivityReason ?? "Order updated";
@@ -788,173 +736,12 @@ function fulfillmentTone(status: FulfillmentStatus): BadgeTone {
   return "neutral";
 }
 
-function getVerificationStatus(order: Order): {
-  complete: boolean;
-  blocked: boolean;
-  label: string;
-  tone: BadgeTone;
-} {
-  const verification = getVerificationState(order);
-  const summary = verificationSummary(order);
-  return {
-    complete: verification.complete,
-    blocked: verification.blocked,
-    label: summary.label,
-    tone: summary.tone,
-  };
-}
-
-function paymentCaptureSummary(order: Order): { label: string; tone: BadgeTone } {
-  const payment = getPaymentState(order);
-  return { label: payment.label, tone: paymentTone(payment.status) };
-}
 
 function getOrderStatusFlags(order: Order): OrderStatusFlag[] {
-  const flags: OrderStatusFlag[] = [];
-
-  if (hasEmailDeliveryAttention(order)) {
-    flags.push({
-      label: "📧 EMAIL",
-      tone: "blocked",
-      title: "Invalid or Undeliverable Email",
-    });
-  } else if (order.email_delivery_status === "delivery_delayed") {
-    flags.push({
-      label: "EMAIL DELAYED",
-      tone: "warning",
-      title: "Transactional email delivery is delayed",
-    });
-  }
-
-  if (order.shipping_method === "express") {
-    flags.push({
-      label: "EXPRESS",
-      tone: "warning",
-      title: "Express shipping",
-    });
-  }
-
-  const payment = normalizedPaymentStatus(order);
-  if (payment === "authorized") {
-    flags.push({
-      label: "CAPTURE",
-      tone: "warning",
-      title: "Payment authorized",
-    });
-  } else if (payment === "failed" || payment === "cancelled") {
-    flags.push({
-      label: "PAYMENT",
-      tone: "blocked",
-      title: `Payment ${payment}`,
-    });
-  } else if (payment === "draft") {
-    flags.push({
-      label: "PAYMENT",
-      tone: "info",
-      title: "Payment not completed",
-    });
-  }
-
-  const verification = getVerificationState(order);
-  if (verification.blocked || !verification.complete) {
-    flags.push({
-      label: "VERIFY",
-      tone: verification.blocked ? "blocked" : "warning",
-      title: verification.label,
-    });
-  }
-
-  const fulfillment = normalizedFulfillmentStatus(order);
-  const rawFulfillment = String(order.fulfillment_status ?? fulfillment);
-  if (rawFulfillment === "backordered") {
-    flags.push({
-      label: "BACKORDER",
-      tone: "warning",
-      title: "Backordered",
-    });
-  }
-
-  if (fulfillment === "review" || fulfillment === "hold") {
-    flags.push({
-      label: "REVIEW",
-      tone: fulfillment === "hold" ? "warning" : "neutral",
-      title: labelizeStatus(fulfillment),
-    });
-  }
-
-  return flags;
+  return getAdminExceptionBadges(order);
 }
 
-function EmailDeliveryWarning({ order }: { order: Order }) {
-  const attention = hasEmailDeliveryAttention(order);
-  const delayed = order.email_delivery_status === "delivery_delayed";
-  if (!attention && !delayed) return null;
 
-  return (
-    <div
-      role="status"
-      style={{
-        border: attention
-          ? "1px solid rgba(248,113,113,0.7)"
-          : "1px solid rgba(251,191,36,0.6)",
-        borderRadius: 8,
-        background: attention
-          ? "rgba(127,29,29,0.28)"
-          : "rgba(120,53,15,0.24)",
-        color: attention ? "#fecaca" : "#fde68a",
-        padding: "10px 12px",
-        marginBottom: 10,
-        fontWeight: 750,
-      }}
-    >
-      <div style={{ fontWeight: 900 }}>
-        {attention
-          ? "Invalid or Undeliverable Email"
-          : "Email delivery delayed"}
-      </div>
-      <div style={{ marginTop: 3, fontSize: 12 }}>
-        {attention
-          ? "This customer probably never received transactional emails. Confirm or correct the email address before relying on email follow-up."
-          : "The recipient mail server has not accepted this email yet."}
-      </div>
-      {order.email_failure_reason && (
-        <div style={{ marginTop: 4, fontSize: 12 }}>
-          Reason: {order.email_failure_reason}
-        </div>
-      )}
-      <div style={{ marginTop: 4, fontSize: 11, opacity: 0.76 }}>
-        Last event: {order.email_last_event ?? order.email_delivery_status ?? "-"}
-        {order.email_last_event_at
-          ? ` at ${formatDateTime(order.email_last_event_at)}`
-          : ""}
-      </div>
-    </div>
-  );
-}
-
-function OperationalReasonBanner({ order }: { order: Order }) {
-  const classification = getOrderOperationalClassification(order);
-  if (classification.bucket !== "resolve_exception") return null;
-
-  return (
-    <div
-      role="status"
-      style={{
-        border: "1px solid rgba(251,191,36,0.7)",
-        borderRadius: 8,
-        background: "rgba(120,53,15,0.24)",
-        color: "#fde68a",
-        padding: "10px 12px",
-        marginBottom: 10,
-      }}
-    >
-      <div style={{ fontWeight: 900 }}>Resolve Exception</div>
-      <div style={{ marginTop: 3, fontSize: 12, fontWeight: 750 }}>
-        Reason: {classification.reasons.join("; ")}
-      </div>
-    </div>
-  );
-}
 
 function nextFulfillmentStatus(status: FulfillmentStatus): FulfillmentStatus | null {
   const currentIndex = FULFILLMENT_PROGRESS_FLOW.indexOf(status);
@@ -962,36 +749,6 @@ function nextFulfillmentStatus(status: FulfillmentStatus): FulfillmentStatus | n
   return FULFILLMENT_PROGRESS_FLOW[currentIndex + 1] ?? null;
 }
 
-function previousFulfillmentStatus(
-  status: FulfillmentStatus,
-): FulfillmentStatus | null {
-  const currentIndex = FULFILLMENT_PROGRESS_FLOW.indexOf(status);
-  if (currentIndex <= 0) return null;
-  return FULFILLMENT_PROGRESS_FLOW[currentIndex - 1] ?? null;
-}
-
-function workflowActionLabel(
-  current: FulfillmentStatus,
-  next: FulfillmentStatus,
-): string {
-  if (current === "review" && next === "ready_to_order") {
-    return "Approve / Ready to Order";
-  }
-
-  if (current === "ready_to_order" && next === "ordered") {
-    return "Place Vendor Order";
-  }
-
-  if (current === "ordered" && next === "shipped") {
-    return "Mark Shipped";
-  }
-
-  if (current === "shipped" && next === "completed") {
-    return "Complete Order";
-  }
-
-  return `Advance to ${labelizeStatus(next)}`;
-}
 
 function canPermanentlyDelete(order: Order): boolean {
   return Boolean(
@@ -1110,35 +867,6 @@ function buttonStyle(extra?: CSSProperties): CSSProperties {
     color: "inherit",
     cursor: "pointer",
     ...extra,
-  };
-}
-
-function nextActionBannerStyle(severity: "info" | "warning" | "success"): CSSProperties {
-  const colors = {
-    info: {
-      background: "rgba(37,99,235,0.16)",
-      border: "rgba(147,197,253,0.45)",
-      color: "#bfdbfe",
-    },
-    warning: {
-      background: "rgba(245,158,11,0.16)",
-      border: "rgba(251,191,36,0.55)",
-      color: "#fde68a",
-    },
-    success: {
-      background: "rgba(34,197,94,0.14)",
-      border: "rgba(134,239,172,0.45)",
-      color: "#bbf7d0",
-    },
-  }[severity];
-
-  return {
-    border: `1px solid ${colors.border}`,
-    borderRadius: 8,
-    background: colors.background,
-    color: colors.color,
-    padding: "12px 14px",
-    marginBottom: 10,
   };
 }
 
@@ -1296,136 +1024,6 @@ function fullRxDetails(order: Order): {
   };
 }
 
-function firstEyeValue(
-  eye: RxEye | null | undefined,
-  keys: (keyof RxEye)[],
-): unknown {
-  return keys
-    .map((key) => eye?.[key])
-    .find((value) => hasValue(value));
-}
-
-function firstRootValue(
-  rx: RxData | null,
-  keys: (keyof RxData)[],
-): unknown {
-  return keys
-    .map((key) => rx?.[key])
-    .find((value) => hasValue(value));
-}
-
-function firstEyeValueWithRootFallback(
-  eye: RxEye | null | undefined,
-  eyeKeys: (keyof RxEye)[],
-  rx: RxData | null,
-  rootKeys: (keyof RxData)[],
-): unknown {
-  return firstEyeValue(eye, eyeKeys) ?? firstRootValue(rx, rootKeys);
-}
-
-function normalizedCurve(value: unknown): string | null {
-  const formatted = formatRxNumber(value, 1);
-  return formatted === "-" ? null : formatted;
-}
-
-function normalizedPower(value: unknown): string | null {
-  const formatted = formatRxNumber(value, 2);
-  return formatted === "-" ? null : formatted;
-}
-
-function normalizedAxis(value: unknown): string | null {
-  if (!hasValue(value)) return null;
-
-  const numeric = Number(value);
-  if (Number.isFinite(numeric)) return String(Math.round(numeric));
-
-  const trimmed = String(value).trim();
-  return trimmed || null;
-}
-
-function uniqueValues(values: (string | null)[]): string[] {
-  return Array.from(new Set(values.filter((value): value is string => !!value)));
-}
-
-function formatCollapsedRxLine(order: Order): string[] {
-  const details = fullRxDetails(order);
-  const rx = details.rx;
-  const right = rx?.right ?? null;
-  const left = rx?.left ?? null;
-  const bcValues = [
-    normalizedCurve(
-      firstEyeValueWithRootFallback(
-        right,
-        ["base_curve", "baseCurve", "bc"],
-        rx,
-        ["base_curve", "baseCurve"],
-      ),
-    ),
-    normalizedCurve(
-      firstEyeValueWithRootFallback(
-        left,
-        ["base_curve", "baseCurve", "bc"],
-        rx,
-        ["base_curve", "baseCurve"],
-      ),
-    ),
-  ];
-  const diaValues = [
-    normalizedCurve(
-      firstEyeValueWithRootFallback(
-        right,
-        ["diameter", "dia"],
-        rx,
-        ["diameter", "dia"],
-      ),
-    ),
-    normalizedCurve(
-      firstEyeValueWithRootFallback(
-        left,
-        ["diameter", "dia"],
-        rx,
-        ["diameter", "dia"],
-      ),
-    ),
-  ];
-  const showBc = bcValues.some(Boolean);
-  const showDia = uniqueValues(diaValues).length > 1;
-
-  const formatEye = (
-    label: "OD" | "OS",
-    eye: RxEye | null,
-    bc: string | null,
-    dia: string | null,
-  ): string | null => {
-    if (!eye || !hasEyeDetails(eye)) return null;
-
-    const sphere = normalizedPower(firstEyeValue(eye, ["sphere", "sph"]));
-    const cylinder = normalizedPower(firstEyeValue(eye, ["cylinder", "cyl"]));
-    const axis = normalizedAxis(firstEyeValue(eye, ["axis", "ax"]));
-    const add = normalizedPower(firstEyeValue(eye, ["add"]));
-    const pieces = [sphere ?? "-"];
-
-    if (cylinder) pieces.push(cylinder);
-    if (axis) pieces.push(`x${axis}`);
-    if (add) pieces.push(`${add} add`);
-
-    let line = `${label} ${pieces.join(" ")}`;
-    if (showBc && bc) line += ` / ${bc}`;
-    if (showDia && dia) line += ` / ${dia}`;
-    if (eye.color) line += ` ${eye.color}`;
-    return line;
-  };
-
-  const od = formatEye("OD", right, bcValues[0], diaValues[0]);
-  const os = formatEye("OS", left, bcValues[1], diaValues[1]);
-
-  if (od && os && od.replace(/^OD /, "") === os.replace(/^OS /, "")) {
-    return [`OU ${od.replace(/^OD /, "")}`];
-  }
-
-  return [od, os].filter((line): line is string => Boolean(line));
-}
-
 function getEyeLensDisplayName(
   order: Order,
   eye: RxEye | null | undefined,
@@ -1498,7 +1096,6 @@ function adminApiErrorMessage(
     .filter(Boolean)
     .join(" ");
 }
-
 function parseRx(order: Order): {
   od: string;
   os: string;
@@ -1719,241 +1316,660 @@ function CopyableValue({
   );
 }
 
-function NextActionBanner({ order }: { order: Order }) {
-  const nextAction = getNextAction(order);
+
+function VerificationAttemptRow({
+  label,
+  timestamp,
+  method,
+  contactAvailable = true,
+  saving,
+  onRecord,
+}: {
+  label: string;
+  timestamp?: string | null;
+  method?: ManualVerificationAttemptMethod;
+  contactAvailable?: boolean;
+  saving: boolean;
+  onRecord?: (method: ManualVerificationAttemptMethod) => void;
+}) {
+  const complete = Boolean(timestamp);
 
   return (
-    <div style={nextActionBannerStyle(nextAction.severity)}>
-      <div
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "18px minmax(0, 1fr) auto",
+        gap: 6,
+        alignItems: "center",
+        minHeight: 32,
+        fontSize: 12,
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{ color: complete ? "#86efac" : "rgba(226,232,240,0.55)" }}
+      >
+        {complete ? "✓" : "□"}
+      </span>
+      <span style={{ fontWeight: 700 }}>{label}</span>
+      {method && onRecord ? (
+        <button
+          type="button"
+          disabled={saving || !contactAvailable}
+          onClick={() => onRecord(method)}
+          title={
+            contactAvailable
+              ? `Record ${method} attempt now`
+              : `No prescriber ${method} available`
+          }
+          style={buttonStyle({
+            padding: "3px 7px",
+            fontSize: 11,
+            opacity: contactAvailable ? 1 : 0.45,
+          })}
+        >
+          {saving ? "Saving..." : complete ? "Log again" : "Log now"}
+        </button>
+      ) : (
+        <span />
+      )}
+      <span
         style={{
+          gridColumn: "2 / -1",
+          opacity: timestamp ? 0.8 : 0.52,
           fontSize: 11,
-          fontWeight: 900,
-          textTransform: "uppercase",
-          color: "rgba(255,255,255,0.72)",
         }}
       >
-        NEXT ACTION
+        {timestamp ? formatAdminDateTime(timestamp) : "Not attempted"}
+      </span>
+    </div>
+  );
+}
+
+function PrescriberVerificationTracker({
+  order,
+  savingAttempt,
+  onRecordAttempt,
+}: {
+  order: Order;
+  savingAttempt: string | null;
+  onRecordAttempt: (method: ManualVerificationAttemptMethod) => void;
+}) {
+  return (
+    <div style={mutedPanelStyle()}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+          gap: "3px 10px",
+          fontSize: 12,
+        }}
+      >
+        <div>Name: {order.prescriber_name ?? "-"}</div>
+        <div>Phone: {order.prescriber_phone ?? "-"}</div>
+        <div>Fax: {order.prescriber_fax ?? "-"}</div>
+        <div>Email: {order.prescriber_email ?? "-"}</div>
       </div>
-      <div style={{ marginTop: 2, fontSize: 20, fontWeight: 900 }}>
-        {nextAction.label}
+
+      <div
+        style={{
+          borderTop: "1px solid rgba(148,163,184,0.2)",
+          marginTop: 6,
+          paddingTop: 5,
+          display: "grid",
+          gridTemplateColumns:
+            "minmax(125px, 0.65fr) repeat(3, minmax(0, 1fr))",
+          gap: 8,
+          alignItems: "center",
+        }}
+      >
+        <div style={{ fontWeight: 800, fontSize: 12 }}>
+          Verification Attempts
+        </div>
+        <VerificationAttemptRow
+          label="Verification email sent"
+          timestamp={order.verification_sent_at}
+          saving={false}
+        />
+        <VerificationAttemptRow
+          label="Phone attempted"
+          timestamp={order.verification_phone_attempted_at}
+          method="phone"
+          contactAvailable={Boolean(order.prescriber_phone?.trim())}
+          saving={savingAttempt === `${order.id}:phone`}
+          onRecord={onRecordAttempt}
+        />
+        <VerificationAttemptRow
+          label="Fax attempted"
+          timestamp={order.verification_fax_attempted_at}
+          method="fax"
+          contactAvailable={Boolean(order.prescriber_fax?.trim())}
+          saving={savingAttempt === `${order.id}:fax`}
+          onRecord={onRecordAttempt}
+        />
       </div>
     </div>
   );
 }
 
-function PaymentAdjustmentPanel({
+
+
+function ActiveOrderCard({
   order,
-  onAdjust,
+  sectionTitle,
+  sectionKey,
+  isOpen,
+  isHighlighted,
+  savingOrderId,
+  savingVerificationAttempt,
+  onToggleProcess,
+  onOpenDetails,
+  onOpenRxImage,
+  onRecordVerificationAttempt,
+  onAdvanceFulfillment,
 }: {
   order: Order;
-  onAdjust: () => void;
+  sectionTitle: string;
+  sectionKey: string;
+  isOpen: boolean;
+  isHighlighted: boolean;
+  savingOrderId: string | null;
+  savingVerificationAttempt: string | null;
+  onToggleProcess: () => void;
+  onOpenDetails: () => void;
+  onOpenRxImage: () => void;
+  onRecordVerificationAttempt: (
+    method: ManualVerificationAttemptMethod,
+  ) => void;
+  onAdvanceFulfillment: (status: FulfillmentStatus) => void;
 }) {
-  const authorizedAmount = order.total_amount_cents;
-  const captureAmount = effectiveCaptureAmountCents(order);
-  const difference = captureDifferenceCents(order);
-  const lowerBy =
-    typeof difference === "number" && difference < 0
-      ? Math.abs(difference)
-      : null;
-  const adjustedBy = order.capture_adjusted_by?.trim() || null;
-  const adjustedByIsEmail = Boolean(adjustedBy?.includes("@"));
-  const canAdjust =
-    typeof authorizedAmount === "number" && authorizedAmount > 0;
+  const customerName = getCustomerName(order);
+  const lensDisplay = getOrderLensDisplayName(order);
+  const activity = formatOrderActivitySummary(order);
+  const verification = getVerificationState(order);
+  const fulfillment = normalizedFulfillmentStatus(order);
+  const nextFulfillment = nextFulfillmentStatus(fulfillment);
+  const nextAction = getNextAction(order);
+  const classification = getOrderOperationalClassification(order);
+  const primaryActionLabel =
+    sectionKey === "awaiting_verification"
+      ? "Verify Prescription"
+      : sectionKey === "ready_to_order"
+        ? "Place Vendor Order"
+        : "Resolve Exception";
+
+  function runPrimaryAction() {
+    if (sectionKey === "ready_to_order" && nextFulfillment) {
+      onAdvanceFulfillment(nextFulfillment);
+      return;
+    }
+
+    onOpenDetails();
+  }
 
   return (
-    <div style={{ ...mutedPanelStyle(), marginBottom: 12 }}>
-      <div style={{ fontWeight: 900, marginBottom: 8 }}>
-        PAYMENT ADJUSTMENT
-      </div>
-
+    <article
+      data-active-order-card
+      data-testid="admin-queue-card"
+      data-order-id={order.id}
+      style={{
+        border: isHighlighted
+          ? "1px solid rgba(186,230,253,0.95)"
+          : "1px solid rgba(148,163,184,0.2)",
+        borderRadius: 9,
+        padding: "9px 11px",
+        background: isOpen ? "rgba(30,41,59,0.55)" : "transparent",
+        boxShadow: isHighlighted
+          ? "0 0 0 1px rgba(186,230,253,0.18)"
+          : "none",
+      }}
+    >
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-          gap: 8,
+          gridTemplateColumns:
+            "minmax(150px, 1.1fr) minmax(180px, 1.35fr) minmax(90px, 0.62fr) minmax(130px, 0.82fr) minmax(90px, 0.62fr) minmax(180px, 1.2fr) auto",
+          gap: 10,
+          alignItems: "center",
+          fontSize: 12,
         }}
       >
         <div>
-          <div style={{ opacity: 0.68 }}>Authorized</div>
-          <div style={{ fontWeight: 800 }}>{formatMoney(authorizedAmount)}</div>
+          <div style={{ opacity: 0.56, fontSize: 10 }}>Customer</div>
+          <div style={{ fontWeight: 850, fontSize: 13 }}>{customerName}</div>
         </div>
 
         <div>
-          <div style={{ opacity: 0.68 }}>Capture</div>
-          <div style={{ fontWeight: 800 }}>{formatMoney(captureAmount)}</div>
+          <div style={{ opacity: 0.56, fontSize: 10 }}>Product</div>
+          <div style={{ fontWeight: 850, fontSize: 13 }}>{lensDisplay}</div>
         </div>
 
-        {hasAdjustedOrderQuantity(order) && (
-          <div>
-            <div style={{ opacity: 0.68 }}>Corrected Quantity</div>
-            <div style={{ fontWeight: 800 }}>
-              {formatAdjustedOrderQuantity(order)}
-            </div>
+        <div>
+          <div style={{ opacity: 0.56, fontSize: 10 }}>Amount</div>
+          <div style={{ fontWeight: 850, fontSize: 13 }}>
+            {formatMoney(order.total_amount_cents)}
           </div>
-        )}
-
-        <div>
-          <div style={{ opacity: 0.68 }}>Submitted Quantity</div>
-          <div style={{ fontWeight: 800 }}>{formatSubmittedOrderQuantity(order)}</div>
         </div>
 
         <div>
-          <div style={{ opacity: 0.68 }}>Difference</div>
+          <div style={{ opacity: 0.56, fontSize: 10 }}>Queue Status</div>
+          <div style={{ fontWeight: 800 }}>{sectionTitle}</div>
+        </div>
+
+        <div>
+          <div style={{ opacity: 0.56, fontSize: 10 }}>Age</div>
+          <div style={{ fontWeight: 800 }}>
+            {activity.relative || activity.date}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ opacity: 0.56, fontSize: 10 }}>Next Action</div>
+          <div style={{ fontWeight: 850, color: "#bae6fd" }}>
+            {nextAction.label}
+          </div>
+          {classification.bucket === "resolve_exception" && (
+            <div
+              style={{
+                color: "#fde68a",
+                fontSize: 10,
+                lineHeight: 1.2,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+              title={classification.reasons.join("; ")}
+            >
+              {classification.reasons[0]}
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            justifyContent: "flex-end",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onToggleProcess}
+            aria-expanded={isOpen}
+            style={buttonStyle({
+              fontSize: 11,
+              background: "rgba(20,184,166,0.22)",
+            })}
+          >
+            {isOpen ? "Close" : "Process"}
+          </button>
+          <button
+            type="button"
+            onClick={onOpenDetails}
+            style={buttonStyle({ fontSize: 11, opacity: 0.8 })}
+          >
+            Order Details
+          </button>
+        </div>
+      </div>
+
+      {isOpen && (
+        <div
+          style={{
+            borderTop: "1px solid rgba(148,163,184,0.18)",
+            marginTop: 8,
+            paddingTop: 8,
+            display: "grid",
+            gridTemplateColumns: "minmax(420px, 1.4fr) minmax(220px, 0.6fr)",
+            gap: 10,
+            alignItems: "stretch",
+          }}
+        >
+          <div>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                flexWrap: "wrap",
+                marginBottom: 6,
+                fontSize: 12,
+              }}
+            >
+              <strong>Verification: {verification.label}</strong>
+              <button
+                type="button"
+                onClick={onOpenDetails}
+                style={buttonStyle({ fontSize: 11 })}
+              >
+                View Rx
+              </button>
+              {order.rx_upload_path && (
+                <button
+                  type="button"
+                  onClick={onOpenRxImage}
+                  style={buttonStyle({ fontSize: 11 })}
+                >
+                  View Rx Image
+                </button>
+              )}
+            </div>
+            <PrescriberVerificationTracker
+              order={order}
+              savingAttempt={savingVerificationAttempt}
+              onRecordAttempt={onRecordVerificationAttempt}
+            />
+          </div>
+
           <div
             style={{
-              fontWeight: 800,
-              color:
-                typeof difference === "number" && difference < 0
-                  ? "#fcd34d"
-                  : "inherit",
+              ...mutedPanelStyle(),
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "space-between",
+              gap: 12,
             }}
           >
-            {formatSignedMoney(difference)}
+            <div>
+              <div style={{ opacity: 0.58, fontSize: 10 }}>NEXT ACTION</div>
+              <div
+                style={{
+                  marginTop: 4,
+                  fontSize: 15,
+                  fontWeight: 900,
+                  color: "#bae6fd",
+                }}
+              >
+                {nextAction.label}
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={savingOrderId === order.id}
+              onClick={runPrimaryAction}
+              style={buttonStyle({
+                width: "100%",
+                padding: "9px 10px",
+                fontSize: 12,
+                fontWeight: 850,
+                background: "rgba(20,184,166,0.28)",
+              })}
+            >
+              {savingOrderId === order.id ? "Saving..." : primaryActionLabel}
+            </button>
           </div>
         </div>
-
-        <div>
-          <div style={{ opacity: 0.68 }}>Reason</div>
-          <div>{order.capture_adjustment_reason ?? "-"}</div>
-        </div>
-
-        <div>
-          <div style={{ opacity: 0.68 }}>Adjusted By</div>
-          {adjustedBy ? (
-            adjustedByIsEmail ? (
-              <a href={`mailto:${adjustedBy}`} style={{ color: "#67e8f9" }}>
-                {adjustedBy}
-              </a>
-            ) : (
-              <div>{adjustedBy}</div>
-            )
-          ) : (
-            <div>-</div>
-          )}
-        </div>
-
-        <div>
-          <div style={{ opacity: 0.68 }}>Adjusted At</div>
-          <div>{formatDateTime(order.capture_adjusted_at)}</div>
-        </div>
-      </div>
-
-      {lowerBy !== null && (
-        <div
-          style={{
-            marginTop: 10,
-            color: "#fde68a",
-            fontWeight: 700,
-          }}
-        >
-          Capture amount is lower than authorization by {formatMoney(lowerBy)}.
-          {hasAdjustedOrderQuantity(order)
-            ? " The corrected quantity price is the planned capture amount."
-            : ""}
-        </div>
       )}
-
-      <button
-        type="button"
-        disabled={!canAdjust}
-        onClick={onAdjust}
-        style={buttonStyle({
-          marginTop: 10,
-          background: "rgba(20,184,166,0.22)",
-          opacity: canAdjust ? 1 : 0.5,
-        })}
-      >
-        Adjust Capture Amount
-      </button>
-    </div>
+    </article>
   );
 }
 
-function OrderQuantityAdjustmentPanel({
+function OrderDetailsModal({
   order,
-  onAdjust,
+  savingOrderId,
+  onClose,
+  onOpenRxImage,
+  onOpenNotes,
+  onCopyOrder,
+  onArchive,
+  onAdjustQuantity,
+  onAdjustCapture,
+  onOverrideFulfillment,
 }: {
   order: Order;
-  onAdjust: () => void;
+  savingOrderId: string | null;
+  onClose: () => void;
+  onOpenRxImage: () => void;
+  onOpenNotes: () => void;
+  onCopyOrder: () => void;
+  onArchive: () => void;
+  onAdjustQuantity: () => void;
+  onAdjustCapture: () => void;
+  onOverrideFulfillment: (status: FulfillmentStatus) => void;
 }) {
-  const hasAdjustment = hasAdjustedOrderQuantity(order);
-  const adjustedBy = order.order_quantity_adjusted_by?.trim() || null;
-  const adjustedByIsEmail = Boolean(adjustedBy?.includes("@"));
+  const customerName = getCustomerName(order);
+  const patientName = getPatientName(order);
+  const showPatientName = namesDiffer(patientName, customerName);
+  const payment = getPaymentState(order);
+  const verification = getVerificationState(order);
+  const fulfillment = normalizedFulfillmentStatus(order);
+  const rxSource = getRxSourceState(order);
+  const rxStatus = displayRxStatus(order);
+  const flags = getOrderStatusFlags(order);
+  const isMerchantLane = isMerchantQueueBucket(
+    getOrderOperationalClassification(order).bucket,
+  );
 
   return (
-    <div style={{ ...mutedPanelStyle(), marginBottom: 12 }}>
-      <div style={{ fontWeight: 900, marginBottom: 8 }}>
-        ORDER QUANTITY ADJUSTMENT
-      </div>
-
-      <div
+    <div
+      role="presentation"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 48,
+        background: "rgba(2,6,23,0.82)",
+        display: "grid",
+        placeItems: "center",
+        padding: 18,
+      }}
+    >
+      <section
+        role="dialog"
+        data-testid="order-details-modal"
+        aria-modal="true"
+        aria-label={`Order details for ${customerName}`}
+        onClick={(event) => event.stopPropagation()}
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-          gap: 8,
+          width: "min(1040px, 100%)",
+          maxHeight: "92vh",
+          overflow: "auto",
+          ...mutedPanelStyle(),
+          background: "#0f172a",
         }}
       >
-        <div>
-          <div style={{ opacity: 0.68 }}>Submitted Quantity</div>
-          <div style={{ fontWeight: 800 }}>{formatSubmittedOrderQuantity(order)}</div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "start",
+            marginBottom: 12,
+          }}
+        >
+          <div>
+            <h2 style={{ fontSize: 18, margin: 0 }}>Order Details</h2>
+            <div style={{ marginTop: 3, color: "#94a3b8", fontSize: 12 }}>
+              {customerName} · {order.id}
+            </div>
+            {flags.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  gap: 5,
+                  flexWrap: "wrap",
+                  marginTop: 7,
+                }}
+              >
+                {flags.map((flag) => (
+                  <span
+                    key={`${order.id}-details-${flag.label}`}
+                    style={compactBadgeStyle(flag.tone)}
+                    title={flag.title}
+                  >
+                    {flag.label}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          <button type="button" style={buttonStyle()} onClick={onClose}>
+            Close
+          </button>
         </div>
 
-        <div>
-          <div style={{ opacity: 0.68 }}>Corrected Quantity</div>
-          <div style={{ fontWeight: 800 }}>
-            {hasAdjustment ? formatAdjustedOrderQuantity(order) : "-"}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+            gap: 10,
+          }}
+        >
+          <div style={mutedPanelStyle()}>
+            <div style={{ fontWeight: 800, marginBottom: 5 }}>
+              Order Summary
+            </div>
+            <div>Product: {getOrderLensDisplayName(order)}</div>
+            <div>
+              Submitted quantity: {formatSubmittedOrderQuantity(order)}
+            </div>
+            {hasAdjustedOrderQuantity(order) && (
+              <div>
+                Adjusted quantity: {formatAdjustedOrderQuantity(order)}
+              </div>
+            )}
+            <div>
+              Shipping: {labelizeStatus(order.shipping_method ?? "standard")}
+            </div>
+            <div>Total: {formatMoney(order.total_amount_cents)}</div>
+          </div>
+
+          <div style={mutedPanelStyle()}>
+            <div style={{ fontWeight: 800, marginBottom: 5 }}>
+              Customer / Shipping
+            </div>
+            <div>{customerName}</div>
+            {showPatientName && <div>Patient: {patientName}</div>}
+            <div style={{ marginTop: 5 }}>{order.shipping_address1 ?? "-"}</div>
+            {order.shipping_address2 && <div>{order.shipping_address2}</div>}
+            <div>
+              {[order.shipping_city, order.shipping_state, order.shipping_zip]
+                .filter(Boolean)
+                .join(", ")}
+            </div>
+            <div style={{ marginTop: 5 }}>
+              Phone: {order.shipping_phone ?? "-"}
+            </div>
+            <div>Email: {order.shipping_email ?? "-"}</div>
+          </div>
+
+          <div style={mutedPanelStyle()}>
+            <div style={{ fontWeight: 800, marginBottom: 5 }}>
+              Payment Record
+            </div>
+            <div>Status: {payment.label}</div>
+            <div>Authorized: {formatMoney(order.total_amount_cents)}</div>
+            <div>
+              Capture: {formatMoney(effectiveCaptureAmountCents(order))}
+            </div>
+            <div>Stripe: {order.stripe_payment_intent_status ?? "-"}</div>
+            <div style={{ marginTop: 5 }}>
+              <CopyableValue value={order.payment_intent_id}>
+                PaymentIntent: {order.payment_intent_id ?? "-"}
+              </CopyableValue>
+            </div>
+            {isMerchantLane && (
+              <div
+                style={{
+                  display: "flex",
+                  gap: 6,
+                  flexWrap: "wrap",
+                  marginTop: 9,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={onAdjustQuantity}
+                  style={buttonStyle({ fontSize: 11 })}
+                >
+                  Adjust Quantity
+                </button>
+                <button
+                  type="button"
+                  onClick={onAdjustCapture}
+                  style={buttonStyle({ fontSize: 11 })}
+                >
+                  Adjust Capture
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div style={mutedPanelStyle()}>
+            <div style={{ fontWeight: 800, marginBottom: 5 }}>
+              Workflow / Audit
+            </div>
+            <div>Verification: {verification.label}</div>
+            <div>Fulfillment: {labelizeStatus(fulfillment)}</div>
+            <div>Rx source: {rxSource.label}</div>
+            <div>Rx detail: {rxStatus}</div>
+            <div style={{ marginTop: 5 }}>
+              Created: {formatAdminDateTime(order.created_at)}
+            </div>
+            <div>Updated: {formatAdminDateTime(order.updated_at)}</div>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                marginTop: 8,
+                fontWeight: 700,
+              }}
+            >
+              Admin override
+              <select
+                value={fulfillment}
+                disabled={savingOrderId === order.id}
+                onChange={(event) => {
+                  const status = event.target.value;
+                  if (isFulfillmentStatus(status)) {
+                    onOverrideFulfillment(status);
+                  }
+                }}
+                style={{ padding: "4px 7px", borderRadius: 4 }}
+              >
+                {FULFILLMENT_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
 
-        <div>
-          <div style={{ opacity: 0.68 }}>Reason</div>
-          <div>{order.order_quantity_adjustment_reason ?? "-"}</div>
-        </div>
+        <RxDetailsPanel order={order} />
 
-        <div>
-          <div style={{ opacity: 0.68 }}>Adjusted By</div>
-          {adjustedBy ? (
-            adjustedByIsEmail ? (
-              <a href={`mailto:${adjustedBy}`} style={{ color: "#67e8f9" }}>
-                {adjustedBy}
-              </a>
-            ) : (
-              <div>{adjustedBy}</div>
-            )
-          ) : (
-            <div>-</div>
-          )}
-        </div>
-
-        <div>
-          <div style={{ opacity: 0.68 }}>Adjusted At</div>
-          <div>{formatDateTime(order.order_quantity_adjusted_at)}</div>
-        </div>
-      </div>
-
-      {hasAdjustment && (
         <div
           style={{
-            marginTop: 10,
-            color: "#fde68a",
-            fontWeight: 700,
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            marginTop: 12,
           }}
         >
-          Corrected from submitted quantity. Original submitted quantity remains{" "}
-          {formatSubmittedOrderQuantity(order)}.
+          {order.rx_upload_path && (
+            <button type="button" onClick={onOpenRxImage} style={buttonStyle()}>
+              View Rx Image
+            </button>
+          )}
+          {orderSupportsAdminNotes(order) && (
+            <button type="button" onClick={onOpenNotes} style={buttonStyle()}>
+              Notes
+            </button>
+          )}
+          <button type="button" onClick={onCopyOrder} style={buttonStyle()}>
+            Copy Order
+          </button>
+          <button
+            type="button"
+            onClick={onArchive}
+            style={buttonStyle({ color: "#fbbf24" })}
+          >
+            Archive
+          </button>
         </div>
-      )}
-
-      <button
-        type="button"
-        onClick={onAdjust}
-        style={buttonStyle({
-          marginTop: 10,
-          background: "rgba(20,184,166,0.22)",
-        })}
-      >
-        Adjust Order Quantity
-      </button>
+      </section>
     </div>
   );
 }
@@ -1966,7 +1982,7 @@ export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [abandonedOrders, setAbandonedOrders] = useState<Order[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [rxExpanded, setRxExpanded] = useState<string | null>(null);
+  const [detailsOrderId, setDetailsOrderId] = useState<string | null>(null);
   const [recoveryDrafts, setRecoveryDrafts] = useState<
     Record<string, RecoveryEmailDraft>
   >({});
@@ -1987,6 +2003,9 @@ export default function AdminOrdersPage() {
     Set<string>
   >(() => new Set());
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
+  const [savingVerificationAttempt, setSavingVerificationAttempt] = useState<
+    string | null
+  >(null);
   const [highlightedOrderIds, setHighlightedOrderIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -2275,19 +2294,6 @@ export default function AdminOrdersPage() {
     });
   }
 
-  function startReturnRefund(order: Order, patientName: string) {
-    const existingNotes = order.admin_notes?.trim();
-    setNotesModal({
-      orderId: order.id,
-      patientName,
-      notes: [
-        existingNotes,
-        `[Return/refund started ${new Date().toLocaleDateString()}] `,
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-    });
-  }
 
   async function saveNotes() {
     if (!notesModal) return;
@@ -2296,6 +2302,46 @@ export default function AdminOrdersPage() {
       admin_notes: notesModal.notes,
     });
     if (ok) setNotesModal(null);
+  }
+
+  async function recordVerificationAttempt(
+    orderId: string,
+    method: ManualVerificationAttemptMethod,
+  ) {
+    const attemptKey = `${orderId}:${method}`;
+    setSavingVerificationAttempt(attemptKey);
+    setAdminError(null);
+
+    try {
+      const response = await fetch(
+        `/api/admin/orders/${orderId}/verification-attempt`,
+        {
+          method: "POST",
+          headers: await authHeaders(),
+          credentials: "same-origin",
+          body: JSON.stringify({ method }),
+        },
+      );
+      const payload = await readAdminApiPayload(response);
+
+      if (!response.ok) {
+        setAdminError(
+          adminApiErrorMessage(
+            payload,
+            `Unable to record the ${method} verification attempt.`,
+          ),
+        );
+        return;
+      }
+
+      await fetchData();
+      setAdminNotice({
+        tone: "success",
+        message: `Prescriber ${method} attempt recorded.`,
+      });
+    } finally {
+      setSavingVerificationAttempt(null);
+    }
   }
 
   function openCaptureAdjustment(order: Order, patientName: string) {
@@ -2949,6 +2995,10 @@ export default function AdminOrdersPage() {
     orders: sortSectionOrders(activeOrdersByBucket[section.key]),
   }));
   const archiveCount = archiveOrders.length + abandonedOrders.length;
+  const detailsOrder =
+    orders.find((order) => order.id === detailsOrderId) ??
+    abandonedOrders.find((order) => order.id === detailsOrderId) ??
+    null;
   const selectedAbandonedOrders = abandonedOrders.filter((order) =>
     selectedAbandonedOrderIds.has(order.id),
   );
@@ -3040,31 +3090,26 @@ export default function AdminOrdersPage() {
 
       {queueIntegrityIssues.length > 0 && (
         <div
-          role="alert"
+          role="status"
           style={{
-            border: "2px solid rgba(248,113,113,0.75)",
-            borderRadius: 10,
-            background: "rgba(127,29,29,0.28)",
-            color: "#fecaca",
-            padding: "12px 14px",
-            marginBottom: 16,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            border: "1px solid rgba(148,163,184,0.2)",
+            borderRadius: 7,
+            background: "rgba(15,23,42,0.4)",
+            color: "#cbd5e1",
+            padding: "5px 8px",
+            marginBottom: 12,
+            fontSize: 12,
           }}
         >
-          <div style={{ fontWeight: 950 }}>
-            Work queue integrity warning ({queueIntegrityIssues.length})
-          </div>
-          <div style={{ marginTop: 4, fontSize: 12 }}>
-            These orders remain visible under Resolve Exception. Review each
-            stated conflict before continuing.
-          </div>
-          <ul style={{ margin: "8px 0 0", paddingLeft: 20, fontSize: 12 }}>
-            {queueIntegrityIssues.map((issue) => (
-              <li key={`${issue.orderId}-${issue.code}`}>
-                <strong>{issue.customerName}</strong> ({issue.orderId}):{" "}
-                {issue.message}
-              </li>
-            ))}
-          </ul>
+          <span style={{ fontWeight: 750 }}>
+            System Health ({queueIntegrityIssues.length})
+          </span>
+          <a href="/admin/system-health" style={{ color: "#7dd3fc" }}>
+            Review
+          </a>
         </div>
       )}
 
@@ -3108,652 +3153,37 @@ export default function AdminOrdersPage() {
               <div
                 style={{ display: "flex", flexDirection: "column", gap: 10 }}
               >
-                {section.orders.map((o) => {
-          const activitySummary = formatOrderActivitySummary(o);
-          const captureState = paymentCaptureSummary(o);
-          const rxLines = formatCollapsedRxLine(o);
-          const lensDisplay = getOrderLensDisplayName(o);
-          const nextAction = getNextAction(o);
-          const rx = parseRx(o);
-          const rxStatus = displayRxStatus(o);
-          const rxSource = getRxSourceState(o);
-          const payment = paymentStatus(o);
-          const verification = getVerificationStatus(o);
-          const fulfillment = normalizedFulfillmentStatus(o);
-          const queueBucket = getOrderOperationalBucket(o);
-          const isMerchantLane = isMerchantQueueBucket(queueBucket);
-          const nextFulfillment = nextFulfillmentStatus(fulfillment);
-          const previousFulfillment = previousFulfillmentStatus(fulfillment);
-          const submittedQuantityDisplay = formatSubmittedOrderQuantity(o);
-          const adjustedQuantityDisplay = hasAdjustedOrderQuantity(o)
-            ? formatAdjustedOrderQuantity(o)
-            : null;
-          const isHighlighted = highlightedOrderIds.has(o.id);
-          const statusFlags = getOrderStatusFlags(o);
-          const isPriorityCard = section.key === "resolve_exception";
-
-          const patientName = getPatientName(o);
-          const customerName = getCustomerName(o);
-          const showPatientName = namesDiffer(patientName, customerName);
-
-          const isOpen = expanded === o.id;
-          const isRxOpen = rxExpanded === o.id;
-
-          const boxDisplay = formatOrderQuantitySummary(o);
-
-          return (
-            <div
-              key={o.id}
-              style={{
-                border: isHighlighted
-                  ? "1px solid rgba(186,230,253,0.95)"
-                  : "1px solid rgba(148,163,184,0.2)",
-                borderRadius: isPriorityCard ? 10 : 8,
-                padding: isPriorityCard ? "11px 13px" : "8px 10px",
-                background: isOpen
-                  ? "rgba(30,41,59,0.6)"
-                  : isHighlighted
-                    ? "rgba(14,165,233,0.08)"
-                    : "transparent",
-                boxShadow: isHighlighted
-                  ? "0 0 0 1px rgba(186,230,253,0.18), 0 0 20px rgba(14,165,233,0.16)"
-                  : "none",
-                opacity: 1,
-              }}
-            >
-              <div
-                onClick={() => {
-                  clearOrderHighlight(o.id);
-                  setExpanded(isOpen ? null : o.id);
-                }}
-                style={{ cursor: "pointer" }}
-              >
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: isPriorityCard
-                      ? "128px minmax(260px, 1.35fr) minmax(260px, 1fr)"
-                      : "118px minmax(230px, 1.25fr) minmax(240px, 1fr)",
-                    gap: isPriorityCard ? 12 : 10,
-                    alignItems: "start",
-                    fontSize: 12,
-                    lineHeight: 1.35,
-                  }}
-                >
-                  <div>
-                    <div style={{ opacity: 0.58, fontSize: 11, fontWeight: 800 }}>
-                      Last activity
-                    </div>
-                    <div style={{ fontWeight: 800, fontSize: 14 }}>
-                      {activitySummary.date}
-                    </div>
-                    <div
-                      style={{
-                        opacity: 0.72,
-                        color: activitySummary.isMaterial ? "#bae6fd" : "inherit",
-                      }}
-                    >
-                      {activitySummary.relative
-                        ? `${activitySummary.time} \u2022 ${activitySummary.relative}`
-                        : activitySummary.time}
-                    </div>
-
-                    <div style={{ marginTop: 2 }}>
-                      <div
-                        style={{
-                          marginTop: 2,
-                          color: "rgba(226,232,240,0.52)",
-                          fontSize: 11,
-                        }}
-                      >
-                        {activitySummary.reason}
-                      </div>
-                    </div>
-                    {statusFlags.length > 0 && (
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 4,
-                          flexWrap: "wrap",
-                          marginTop: 7,
-                        }}
-                      >
-                        {statusFlags.map((flag) => (
-                          <span
-                            key={`${o.id}-${flag.label}-${flag.title}`}
-                            style={compactBadgeStyle(flag.tone)}
-                            title={flag.title}
-                          >
-                            {flag.label}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    {isHighlighted && (
-                      <div
-                        style={{
-                          marginTop: 6,
-                          color: "#bae6fd",
-                          fontWeight: 700,
-                        }}
-                      >
-                        New payment
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <div style={{ opacity: 0.64, fontSize: 11 }}>
-                      Customer
-                    </div>
-                    <div style={{ fontWeight: 800, fontSize: 13 }}>
-                      {customerName}
-                    </div>
-                    {showPatientName && (
-                      <div style={{ marginTop: 2, opacity: 0.76 }}>
-                        Patient: {patientName}
-                      </div>
-                    )}
-                    <div style={{ marginTop: 6 }}>
-                      <CopyableValue value={o.shipping_address1} />
-                    </div>
-                    {o.shipping_address2 && (
-                      <div>
-                        <CopyableValue value={o.shipping_address2} />
-                      </div>
-                    )}
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 6,
-                        flexWrap: "wrap",
-                        alignItems: "baseline",
-                      }}
-                    >
-                      <CopyableValue value={o.shipping_city} />
-                      {o.shipping_state && (
-                        <span style={{ opacity: 0.75 }}>
-                          {o.shipping_state}
-                        </span>
-                      )}
-                      <CopyableValue value={o.shipping_zip} />
-                    </div>
-                    <div style={{ marginTop: 6 }}>
-                      {o.shipping_phone ? (
-                        <CopyableValue value={o.shipping_phone}>
-                          Phone: {o.shipping_phone}
-                        </CopyableValue>
-                      ) : (
-                        <span style={{ opacity: 0.58 }}>Phone: -</span>
-                      )}
-                    </div>
-                    <div style={{ marginTop: 3 }}>
-                      {o.shipping_email ? (
-                        <CopyableValue value={o.shipping_email}>
-                          Email: {o.shipping_email}
-                        </CopyableValue>
-                      ) : (
-                        <span style={{ opacity: 0.58 }}>Email: -</span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 6,
-                        alignItems: "center",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <span style={badgeStyle(captureState.tone)}>
-                        {captureState.label}
-                      </span>
-                      <span style={{ opacity: 0.72 }}>
-                        {hasCaptureAdjustment(o)
-                          ? `Capture ${formatMoney(
-                              effectiveCaptureAmountCents(o),
-                            )} / Auth ${formatMoney(o.total_amount_cents)}`
-                          : formatMoney(o.total_amount_cents)}
-                      </span>
-                    </div>
-
-                    <div style={{ marginTop: 7, fontWeight: 800 }}>
-                      {lensDisplay}
-                    </div>
-
-                    <div
-                      style={{
-                        marginTop: 3,
-                        color: "rgba(226,232,240,0.85)",
-                      }}
-                    >
-                      {rxLines.length > 0 ? (
-                        rxLines.map((line) => <div key={line}>{line}</div>)
-                      ) : (
-                        <div>Rx pending</div>
-                      )}
-                    </div>
-
-                    <div style={{ marginTop: 5, opacity: 0.76 }}>
-                      {boxDisplay}
-                    </div>
-
-                    <div style={{ marginTop: 2, opacity: 0.76 }}>
-                      {o.shipping_method === "express" ? "Express" : "Standard"}{" "}
-                      shipping {formatMoney(o.shipping_cents ?? 0)}
-                    </div>
-
-                    <div style={{ marginTop: 5, fontWeight: 800 }}>
-                      Next: {nextAction.label}
-                    </div>
-                    {queueBucket === "resolve_exception" && (
-                      <div
-                        style={{
-                          marginTop: 5,
-                          color: "#fde68a",
-                          fontWeight: 850,
-                        }}
-                      >
-                        Reason:{" "}
-                        {getOrderOperationalClassification(o).reasons.join(
-                          "; ",
-                        )}
-                      </div>
-                    )}
-
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 8,
-                        flexWrap: "wrap",
-                        marginTop: 8,
-                      }}
-                    >
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setRxExpanded(isRxOpen ? null : o.id);
-                        }}
-                        style={buttonStyle({ fontSize: 12 })}
-                      >
-                        {isRxOpen ? "Hide Rx" : "View Rx"}
-                      </button>
-
-                      {o.rx_upload_path && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openRxImage(o, customerName);
-                          }}
-                          style={buttonStyle({ fontSize: 12 })}
-                        >
-                          View Rx Image
-                        </button>
-                      )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          clearOrderHighlight(o.id);
-                          setExpanded(isOpen ? null : o.id);
-                        }}
-                        style={buttonStyle({ fontSize: 12 })}
-                        aria-expanded={isOpen}
-                      >
-                        {isOpen ? "Hide Details" : "Details"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {isRxOpen && !isOpen && <RxDetailsPanel order={o} />}
-
-              {isOpen && (
-                <div
-                  style={{
-                    marginTop: 12,
-                    fontSize: 13,
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <OperationalReasonBanner order={o} />
-                  <NextActionBanner order={o} />
-                  <EmailDeliveryWarning order={o} />
-
-                  <div
-                    style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: 6,
-                      marginBottom: 10,
+                {section.orders.map((o) => (
+                  <ActiveOrderCard
+                    key={o.id}
+                    order={o}
+                    sectionTitle={section.title}
+                    sectionKey={section.key}
+                    isOpen={expanded === o.id}
+                    isHighlighted={highlightedOrderIds.has(o.id)}
+                    savingOrderId={savingOrderId}
+                    savingVerificationAttempt={savingVerificationAttempt}
+                    onToggleProcess={() => {
+                      clearOrderHighlight(o.id);
+                      setExpanded(expanded === o.id ? null : o.id);
                     }}
-                  >
-                    <span style={badgeStyle(payment.tone)}>
-                      Payment: {payment.label}
-                    </span>
-                    <span style={badgeStyle(verification.tone)}>
-                      Verification: {verification.label}
-                    </span>
-                    <span style={badgeStyle(fulfillmentTone(fulfillment))}>
-                      Fulfillment: {labelizeStatus(fulfillment)}
-                    </span>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                      gap: 10,
-                      marginTop: 12,
-                      marginBottom: 12,
-                    }}
-                  >
-                    <div style={mutedPanelStyle()}>
-                      <div style={{ fontWeight: 800, marginBottom: 6 }}>
-                        Order Summary
-                      </div>
-                      <div>Ordered: {lensDisplay}</div>
-                      {adjustedQuantityDisplay ? (
-                        <>
-                          <div>
-                            Corrected quantity: {adjustedQuantityDisplay}
-                          </div>
-                          <div>
-                            Submitted quantity: {submittedQuantityDisplay}
-                          </div>
-                        </>
-                      ) : (
-                        <div>Submitted quantity: {submittedQuantityDisplay}</div>
-                      )}
-                      <div>
-                        Authorized: {formatMoney(o.total_amount_cents)}
-                      </div>
-                      <div>
-                        Capture:{" "}
-                        {formatMoney(effectiveCaptureAmountCents(o))}
-                      </div>
-                      <div>Next: {nextAction.label}</div>
-                    </div>
-
-                    <div style={mutedPanelStyle()}>
-                      <div style={{ fontWeight: 800, marginBottom: 6 }}>
-                        Customer / Shipping
-                      </div>
-                      <div>Customer: {customerName}</div>
-                      {showPatientName && (
-                        <div>Patient: {patientName}</div>
-                      )}
-                      <div style={{ marginTop: 6 }}>{o.shipping_address1 ?? "-"}</div>
-                      {o.shipping_address2 && <div>{o.shipping_address2}</div>}
-                      <div>
-                        {[o.shipping_city, o.shipping_state, o.shipping_zip]
-                          .filter(Boolean)
-                          .join(", ")}
-                      </div>
-                      <div style={{ marginTop: 6 }}>
-                        {o.shipping_phone ? (
-                          <CopyableValue value={o.shipping_phone}>
-                            Phone: {o.shipping_phone}
-                          </CopyableValue>
-                        ) : (
-                          "Phone: -"
-                        )}
-                      </div>
-                      <div>
-                        {o.shipping_email ? (
-                          <CopyableValue value={o.shipping_email}>
-                            Email: {o.shipping_email}
-                          </CopyableValue>
-                        ) : (
-                          "Email: -"
-                        )}
-                      </div>
-                    </div>
-
-                    <div style={mutedPanelStyle()}>
-                      <div style={{ fontWeight: 800, marginBottom: 6 }}>
-                        Payment
-                      </div>
-                      <div>Status: {payment.label}</div>
-                      <div>Authorized: {formatMoney(o.total_amount_cents)}</div>
-                      <div>
-                        Capture:{" "}
-                        {formatMoney(effectiveCaptureAmountCents(o))}
-                      </div>
-                      <div>
-                        Shipping:{" "}
-                        {o.shipping_method === "express"
-                          ? "Express"
-                          : "Standard"}{" "}
-                        {formatMoney(o.shipping_cents ?? 0)}
-                      </div>
-                      {o.payment_intent_id && (
-                        <div>
-                          <CopyableValue value={o.payment_intent_id}>
-                            PI: {o.payment_intent_id}
-                          </CopyableValue>
-                        </div>
-                      )}
-                      {o.stripe_payment_intent_status && (
-                        <div>Stripe status: {o.stripe_payment_intent_status}</div>
-                      )}
-                    </div>
-
-                    <div style={mutedPanelStyle()}>
-                      <div style={{ fontWeight: 800, marginBottom: 6 }}>
-                        Prescriber
-                      </div>
-                      <div>Name: {o.prescriber_name ?? "-"}</div>
-                      <div>Email: {o.prescriber_email ?? "-"}</div>
-                      <div>Phone: {o.prescriber_phone ?? "-"}</div>
-                    </div>
-
-                    <div style={mutedPanelStyle()}>
-                      <div style={{ fontWeight: 800, marginBottom: 6 }}>
-                        Internal / Audit
-                      </div>
-                      <div>
-                        <CopyableValue value={o.id}>Order: {o.id}</CopyableValue>
-                      </div>
-                      <div>Created: {formatDateTime(o.created_at)}</div>
-                      <div>Updated: {formatDateTime(o.updated_at)}</div>
-                      <div>Rx source: {rxSource.label}</div>
-                      <div>Rx detail: {rxStatus}</div>
-                      {rx.exp && <div>Rx exp: {rx.exp}</div>}
-                    </div>
-                  </div>
-
-                  {isMerchantLane && (
-                    <>
-                      <OrderQuantityAdjustmentPanel
-                        order={o}
-                        onAdjust={() =>
-                          openOrderQuantityAdjustment(
-                            o,
-                            customerName,
-                          )
-                        }
-                      />
-
-                      <PaymentAdjustmentPanel
-                        order={o}
-                        onAdjust={() =>
-                          openCaptureAdjustment(
-                            o,
-                            customerName,
-                          )
-                        }
-                      />
-                    </>
-                  )}
-
-                  {o.rx_upload_path && (
-                    <div style={{ ...mutedPanelStyle(), marginBottom: 12 }}>
-                      <div style={{ fontWeight: 800, marginBottom: 6 }}>
-                        Rx Image
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openRxImage(o, customerName);
-                        }}
-                        style={buttonStyle()}
-                      >
-                        View Rx Image
-                      </button>
-                      <div style={{ marginTop: 6, opacity: 0.72 }}>
-                        {o.rx_upload_path}
-                      </div>
-                    </div>
-                  )}
-
-                  <RxDetailsPanel order={o} />
-
-                  <div
-                    style={{
-                      ...mutedPanelStyle(),
-                      display: "grid",
-                      gap: 10,
-                      marginBottom: 12,
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 8,
-                        alignItems: "center",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      {previousFulfillment && (
-                        <button
-                          type="button"
-                          disabled={savingOrderId === o.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            updateFulfillmentStatus(o, previousFulfillment);
-                          }}
-                          style={buttonStyle()}
-                        >
-                          Undo to {labelizeStatus(previousFulfillment)}
-                        </button>
-                      )}
-
-                      {nextFulfillment && (
-                        <button
-                          type="button"
-                          disabled={savingOrderId === o.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            updateFulfillmentStatus(o, nextFulfillment);
-                          }}
-                          style={buttonStyle({
-                            background: "rgba(20,184,166,0.22)",
-                          })}
-                        >
-                          {workflowActionLabel(fulfillment, nextFulfillment)}
-                        </button>
-                      )}
-
-                      {fulfillment === "completed" && orderSupportsAdminNotes(o) && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startReturnRefund(
-                              o,
-                              customerName,
-                            );
-                          }}
-                          style={buttonStyle({
-                            background: "rgba(236,72,153,0.18)",
-                          })}
-                        >
-                          Start Return / Refund
-                        </button>
-                      )}
-
-                      <label style={{ fontWeight: 700 }}>
-                        Advanced override
-                        <select
-                          value={fulfillment}
-                          disabled={savingOrderId === o.id}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            const next = e.target.value;
-                            if (isFulfillmentStatus(next)) {
-                              updateFulfillmentStatus(o, next);
-                            }
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          style={{
-                            marginLeft: 8,
-                            padding: "4px 8px",
-                            borderRadius: 4,
-                          }}
-                        >
-                          {FULFILLMENT_STATUSES.map((status) => (
-                            <option key={status} value={status}>
-                              {status}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      {savingOrderId === o.id && <span>Saving...</span>}
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-                    {orderSupportsAdminNotes(o) && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openNotes(o, customerName);
-                        }}
-                        onClickCapture={(e) => e.stopPropagation()}
-                        style={buttonStyle()}
-                      >
-                        Notes
-                      </button>
-                    )}
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        copyOrderText(o, rx);
-                      }}
-                      onClickCapture={(e) => e.stopPropagation()}
-                      style={buttonStyle()}
-                    >
-                      Copy Order
-                    </button>
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        archiveOrder(o.id);
-                      }}
-                      onClickCapture={(e) => e.stopPropagation()}
-                      style={buttonStyle({ color: "#fbbf24" })}
-                    >
-                      Archive
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-                })}
+                    onOpenDetails={() => setDetailsOrderId(o.id)}
+                    onOpenRxImage={() => openRxImage(o, getCustomerName(o))}
+                    onRecordVerificationAttempt={(method) =>
+                      recordVerificationAttempt(o.id, method)
+                    }
+                    onAdvanceFulfillment={(status) =>
+                      updateFulfillmentStatus(o, status)
+                    }
+                  />
+                ))}
               </div>
             )}
           </section>
         ))}
       </div>
 
-      <section style={{ marginTop: 34 }}>
+      <section id="order-history" style={{ marginTop: 34 }}>
         <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>
           History / Archive ({archiveCount})
         </h2>
@@ -3842,207 +3272,52 @@ export default function AdminOrdersPage() {
 
             {archiveOrders.map((o) => {
               const status = archiveOrderStatus(o);
-              const isOpen = expanded === o.id;
               const dateTime = formatOrderCreatedDate(o);
               const customerName = getCustomerName(o);
               const patientName = getPatientName(o);
               const showPatientName = namesDiffer(patientName, customerName);
-              const addressLine = [o.shipping_address1, o.shipping_address2]
-                .filter(Boolean)
-                .join(", ");
-              const cityLine = [o.shipping_city, o.shipping_state, o.shipping_zip]
-                .filter(Boolean)
-                .join(", ");
-              const nextAction = getNextAction(o);
-              const adjustedQuantityDisplay = hasAdjustedOrderQuantity(o)
-                ? formatAdjustedOrderQuantity(o)
-                : null;
-              const submittedQuantityDisplay = formatSubmittedOrderQuantity(o);
-              const rx = parseRx(o);
 
               return (
-                <div key={o.id}>
-                  <button
-                    type="button"
-                    onClick={() => setExpanded(isOpen ? null : o.id)}
-                    aria-expanded={isOpen}
-                    style={{
-                      width: "100%",
-                      minHeight: 68,
-                      display: "grid",
-                      gridTemplateColumns:
-                        "92px minmax(260px, 1fr) 100px 150px 80px",
-                      gap: 10,
-                      alignItems: "start",
-                      border: "1px solid rgba(148,163,184,0.14)",
-                      borderRadius: 8,
-                      background: isOpen
-                        ? "rgba(30,41,59,0.45)"
-                        : "rgba(15,23,42,0.22)",
-                      color: "inherit",
-                      padding: "6px 10px",
-                      textAlign: "left",
-                      cursor: "pointer",
-                      fontSize: 12,
-                    }}
-                  >
-                    <span style={{ fontWeight: 800 }}>{dateTime.date}</span>
-                    <span>
-                      <span style={{ display: "block", fontWeight: 800 }}>
-                        {customerName}
-                      </span>
-                      {showPatientName && (
-                        <span style={{ display: "block", opacity: 0.78 }}>
-                          Patient: {patientName}
-                        </span>
-                      )}
-                      <span style={{ display: "block", opacity: 0.78 }}>
-                        {addressLine || "-"}
-                      </span>
-                      <span style={{ display: "block", opacity: 0.78 }}>
-                        {cityLine || "-"}
-                      </span>
-                      <span style={{ display: "block", opacity: 0.78 }}>
-                        Phone: {o.shipping_phone ?? "-"} | Email:{" "}
-                        {o.shipping_email ?? "-"}
-                      </span>
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => setDetailsOrderId(o.id)}
+                  aria-haspopup="dialog"
+                  style={{
+                    width: "100%",
+                    minHeight: 44,
+                    display: "grid",
+                    gridTemplateColumns:
+                      "92px minmax(260px, 1fr) 100px 150px 110px",
+                    gap: 10,
+                    alignItems: "center",
+                    border: "1px solid rgba(148,163,184,0.14)",
+                    borderRadius: 8,
+                    background: "rgba(15,23,42,0.22)",
+                    color: "inherit",
+                    padding: "6px 10px",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  <span style={{ fontWeight: 800 }}>{dateTime.date}</span>
+                  <span>
+                    <span style={{ display: "block", fontWeight: 800 }}>
+                      {customerName}
                     </span>
-                    <span>
-                      {hasCaptureAdjustment(o)
-                        ? `Capture ${formatMoney(
-                            effectiveCaptureAmountCents(o),
-                          )} / Auth ${formatMoney(o.total_amount_cents)}`
-                        : formatMoney(o.total_amount_cents)}
-                    </span>
-                    <span style={badgeStyle(status.tone)}>{status.label}</span>
-                    <span style={{ textAlign: "right", opacity: 0.7 }}>
-                      {isOpen ? "Hide" : "Details"}
-                    </span>
-                  </button>
-
-                  {isOpen && (
-                    <div
-                      style={{
-                        ...mutedPanelStyle(),
-                        marginTop: 6,
-                        marginBottom: 8,
-                        fontSize: 13,
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns:
-                            "repeat(auto-fit, minmax(220px, 1fr))",
-                          gap: 10,
-                          marginBottom: 12,
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontWeight: 800, marginBottom: 4 }}>
-                            Order
-                          </div>
-                          <div>Status: {status.label}</div>
-                          <div>Authorized: {formatMoney(o.total_amount_cents)}</div>
-                          <div>
-                            Capture:{" "}
-                            {formatMoney(effectiveCaptureAmountCents(o))}
-                          </div>
-                          <div>
-                            Payment: {paymentStatus(o).label}
-                          </div>
-                          <div>
-                            Fulfillment:{" "}
-                            {labelizeStatus(normalizedFulfillmentStatus(o))}
-                          </div>
-                          <div>Next: {nextAction.label}</div>
-                        </div>
-
-                        <div>
-                          <div style={{ fontWeight: 800, marginBottom: 4 }}>
-                            Customer
-                          </div>
-                          <div>Customer: {customerName}</div>
-                          {showPatientName && <div>Patient: {patientName}</div>}
-                          <div style={{ marginTop: 4 }}>{addressLine || "-"}</div>
-                          <div>{cityLine || "-"}</div>
-                          <div style={{ marginTop: 4 }}>
-                            Phone: {o.shipping_phone ?? "-"}
-                          </div>
-                          <div>Email: {o.shipping_email ?? "-"}</div>
-                        </div>
-
-                        <div>
-                          <div style={{ fontWeight: 800, marginBottom: 4 }}>
-                            Rx / Fulfillment
-                          </div>
-                          <div>{getOrderLensDisplayName(o)}</div>
-                          {adjustedQuantityDisplay ? (
-                            <>
-                              <div>
-                                Corrected quantity: {adjustedQuantityDisplay}
-                              </div>
-                              <div>
-                                Submitted quantity: {submittedQuantityDisplay}
-                              </div>
-                            </>
-                          ) : (
-                            <div>Submitted quantity: {submittedQuantityDisplay}</div>
-                          )}
-                          <div>
-                            {o.shipping_method === "express"
-                              ? "Express"
-                              : "Standard"}{" "}
-                            shipping {formatMoney(o.shipping_cents ?? 0)}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          flexWrap: "wrap",
-                          marginBottom: 12,
-                        }}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setRxExpanded(rxExpanded === o.id ? null : o.id)}
-                          style={buttonStyle()}
-                        >
-                          {rxExpanded === o.id ? "Hide Rx" : "View Rx"}
-                        </button>
-                        {o.rx_upload_path && (
-                          <button
-                            type="button"
-                            onClick={() => openRxImage(o, patientName)}
-                            style={buttonStyle()}
-                          >
-                            View Rx Image
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => openNotes(o, patientName)}
-                          style={buttonStyle()}
-                        >
-                          Notes
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => copyOrderText(o, rx)}
-                          style={buttonStyle()}
-                        >
-                          Copy Order
-                        </button>
-                      </div>
-
-                      {rxExpanded === o.id && <RxDetailsPanel order={o} />}
-                    </div>
-                  )}
-                </div>
+                    {showPatientName && (
+                      <span style={{ display: "block", opacity: 0.72 }}>
+                        Patient: {patientName}
+                      </span>
+                    )}
+                  </span>
+                  <span>{formatMoney(o.total_amount_cents)}</span>
+                  <span style={badgeStyle(status.tone)}>{status.label}</span>
+                  <span style={{ textAlign: "right", color: "#7dd3fc" }}>
+                    Order Details
+                  </span>
+                </button>
               );
             })}
 
@@ -4164,8 +3439,8 @@ export default function AdminOrdersPage() {
                           <div style={{ fontWeight: 800, marginBottom: 4 }}>
                             Draft
                           </div>
-                          <div>Created: {formatDateTime(o.created_at)}</div>
-                          <div>Updated: {formatDateTime(o.updated_at)}</div>
+                          <div>Created: {formatAdminDateTime(o.created_at)}</div>
+                          <div>Updated: {formatAdminDateTime(o.updated_at)}</div>
                           <div>Age: {formatAge(info?.ageHours)}</div>
                         </div>
 
@@ -4261,6 +3536,37 @@ export default function AdminOrdersPage() {
           </div>
         )}
       </section>
+
+      {detailsOrder && (
+        <OrderDetailsModal
+          order={detailsOrder}
+          savingOrderId={savingOrderId}
+          onClose={() => setDetailsOrderId(null)}
+          onOpenRxImage={() =>
+            openRxImage(detailsOrder, getCustomerName(detailsOrder))
+          }
+          onOpenNotes={() =>
+            openNotes(detailsOrder, getCustomerName(detailsOrder))
+          }
+          onCopyOrder={() => copyOrderText(detailsOrder, parseRx(detailsOrder))}
+          onArchive={() => {
+            setDetailsOrderId(null);
+            archiveOrder(detailsOrder.id);
+          }}
+          onAdjustQuantity={() =>
+            openOrderQuantityAdjustment(
+              detailsOrder,
+              getCustomerName(detailsOrder),
+            )
+          }
+          onAdjustCapture={() =>
+            openCaptureAdjustment(detailsOrder, getCustomerName(detailsOrder))
+          }
+          onOverrideFulfillment={(status) =>
+            updateFulfillmentStatus(detailsOrder, status)
+          }
+        />
+      )}
 
       {permanentDeleteModal && (
         <div
