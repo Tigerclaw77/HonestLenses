@@ -76,6 +76,15 @@ export type OperationalQueueOrder = NextActionOrder & {
   id?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  verification_requested_at?: string | null;
+  verification_completed_at?: string | null;
+  verification_sent_at?: string | null;
+  verification_details_submitted_at?: string | null;
+  capture_adjusted_at?: string | null;
+  order_quantity_adjusted_at?: string | null;
+  email_last_event_at?: string | null;
+  confirmation_email_sent_at?: string | null;
+  confirmation_email_delivered_at?: string | null;
   admin_notes?: string | null;
   shipping_email?: string | null;
   shipping_first_name?: string | null;
@@ -112,6 +121,16 @@ type FulfillmentStatus =
 type OperationalQueueOptions = {
   now?: Date;
   recentShippedDays?: number;
+};
+
+export type OperationalActivityEvent = {
+  event_type?: string | null;
+  created_at?: string | null;
+};
+
+export type OperationalActivity = {
+  at: string | null;
+  reason: string;
 };
 
 const CUSTOMER_BLOCKED_NEXT_ACTION_LABELS = new Set([
@@ -228,6 +247,91 @@ function uniqueReasons(reasons: string[]): string[] {
   return [...new Set(reasons.map((reason) => reason.trim()).filter(Boolean))];
 }
 
+function activityReasonForEvent(eventType: string): string {
+  const knownReasons: Record<string, string> = {
+    admin_fulfillment_override: "Fulfillment updated by admin",
+    admin_order_archived: "Order archived",
+    admin_verification_override: "Verification updated by admin",
+    order_cancelled_by_customer: "Order cancelled by customer",
+    verification_fax_attempted: "Prescriber fax attempted",
+    verification_information_needed: "Verification information requested",
+    verification_phone_attempted: "Prescriber phone attempted",
+  };
+  return (
+    knownReasons[eventType] ??
+    eventType
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase())
+  );
+}
+
+export function getLastOperationalActivity(
+  order: OperationalQueueOrder,
+  latestEvent?: OperationalActivityEvent | null,
+): OperationalActivity {
+  const candidates: Array<{
+    at?: string | null;
+    reason: string;
+  }> = [
+    { at: order.created_at, reason: "Order created" },
+    {
+      at: order.verification_requested_at,
+      reason: "Prescription verification requested",
+    },
+    {
+      at: order.verification_sent_at,
+      reason: "Prescription verification sent",
+    },
+    {
+      at: order.verification_details_submitted_at,
+      reason: "Verification details submitted",
+    },
+    {
+      at: order.verification_completed_at,
+      reason: "Prescription verification completed",
+    },
+    {
+      at: order.capture_adjusted_at,
+      reason: "Capture amount adjusted",
+    },
+    {
+      at: order.order_quantity_adjusted_at,
+      reason: "Order quantity adjusted",
+    },
+    {
+      at: order.confirmation_email_sent_at,
+      reason: "Order confirmation sent",
+    },
+    {
+      at: order.confirmation_email_delivered_at,
+      reason: "Order confirmation delivered",
+    },
+    {
+      at: order.email_last_event_at,
+      reason: "Customer email status updated",
+    },
+    { at: order.archived_at, reason: "Order archived" },
+    {
+      at: latestEvent?.created_at,
+      reason: latestEvent?.event_type
+        ? activityReasonForEvent(latestEvent.event_type)
+        : "Order event recorded",
+    },
+  ];
+
+  const latest = candidates
+    .map((candidate) => ({
+      ...candidate,
+      timestamp: Date.parse(candidate.at ?? ""),
+    }))
+    .filter((candidate) => Number.isFinite(candidate.timestamp))
+    .sort((left, right) => right.timestamp - left.timestamp)[0];
+
+  return latest
+    ? { at: latest.at ?? null, reason: latest.reason }
+    : { at: null, reason: "No operational activity recorded" };
+}
+
 function explicitFounderActionReasons(
   order: OperationalQueueOrder,
 ): string[] {
@@ -261,16 +365,10 @@ function stateExceptionReasons(
   fulfillment: FulfillmentStatus,
   paymentStatus: PaymentLifecycleStatus,
 ): string[] {
-  const reasons = explicitFounderActionReasons(order);
+  const reasons: string[] = [];
   const rawFulfillment = normalizedText(order.fulfillment_status);
   const localStatus = normalizedText(order.status);
   const stripeStatus = normalizedText(order.stripe_payment_intent_status);
-
-  if (order.payment_status_source === "stripe_lookup_failed") {
-    reasons.push(
-      "Stripe payment status could not be refreshed; confirm payment before continuing.",
-    );
-  }
 
   if (
     rawFulfillment &&
@@ -423,6 +521,24 @@ export function classifyOperationalQueue(
     );
   }
 
+  const founderActionReasons = explicitFounderActionReasons(order);
+  if (founderActionReasons.length > 0) {
+    return classify(
+      "resolve_exception",
+      true,
+      founderActionReasons,
+      order,
+    );
+  }
+
+  if (
+    fulfillment === "completed" ||
+    fulfillment === "cancelled" ||
+    payment.status === "refunded"
+  ) {
+    return classify("history_archive", false, ["terminal"], order);
+  }
+
   if (hasEmailDeliveryAttention(order)) {
     return classify(
       "resolve_exception",
@@ -463,14 +579,6 @@ export function classifyOperationalQueue(
       ],
       order,
     );
-  }
-
-  if (
-    fulfillment === "completed" ||
-    fulfillment === "cancelled" ||
-    payment.status === "refunded"
-  ) {
-    return classify("history_archive", false, ["terminal"], order);
   }
 
   if (fulfillment === "hold") {

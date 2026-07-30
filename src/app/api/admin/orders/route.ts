@@ -14,6 +14,7 @@ import {
   requireAdminUser,
 } from "@/lib/admin-auth";
 import {
+  getLastOperationalActivity,
   groupOperationalQueueOrders,
   type ClassifiedOperationalOrder,
   type OperationalQueueIntegrityIssue,
@@ -22,6 +23,7 @@ import {
   projectPaymentState,
   type PaymentLifecycleStatus,
 } from "@/lib/orders/paymentState";
+import { collectLatestVerificationAttempts } from "@/lib/orders/verificationAttempts";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
@@ -64,6 +66,7 @@ type OrderRow = {
   prescriber_name?: string | null;
   prescriber_email?: string | null;
   prescriber_phone?: string | null;
+  prescriber_fax?: string | null;
   shipping_email?: string | null;
   shipping_first_name?: string | null;
   shipping_last_name?: string | null;
@@ -74,6 +77,7 @@ type OrderRow = {
   capture_adjustment_reason?: string | null;
   capture_adjusted_by?: string | null;
   capture_adjusted_at?: string | null;
+  order_quantity_adjusted_at?: string | null;
   shipping_cents?: number | null;
   shipping_method?: string | null;
   archived?: boolean | null;
@@ -95,6 +99,14 @@ type OrderRow = {
   email_delivery_requires_attention?: boolean | null;
   confirmation_email_sent_at?: string | null;
   confirmation_email_delivered_at?: string | null;
+  verification_requested_at?: string | null;
+  verification_completed_at?: string | null;
+  verification_sent_at?: string | null;
+  verification_phone_attempted_at?: string | null;
+  verification_fax_attempted_at?: string | null;
+  verification_details_submitted_at?: string | null;
+  lastOperationalActivityAt?: string | null;
+  lastOperationalActivityReason?: string | null;
   admin_notes?: string | null;
 };
 
@@ -111,6 +123,15 @@ type AbandonedOrderRow = OrderRow & {
 
 type PaymentStatus =
   PaymentLifecycleStatus;
+
+type OrderEventRow = {
+  order_id: string;
+  event_type: string | null;
+  created_at: string | null;
+};
+
+const RECENT_DRAFT_PAYMENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const STRIPE_LOOKUP_CONCURRENCY = 5;
 
 /* =========================
    Helpers
@@ -178,6 +199,24 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
     };
   }
 
+  const createdAt = Date.parse(order.created_at);
+  if (
+    order.status === "draft" &&
+    Number.isFinite(createdAt) &&
+    Date.now() - createdAt > RECENT_DRAFT_PAYMENT_WINDOW_MS
+  ) {
+    const projection = projectPaymentState(order, {
+      fallback: "intent_authorized",
+    });
+
+    return {
+      ...order,
+      payment_status: projection.status,
+      stripe_payment_intent_status: null,
+      payment_status_source: "order_fallback",
+    };
+  }
+
   try {
     const intent = await stripe.paymentIntents.retrieve(order.payment_intent_id, {
       expand: ["latest_charge"],
@@ -212,6 +251,28 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       payment_status_source: "stripe_lookup_failed",
     };
   }
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(concurrency, values.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < values.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(values[index]);
+      }
+    }),
+  );
+
+  return results;
 }
 
 /* =========================
@@ -250,7 +311,47 @@ export async function GET(req: Request) {
         rx: normalizeRx(o.rx ?? null),
       }));
 
-    const orders = await Promise.all(baseOrders.map(withPaymentStatus));
+    const { data: eventData, error: eventError } = await supabaseServer
+      .from("order_events")
+      .select("order_id, event_type, created_at")
+      .order("created_at", { ascending: false });
+
+    if (eventError) {
+      console.warn("Admin order activity fetch failed:", eventError);
+    }
+
+    const latestEventByOrder = new Map<string, OrderEventRow>();
+    for (const event of (eventData ?? []) as OrderEventRow[]) {
+      if (!latestEventByOrder.has(event.order_id)) {
+        latestEventByOrder.set(event.order_id, event);
+      }
+    }
+    const verificationAttemptsByOrder = collectLatestVerificationAttempts(
+      (eventData ?? []) as OrderEventRow[],
+    );
+
+    const ordersWithActivity = baseOrders.map((order) => {
+      const activity = getLastOperationalActivity(
+        order,
+        latestEventByOrder.get(order.id),
+      );
+      const verificationAttempts = verificationAttemptsByOrder.get(order.id);
+      return {
+        ...order,
+        verification_phone_attempted_at:
+          verificationAttempts?.phoneAttemptedAt ?? null,
+        verification_fax_attempted_at:
+          verificationAttempts?.faxAttemptedAt ?? null,
+        lastOperationalActivityAt: activity.at,
+        lastOperationalActivityReason: activity.reason,
+      };
+    });
+
+    const orders = await mapWithConcurrency(
+      ordersWithActivity,
+      STRIPE_LOOKUP_CONCURRENCY,
+      withPaymentStatus,
+    );
 
     const thresholdHours = getAbandonedCheckoutThresholdHours(
       process.env.ABANDONED_CHECKOUT_THRESHOLD_HOURS,

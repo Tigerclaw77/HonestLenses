@@ -215,6 +215,30 @@ for (const [path, policy] of Object.entries(ROUTE_AUTHORIZATION_POLICY)) {
   }
 }
 
+const browserSupabaseSource = readFileSync(
+  join(workspaceRoot, "src", "lib", "supabase-client.ts"),
+  "utf8",
+);
+const serverSupabaseSource = readFileSync(
+  join(workspaceRoot, "src", "lib", "supabase-server-auth.ts"),
+  "utf8",
+);
+assert.match(
+  browserSupabaseSource,
+  /createBrowserClient/,
+  "Browser authentication must use the cookie-based Supabase SSR client.",
+);
+assert.doesNotMatch(
+  browserSupabaseSource,
+  /createClient\s*\(/,
+  "Browser authentication must not keep a separate local-storage-only session.",
+);
+assert.match(
+  serverSupabaseSource,
+  /getAll\s*\(\)/,
+  "Server authentication must read the same cookie-backed browser session.",
+);
+
 const migration = readFileSync(
   join(
     workspaceRoot,
