@@ -30,9 +30,33 @@ const defaultClientBin = process.env.LOCALAPPDATA
 const clientBin = process.env.HL_POSTGRES_CLIENT_BIN || defaultClientBin;
 const executables = {
   pg_dump: path.join(clientBin, "pg_dump.exe"),
-  pg_dumpall: path.join(clientBin, "pg_dumpall.exe"),
   psql: path.join(clientBin, "psql.exe"),
 };
+const repositoryRoot = process.cwd();
+const rolesQueryPath = path.join(
+  repositoryRoot,
+  "docs",
+  "production-deployment",
+  "sql",
+  "roles-catalog-export.sql",
+);
+const readOnlySqlPaths = [
+  "migration-ledger-export.sql",
+  "post-migration-assertions.sql",
+  "pre-migration-assertions.sql",
+  "production-catalog-export.sql",
+  "roles-catalog-export.sql",
+  "rollback-recovery-rows.sql",
+  "write-drain-observation.sql",
+].map((name) =>
+  path.join(
+    repositoryRoot,
+    "docs",
+    "production-deployment",
+    "sql",
+    name,
+  ),
+);
 const serverBin = path.dirname(initdb);
 const serverEnvironment = {
   ...process.env,
@@ -129,10 +153,9 @@ try {
   );
   dataDirectory = path.join(temporaryRoot, "data");
   const outputDirectory = path.join(temporaryRoot, "evidence");
-  const fixturePath = path.join(temporaryRoot, "fixture.sql");
   const catalogQueryPath = path.join(temporaryRoot, "catalog-check.sql");
   const schemaPath = path.join(outputDirectory, "schema-public.sql");
-  const rolesPath = path.join(outputDirectory, "roles.sql");
+  const rolesPath = path.join(outputDirectory, "roles.json");
   const catalogPath = path.join(outputDirectory, "catalog.txt");
   await import("node:fs/promises").then(({ mkdir }) =>
     mkdir(outputDirectory, { recursive: true }),
@@ -191,19 +214,32 @@ try {
   }
 
   await writeFile(
-    fixturePath,
-    "-- The fixture was created through the test client; this file proves psql input.\nselect 1;\n",
-  );
-  await writeFile(
     catalogQueryPath,
     [
       "\\pset tuples_only on",
       "\\pset format unaligned",
+      "begin transaction read only;",
       "select current_setting('transaction_read_only');",
       "select count(*) from pg_class where relname = 'baseline_capture_fixture';",
+      "rollback;",
       "",
     ].join("\n"),
   );
+  for (const sqlPath of readOnlySqlPaths) {
+    const sql = await readFile(sqlPath, "utf8");
+    assert(
+      /^\s*begin\b[^;]*\bread only\s*;/i.test(sql),
+      `${path.basename(sqlPath)} must begin with a READ ONLY transaction`,
+    );
+    assert(
+      /current_setting\(\s*'transaction_read_only'\s*\)/i.test(sql),
+      `${path.basename(sqlPath)} must verify transaction_read_only`,
+    );
+    assert(
+      /\brollback\s*;\s*$/i.test(sql),
+      `${path.basename(sqlPath)} must finish with ROLLBACK`,
+    );
+  }
 
   await runProcess(executables.pg_dump, [
     "--dbname",
@@ -211,31 +247,32 @@ try {
     "--schema",
     "public",
     "--schema-only",
+    "--lock-wait-timeout",
+    "5s",
     "--format",
     "plain",
     "--file",
     schemaPath,
   ]);
-  await runProcess(executables.pg_dumpall, [
-    "--database",
+  await runProcess(executables.psql, [
+    "-X",
+    "--set",
+    "ON_ERROR_STOP=1",
+    "--quiet",
+    "--tuples-only",
+    "--no-align",
+    "--dbname",
     databaseUrl,
-    "--roles-only",
     "--file",
+    rolesQueryPath,
+    "--output",
     rolesPath,
   ]);
   await runProcess(executables.psql, [
     "-X",
     "--set",
     "ON_ERROR_STOP=1",
-    "--dbname",
-    databaseUrl,
-    "--file",
-    fixturePath,
-  ]);
-  await runProcess(executables.psql, [
-    "-X",
-    "--set",
-    "ON_ERROR_STOP=1",
+    "--quiet",
     "--dbname",
     databaseUrl,
     "--file",
@@ -245,7 +282,7 @@ try {
   ]);
 
   const schema = await readFile(schemaPath, "utf8");
-  const roles = await readFile(rolesPath, "utf8");
+  const roles = JSON.parse(await readFile(rolesPath, "utf8"));
   const catalog = await readFile(catalogPath, "utf8");
   assert(
     schema.includes("CREATE TABLE public.baseline_capture_fixture"),
@@ -260,13 +297,18 @@ try {
     "pg_dump did not capture the fixture index",
   );
   assert(
-    roles.includes("CREATE ROLE anon") &&
-      roles.includes("CREATE ROLE authenticated"),
-    "pg_dumpall did not capture the expected roles",
+    roles.capture?.transaction_read_only === "on",
+    "roles export was not executed in a read-only transaction",
+  );
+  const roleNames = new Set(roles.roles?.map((role) => role.name));
+  assert(
+    roleNames.has("anon") && roleNames.has("authenticated"),
+    "repository roles export did not capture the expected roles",
   );
   assert(
-    catalog.replaceAll("\r", "").trim().endsWith("1"),
-    "psql catalog probe did not find the fixture",
+    catalog.replaceAll("\r", "").trim().endsWith("1") &&
+      catalog.replaceAll("\r", "").includes("on"),
+    "psql read-only catalog probe did not find the fixture",
   );
 
   console.log(
@@ -277,13 +319,13 @@ try {
         versions,
         executableSha256: {
           pg_dump: await sha256(executables.pg_dump),
-          pg_dumpall: await sha256(executables.pg_dumpall),
           psql: await sha256(executables.psql),
         },
         captures: {
           schema: true,
           roles: true,
           catalogProbe: true,
+          repositorySqlReadOnlyBoundaries: true,
         },
       },
       null,

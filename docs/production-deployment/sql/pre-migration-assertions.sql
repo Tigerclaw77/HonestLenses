@@ -5,15 +5,19 @@ set local lock_timeout = '5s';
 with checks as (
   select
     10 as ordinal,
-    'migration history is exact' as check_name,
-    case when (
+    'transaction is read-only and migration history is exact' as check_name,
+    case when current_setting('transaction_read_only') = 'on' and (
       select array_agg(version order by version)
       from supabase_migrations.schema_migrations
     ) = array['20260721143337']::text[]
       then 'PASS' else 'FAIL' end as status,
-    (
-      select coalesce(string_agg(version || ':' || name, ', ' order by version), '<none>')
-      from supabase_migrations.schema_migrations
+    format(
+      'transaction_read_only=%s migrations=%s',
+      current_setting('transaction_read_only'),
+      (
+        select coalesce(string_agg(version || ':' || name, ', ' order by version), '<none>')
+        from supabase_migrations.schema_migrations
+      )
     ) as evidence
 
   union all

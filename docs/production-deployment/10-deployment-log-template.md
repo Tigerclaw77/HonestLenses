@@ -9,8 +9,9 @@ Classification: confidential operational record
 - Production Supabase project ref/region:
 - Production Stripe account ID:
 - Supabase CLI version:
-- Baseline database identity: production owner
-- Baseline `transaction_read_only=on` verified UTC:
+- Baseline database identity: production owner through Supabase Session pooler port 5432
+- Baseline read-only transactions verified UTC/files:
+- Pinned `pg_dump --schema-only` read-only capture UTC:
 - Baseline owner credential cleared UTC:
 - Window start/end UTC:
 - Founder/incident commander:
@@ -24,7 +25,7 @@ Classification: confidential operational record
 | Artifact | Path/reference | SHA-256 | Reviewer |
 | --- | --- | --- | --- |
 | Schema dump | | | |
-| Roles dump | | | |
+| Roles catalog (`roles.json`) | | | |
 | Catalog | | | |
 | Pre-migration assertions | | | |
 | Migration ledger | | | |

@@ -16,7 +16,7 @@ Rule: every required item must be `PASS`; `NOT VERIFIED` is a `NO-GO`.
 
 | # | Gate | Decision: check one | Current preparation evidence |
 | ---: | --- | --- | --- |
-| 1 | Production schema/catalog baseline captured twice with owner connection forced read-only; `transaction_read_only=on`; credential cleared; checksums verified | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
+| 1 | Production baseline captured twice through Session pooler port 5432; every repository capture transaction reports `transaction_read_only=on`; pinned `pg_dump` read-only transaction passed; credential cleared; checksums verified | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
 | 2 | Repository matches approved production baseline; no unexplained drift | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
 | 3 | Migration history exact; Resend matched, two pending only | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | Partial: SQL/version reviewed; fresh output required |
 | 4 | Founder-verified Supabase Dashboard evidence shows completed backup and recovery point | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |

@@ -18,7 +18,11 @@ OUTPUT_PATH = (
 
 
 ROWS = [
-    ("1", "Production schema/catalog baseline captured twice and checksummed", "NOT VERIFIED"),
+    (
+        "1",
+        "Session-pooler baseline captured twice; transaction-scoped read-only checks passed",
+        "NOT VERIFIED",
+    ),
     ("2", "Repository matches approved production baseline; no unexplained drift", "NOT VERIFIED"),
     ("3", "Migration history exact: Resend matched; two pending only", "PARTIAL"),
     ("4", "Backup completed and recovery point recorded", "NOT VERIFIED"),
