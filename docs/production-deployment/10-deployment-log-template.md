@@ -9,7 +9,9 @@ Classification: confidential operational record
 - Production Supabase project ref/region:
 - Production Stripe account ID:
 - Supabase CLI version:
-- Database role:
+- Baseline database identity: production owner
+- Baseline `transaction_read_only=on` verified UTC:
+- Baseline owner credential cleared UTC:
 - Window start/end UTC:
 - Founder/incident commander:
 - Database operator:
@@ -26,7 +28,8 @@ Classification: confidential operational record
 | Catalog | | | |
 | Pre-migration assertions | | | |
 | Migration ledger | | | |
-| Backup metadata | | | |
+| Founder Dashboard backup/PITR evidence | | | |
+| BitLocker status | | | |
 | Rollback rows | | | |
 | Write-drain observations | | | |
 | Dry-run output | | | |
@@ -36,6 +39,11 @@ Classification: confidential operational record
 
 ## Backup
 
+- Founder verifier/time UTC:
+- Dashboard project ref/region:
+- Dashboard evidence: three screenshots / one three-page PDF
+- Latest completed backup type/status/time:
+- PITR enabled/disabled:
 - Recovery path: PITR / completed backup
 - Recovery point UTC:
 - Earliest/latest PITR:
