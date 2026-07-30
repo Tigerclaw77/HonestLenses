@@ -1,6 +1,6 @@
 # Production deployment runbook
 
-Version: **1.1.0** — Effective: **2026-07-30**
+Version: **1.2.0** — Effective: **2026-07-30**
 
 This document is preparation only. Do not execute it without a separate,
 explicit production authorization.
@@ -9,6 +9,7 @@ explicit production authorization.
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 1.2.0 | 2026-07-30 | Made the Supabase Session pooler on port 5432 canonical; replaced session-default read-only enforcement with transaction-scoped enforcement; replaced `pg_dumpall` with repository-controlled roles export |
 | 1.1.0 | 2026-07-30 | Founder-approved baseline process: guarded production-owner capture, Dashboard backup/PITR evidence, and BitLocker-local evidence storage |
 | 1.0.0 | 2026-07-29 | Initial frozen release-candidate deployment runbook |
 
@@ -25,13 +26,15 @@ The database operator must not self-approve a failed or ambiguous gate.
 ## T-24 hours
 
 1. Freeze database migrations and production DDL.
-2. Check out annotated tag `hl-security-rc3-2026-07-30`, verify its commit,
+2. Check out annotated tag `hl-security-rc4-2026-07-30`, verify its commit,
    and require `git status --porcelain` to return no output.
 3. Complete [Production baseline capture](01-production-baseline.md) using the
-   production database owner only with forced read-only transactions. Verify
-   `transaction_read_only=on`, use only the pinned clients and repository SQL,
-   prohibit interactive SQL, and clear the credential immediately after the
-   second capture.
+   production database owner through the Supabase Shared Pooler in Session
+   mode on port `5432`. Every repository SQL capture must begin a server-
+   enforced read-only transaction, verify `transaction_read_only=on` inside
+   that transaction, and finish with `ROLLBACK`. Use only the pinned clients
+   and repository SQL, prohibit interactive SQL, and clear the credential
+   immediately after the second capture.
 4. Complete [Drift verification](02-drift-verification.md).
 5. Have the founder capture and sign the exact Supabase Dashboard backup/PITR
    evidence required by [Backup verification](03-backup-verification.md). No
@@ -68,8 +71,9 @@ The database operator must not self-approve a failed or ambiguous gate.
    attached to the release.
 9. Confirm `COMMERCE_V2_ENABLED=false` in every production runtime and worker.
 10. Confirm no scheduled job or webhook consumer writes to `commerce_v2`.
-11. Verify production Supabase project ref, region, direct connection, and
-    migration role `postgres`.
+11. Verify production Supabase project ref, region, Shared Pooler Session-mode
+    connection on port `5432`, and migration role `postgres`. Direct or IPv6
+    connectivity is not required.
 12. Verify production Stripe account ID, webhook endpoint, signing-secret
     mapping, and livemode separation read-only.
 13. Prepare and verify the executable
@@ -121,7 +125,10 @@ Reads may stay available if the application supports it safely.
 
 ## Dry run
 
-Pin session safety:
+Reacquire `HL_PRODUCTION_SESSION_POOLER_URL` through the exact secure prompt
+and route validation in baseline step 2. It must identify the approved project,
+Shared Pooler host, and port `5432`; never log or persist it. Pin timeout
+safety:
 
 ```powershell
 $env:PGOPTIONS='-c lock_timeout=5s -c statement_timeout=120s'
@@ -130,7 +137,7 @@ $cliVersion=$LASTEXITCODE
 if ($cliVersion -ne 0) { throw "Supabase version check failed: $cliVersion" }
 
 $dryRun=supabase.cmd db push `
-  --db-url $env:HL_PRODUCTION_DIRECT_DATABASE_URL `
+  --db-url $env:HL_PRODUCTION_SESSION_POOLER_URL `
   --dry-run
 Assert-NativeSuccess 'Supabase migration dry run'
 $dryRun | Set-Content -Encoding utf8 '<evidence-folder>\db-push-dry-run.txt'
@@ -161,7 +168,7 @@ Run once:
 
 ```powershell
 supabase.cmd db push `
-  --db-url $env:HL_PRODUCTION_DIRECT_DATABASE_URL
+  --db-url $env:HL_PRODUCTION_SESSION_POOLER_URL
 Assert-NativeSuccess 'Supabase migration push'
 ```
 
@@ -181,31 +188,26 @@ investigate the security failure, and do not reopen writes.
 ## Immediate database verification
 
 ```powershell
-$env:PGOPTIONS='-c default_transaction_read_only=on -c lock_timeout=5s -c statement_timeout=120s'
 $psql=Join-Path $env:LOCALAPPDATA `
   'HonestLensesTools\PostgreSQL-17.10\pgsql\bin\psql.exe'
-$readOnlyState=& $psql -X --set ON_ERROR_STOP=1 --tuples-only --no-align `
-  --dbname $env:HL_PRODUCTION_DIRECT_DATABASE_URL `
-  --command 'SHOW transaction_read_only;'
-Assert-NativeSuccess 'post-migration read-only guard'
-if (($readOnlyState | Out-String).Trim() -ne 'on') {
-  throw 'Post-migration verification is not forced read-only'
-}
-$postAssertions=& $psql -X --set ON_ERROR_STOP=1 --tuples-only --no-align `
-  --dbname $env:HL_PRODUCTION_DIRECT_DATABASE_URL `
+$postAssertions=& $psql -X --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align `
+  --dbname $env:HL_PRODUCTION_SESSION_POOLER_URL `
   --file 'docs/production-deployment/sql/post-migration-assertions.sql'
 Assert-NativeSuccess 'post-migration assertions'
 $postAssertions | Set-Content -Encoding utf8 `
   '<evidence-folder>\post-migration-assertions.json'
 ```
 
-Expected: all 12 checks are `PASS`.
+Expected: all 12 checks are `PASS`; check 10 proves
+`transaction_read_only=on` inside the assertions transaction. The file begins
+with `BEGIN TRANSACTION READ ONLY` and finishes with `ROLLBACK`; no
+session-default read-only setting is required.
 
 Then run:
 
 ```powershell
 $advisorOutput=supabase.cmd --output-format json db advisors `
-  --db-url $env:HL_PRODUCTION_DIRECT_DATABASE_URL `
+  --db-url $env:HL_PRODUCTION_SESSION_POOLER_URL `
   --type security `
   --level info `
   --fail-on warn
@@ -213,12 +215,18 @@ Assert-NativeSuccess 'Supabase Security Advisor'
 $advisorOutput | Set-Content -Encoding utf8 `
   '<evidence-folder>\security-advisor.json'
 
-$finalCatalog=& $psql -X --set ON_ERROR_STOP=1 --tuples-only --no-align `
-  --dbname $env:HL_PRODUCTION_DIRECT_DATABASE_URL `
+$finalCatalog=& $psql -X --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align `
+  --dbname $env:HL_PRODUCTION_SESSION_POOLER_URL `
   --file 'docs/production-deployment/sql/production-catalog-export.sql'
 Assert-NativeSuccess 'final production catalog'
 $finalCatalog | Set-Content -Encoding utf8 `
   '<evidence-folder>\post-migration-catalog.json'
+
+Remove-Item Env:HL_PRODUCTION_SESSION_POOLER_URL -ErrorAction SilentlyContinue
+Remove-Item Env:PGOPTIONS -ErrorAction SilentlyContinue
+if (Test-Path Env:HL_PRODUCTION_SESSION_POOLER_URL) {
+  throw 'Production Session pooler credential cleanup failed'
+}
 ```
 
 Expected:

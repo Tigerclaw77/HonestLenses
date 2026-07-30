@@ -7,7 +7,7 @@ approved baseline artifact, not by a complete historical migration chain.
 ## Sources compared
 
 1. Repository commit and `supabase/migrations`.
-2. Approved `schema-public.sql`, `roles.sql`, `catalog.json`, and
+2. Approved `schema-public.sql`, `roles.json`, `catalog.json`, and
    `manifest.sha256`.
 3. A fresh read-only production capture made during the deployment window.
 
@@ -74,7 +74,7 @@ export contains metadata, not table rows.
 | --- | --- | --- |
 | Server | PostgreSQL major/minor and database identity | Same reviewed hosted environment |
 | Extensions | Names, versions, schemas | Exact approved set; no missing dependency |
-| Roles | Flags and memberships | No new privileged/custom role; anon/auth no `BYPASSRLS` |
+| Roles | `roles.json` flags and memberships; `transaction_read_only=on` | No new privileged/custom role; anon/auth no `BYPASSRLS` |
 | Schemas | `public` present; pending schemas absent | Exact |
 | Relations | 13 public tables and two public views, owner `postgres` | Exact |
 | Columns | Names, order, type, nullability, defaults, generated expressions | Exact |

@@ -2,7 +2,7 @@
 
 Status: **release candidate frozen; ready for execution-time checks; not authorized for deployment**
 Prepared: 2026-07-30
-Package/runbook version: **1.1.0**
+Package/runbook version: **1.2.0**
 Pinned Supabase CLI: `2.109.1`
 
 This is the permanent execution package for the reviewed Commerce v2 schema
@@ -40,6 +40,7 @@ Supporting read-only SQL:
 - [Rollback recovery-row export](sql/rollback-recovery-rows.sql)
 - [Exact Commerce v2 schema reverse](sql/commerce-v2-schema-reverse.sql)
 - [Migration ledger export](sql/migration-ledger-export.sql)
+- [Roles catalog export](sql/roles-catalog-export.sql)
 - [Write-drain observation](sql/write-drain-observation.sql)
 
 ## Hard boundaries
@@ -50,6 +51,12 @@ Supporting read-only SQL:
   `--include-seed`, or `--include-roles` during the production deployment.
 - Never put the production schema dump into `supabase/migrations`; it is a
   baseline/recovery artifact, not a pending migration.
+- Use the Supabase Shared Pooler in Session mode on port `5432`; production
+  deployment must not depend on direct IPv6 connectivity.
+- Every repository SQL file used for capture or verification must begin a
+  server-enforced `READ ONLY` transaction, verify
+  `current_setting('transaction_read_only')='on'` inside that transaction,
+  run through `psql -X --set ON_ERROR_STOP=1`, and finish with `ROLLBACK`.
 - Keep `COMMERCE_V2_ENABLED=false`.
 - Do not perform live Stripe mutations unless a separately approved canary
   transaction is recorded in the deployment log.
@@ -63,7 +70,7 @@ At execution time create a timestamped folder outside source control:
 production-evidence/
   YYYYMMDDTHHMMSSZ/
     schema-public.sql
-    roles.sql
+    roles.json
     catalog.json
     post-migration-catalog.json
     pre-migration-assertions.json
@@ -95,13 +102,16 @@ the encrypted-evidence requirement. Limit access to the deployment operators.
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 1.2.0 | 2026-07-30 | Made Session pooler port 5432 canonical; removed direct/IPv6 and session-default read-only dependencies; replaced `pg_dumpall` with server-enforced repository roles export |
 | 1.1.0 | 2026-07-30 | Replaced the dedicated read-only-role prerequisite with a guarded owner capture; replaced Management API backup evidence with founder-verified Dashboard evidence; accepted protected BitLocker-local storage |
 | 1.0.0 | 2026-07-29 | Initial frozen release-candidate package |
 
 ## Official references
 
 - [Supabase CLI reference](https://supabase.com/docs/reference/cli/overview)
+- [Supabase database connection methods](https://supabase.com/docs/guides/database/connecting-to-postgres)
 - [Database migrations](https://supabase.com/docs/guides/deployment/database-migrations)
+- [PostgreSQL 17 `pg_dump` read-only transaction implementation](https://github.com/postgres/postgres/blob/REL_17_STABLE/src/bin/pg_dump/pg_dump.c)
 - [Database backups and PITR](https://supabase.com/docs/guides/platform/backups)
 - [Restore to a new project](https://supabase.com/docs/guides/platform/clone-project)
 - [Data API grant-default change](https://supabase.com/changelog/45329-breaking-change-tables-not-exposed-to-data-and-graphql-api-automatically)

@@ -15,7 +15,6 @@ session:
 | Tool | Required version/path | SHA-256 |
 | --- | --- | --- |
 | `pg_dump.exe` | PostgreSQL 17.10 at `%LOCALAPPDATA%\HonestLensesTools\PostgreSQL-17.10\pgsql\bin\pg_dump.exe` | `031ec0830df6cae8621c5b71188a597987e0c09bb8c3360c8cc76fcc10850cd6` |
-| `pg_dumpall.exe` | PostgreSQL 17.10 at the same `bin` directory | `e79d01191c1e506301eeade0f3940350192a918041e01ba39d7cef9dbfbefb56` |
 | `psql.exe` | PostgreSQL 17.10 at the same `bin` directory | `e0113742a0520185e6dcaf90dafbfd15b02633218d311715f3400613c206d1dc` |
 
 The source archive was the EDB PostgreSQL 17.10 Windows x64 binary archive
@@ -25,8 +24,16 @@ The source archive was the EDB PostgreSQL 17.10 Windows x64 binary archive
 The archive is not required after extraction.
 
 The repository gate `npm.cmd run test:security:baseline-toolchain` exercised
-these exact binaries against disposable PostgreSQL, captured schema, roles,
-and catalog output, and cleaned up the instance. Production was not connected.
+these exact binaries and every read-only repository SQL boundary against
+disposable PostgreSQL, captured schema, roles, and catalog output, and cleaned
+up the instance. Production was not connected.
+
+PostgreSQL 17.10 `pg_dump --schema-only` is approved because the pinned
+implementation begins a transaction and executes `SET TRANSACTION ISOLATION
+LEVEL REPEATABLE READ, READ ONLY` before reading the source database.
+`pg_dumpall` is not used. Roles and memberships are captured by the pinned
+repository file `sql/roles-catalog-export.sql` inside an explicit read-only
+transaction.
 
 Supabase CLI `2.109.1` remains the pinned migration tool, but it is not part of
 baseline capture. Its wrapper is
@@ -38,9 +45,11 @@ and implementation is
 
 ## Prerequisites
 
-- The existing production database-owner direct/session-mode Postgres URL.
-  Its use is founder-approved only for this baseline capture and only with the
-  mandatory read-only session guard below. Do not create a dedicated role.
+- The production database-owner **Session pooler** Postgres URL from the
+  Supabase Dashboard Connect dialog. It must use the Shared Pooler host and
+  port `5432`; direct connectivity and IPv6 are not prerequisites.
+- Its use is founder-approved only for this procedure. Do not create a
+  dedicated role.
 - `HL_PRODUCTION_PROJECT_REF` set to the production project ref.
 - Production DDL frozen for both captures.
 - A local output location outside Git on a BitLocker-protected drive whose
@@ -52,9 +61,12 @@ No Supabase Management API token is required. Backup/PITR state is verified by
 the founder in the Supabase Dashboard under step 10.
 
 The database owner credential is not a waiver of least privilege. Safety comes
-from forced read-only transactions, verification before capture, a strict
-command allowlist, no interactive SQL session, and immediate credential
-cleanup. If any guard fails, mark the baseline `NOT VERIFIED`, clear the
+from server-enforced read-only transactions in every repository capture file,
+the pinned `pg_dump` read-only transaction, verification inside each actual
+transaction, a strict command allowlist, no interactive SQL session, and
+immediate credential cleanup. `PGOPTIONS default_transaction_read_only=on` is
+not required and must not be treated as a gate. If any transaction reports
+anything other than `on`, mark the baseline `NOT VERIFIED`, clear the
 credential, and stop.
 
 ## Environment and native-exit guard
@@ -72,14 +84,12 @@ function Assert-NativeSuccess([string]$Operation) {
 }
 
 function Clear-ProductionBaselineCredential {
-  Remove-Item Env:HL_PRODUCTION_DATABASE_OWNER_URL -ErrorAction SilentlyContinue
-  Remove-Item Env:PGOPTIONS -ErrorAction SilentlyContinue
+  Remove-Item Env:HL_PRODUCTION_SESSION_POOLER_URL -ErrorAction SilentlyContinue
 }
 
 $env:HL_PRODUCTION_PROJECT_REF='<production project ref>'
 $pgBin=Join-Path $env:LOCALAPPDATA 'HonestLensesTools\PostgreSQL-17.10\pgsql\bin'
 $pgDump=Join-Path $pgBin 'pg_dump.exe'
-$pgDumpAll=Join-Path $pgBin 'pg_dumpall.exe'
 $psql=Join-Path $pgBin 'psql.exe'
 
 $baselineStamp=(Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
@@ -105,11 +115,10 @@ $bitLockerStatus |
 Record `$baselineStamp`; never record credential values.
 
 The only approved database clients for this procedure are the pinned
-`pg_dump.exe`, `pg_dumpall.exe`, and `psql.exe`. `psql.exe` may execute only
-the read-only guard below or the named SQL files already under
-`docs/production-deployment/sql/`. Never start `psql.exe` interactively, use
-`--command` for any other statement, open a query editor, or use another
-database tool during capture.
+`pg_dump.exe` and `psql.exe`. `psql.exe` may execute only the named read-only
+SQL files under `docs/production-deployment/sql/`. Never start `psql.exe`
+interactively, use `--command`, open a query editor, or use another database
+tool during capture.
 
 If any database command fails, immediately run the credential-cleanup commands
 in step 9 before recording or investigating the failure.
@@ -125,16 +134,15 @@ $releaseCommit=git rev-parse HEAD
 Assert-NativeSuccess 'git rev-parse HEAD'
 $releaseTags=git tag --points-at HEAD
 Assert-NativeSuccess 'git tag --points-at HEAD'
-if ($releaseTags -notcontains 'hl-security-rc3-2026-07-30') {
+if ($releaseTags -notcontains 'hl-security-rc4-2026-07-30') {
   throw 'Checkout is not the approved release tag'
 }
 
 $expectedHashes=@{
   $pgDump='031ec0830df6cae8621c5b71188a597987e0c09bb8c3360c8cc76fcc10850cd6'
-  $pgDumpAll='e79d01191c1e506301eeade0f3940350192a918041e01ba39d7cef9dbfbefb56'
   $psql='e0113742a0520185e6dcaf90dafbfd15b02633218d311715f3400613c206d1dc'
 }
-foreach ($tool in @($pgDump,$pgDumpAll,$psql)) {
+foreach ($tool in @($pgDump,$psql)) {
   $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $tool).Hash.ToLowerInvariant()
   if ($actual -ne $expectedHashes[$tool]) { throw "Tool hash mismatch: $tool" }
   $version=& $tool --version
@@ -148,7 +156,6 @@ foreach ($tool in @($pgDump,$pgDumpAll,$psql)) {
   "release_commit=$releaseCommit"
   "release_tags=$($releaseTags -join ',')"
   "pg_dump=$(& $pgDump --version)"
-  "pg_dumpall=$(& $pgDumpAll --version)"
   "psql=$(& $psql --version)"
 ) | Set-Content -Encoding utf8 (Join-Path $evidenceRoot 'toolchain.txt')
 Assert-NativeSuccess 'psql --version recorded in toolchain.txt'
@@ -156,60 +163,68 @@ Assert-NativeSuccess 'psql --version recorded in toolchain.txt'
 
 Expected: clean checkout, approved tag present, every version and hash exact.
 
-## 2. Verify forced read-only transaction state
+## 2. Secure Session pooler credential and verify the route
 
-Run this before any metadata or dump command:
+Acquire the canonical IPv4-compatible Session pooler URL without recording it:
 
 ```powershell
 $ownerUrlSecure=Read-Host `
-  'Paste the percent-encoded direct production owner URL' -AsSecureString
+  'Paste the percent-encoded production Session pooler owner URL (port 5432)' `
+  -AsSecureString
 try {
-  $env:HL_PRODUCTION_DATABASE_OWNER_URL=(
+  $env:HL_PRODUCTION_SESSION_POOLER_URL=(
     [System.Net.NetworkCredential]::new('', $ownerUrlSecure).Password
   )
 } finally {
   $ownerUrlSecure.Dispose()
   Remove-Variable ownerUrlSecure -ErrorAction SilentlyContinue
 }
-$env:PGOPTIONS='-c default_transaction_read_only=on -c lock_timeout=5s -c statement_timeout=120s'
-
-$readOnlyState=& $psql -X --set ON_ERROR_STOP=1 --tuples-only --no-align `
-  --dbname $env:HL_PRODUCTION_DATABASE_OWNER_URL `
-  --command 'SHOW transaction_read_only;'
-Assert-NativeSuccess 'transaction_read_only verification'
-$readOnlyState=($readOnlyState | Out-String).Trim()
-if ($readOnlyState -ne 'on') {
+$poolerUri=[Uri]$env:HL_PRODUCTION_SESSION_POOLER_URL
+if (
+  $poolerUri.Port -ne 5432 -or
+  $poolerUri.Host -notmatch '\.pooler\.supabase\.com$' -or
+  $poolerUri.UserInfo -notmatch [regex]::Escape($env:HL_PRODUCTION_PROJECT_REF)
+) {
   Clear-ProductionBaselineCredential
-  throw "Read-only guard failed: transaction_read_only=$readOnlyState"
+  throw 'Credential is not the approved project Session pooler URL on port 5432'
 }
-"transaction_read_only=$readOnlyState" |
+"connection_route=session_pooler_port_5432" |
   Add-Content -Encoding utf8 (Join-Path $evidenceRoot 'toolchain.txt')
+$poolerUri=$null
 ```
 
-Expected: exactly `on`. Any other result is `NOT VERIFIED`; clear the
-credential immediately and stop.
+Expected: the URL identifies the approved project, Shared Pooler host, and
+port `5432`. Do not make a standalone read-only assertion: each repository SQL
+file proves `transaction_read_only=on` inside the transaction that performs
+its capture, and `pg_dump` creates its own read-only transaction.
 
 ## 3. Migration ledger
 
 ```powershell
-$ledger=& $psql -X --set ON_ERROR_STOP=1 --tuples-only --no-align `
-  --dbname $env:HL_PRODUCTION_DATABASE_OWNER_URL `
+$ledger=& $psql -X --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align `
+  --dbname $env:HL_PRODUCTION_SESSION_POOLER_URL `
   --file 'docs/production-deployment/sql/migration-ledger-export.sql'
 Assert-NativeSuccess 'migration ledger export'
 $ledger | Set-Content -Encoding utf8 (Join-Path $evidenceRoot 'migration-ledger.json')
+$ledgerDocument=($ledger | Out-String).Trim() | ConvertFrom-Json
+if ($ledgerDocument.transaction_read_only -ne 'on') {
+  Clear-ProductionBaselineCredential
+  throw 'Migration ledger transaction was not read-only'
+}
 ```
 
-Expected remote version: `20260721143337`. Expected pending local versions are
-`20260729144510` and `20260729160750`. No other local or remote version is
-permitted.
+Expected: `transaction_read_only=on`; remote version `20260721143337`;
+pending local versions `20260729144510` and `20260729160750`; no other local
+or remote version.
 
 ## 4. Public schema dump
 
 ```powershell
 & $pgDump `
-  --dbname $env:HL_PRODUCTION_DATABASE_OWNER_URL `
+  --dbname $env:HL_PRODUCTION_SESSION_POOLER_URL `
   --schema public `
   --schema-only `
+  --lock-wait-timeout 5s `
   --format plain `
   --file (Join-Path $evidenceRoot 'schema-public.sql')
 Assert-NativeSuccess 'public schema dump'
@@ -221,26 +236,34 @@ Expected:
 - all reviewed public tables, views, functions, constraints, indexes, RLS,
   policies, grants, enum, and trigger are present;
 - managed schemas are captured through catalog metadata instead.
+- the pinned PostgreSQL 17.10 client enforced its internal `READ ONLY`
+  transaction; no external session default is required.
 
 ## 5. Roles
 
 ```powershell
-& $pgDumpAll `
-  --database $env:HL_PRODUCTION_DATABASE_OWNER_URL `
-  --roles-only `
-  --file (Join-Path $evidenceRoot 'roles.sql')
-Assert-NativeSuccess 'roles dump'
+$roles=& $psql -X --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align `
+  --dbname $env:HL_PRODUCTION_SESSION_POOLER_URL `
+  --file 'docs/production-deployment/sql/roles-catalog-export.sql'
+Assert-NativeSuccess 'roles catalog export'
+$roles | Set-Content -Encoding utf8 (Join-Path $evidenceRoot 'roles.json')
+$rolesDocument=($roles | Out-String).Trim() | ConvertFrom-Json
+if ($rolesDocument.capture.transaction_read_only -ne 'on') {
+  Clear-ProductionBaselineCredential
+  throw 'Roles export transaction was not read-only'
+}
 ```
 
-Expected: role definitions without passwords, browser roles without
-`BYPASSRLS`, expected hosted service-role properties, and no unexplained custom
-login role. A permission failure is `NOT VERIFIED`, not a waiver.
+Expected: `transaction_read_only=on`; role attributes and memberships without
+password material; browser roles without `BYPASSRLS`; expected hosted
+service-role properties; and no unexplained custom login role. A permission
+failure is `NOT VERIFIED`, not a waiver.
 
 ## 6. Full catalog export
 
 ```powershell
-$catalog=& $psql -X --set ON_ERROR_STOP=1 --tuples-only --no-align `
-  --dbname $env:HL_PRODUCTION_DATABASE_OWNER_URL `
+$catalog=& $psql -X --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align `
+  --dbname $env:HL_PRODUCTION_SESSION_POOLER_URL `
   --file 'docs/production-deployment/sql/production-catalog-export.sql'
 Assert-NativeSuccess 'production catalog export'
 $catalog | Set-Content -Encoding utf8 (Join-Path $evidenceRoot 'catalog.json')
@@ -255,41 +278,43 @@ history, and Storage buckets are present. `commerce_v2`, `legacy_archive`, and
 ## 7. Pre-migration assertions
 
 ```powershell
-$assertions=& $psql -X --set ON_ERROR_STOP=1 --tuples-only --no-align `
-  --dbname $env:HL_PRODUCTION_DATABASE_OWNER_URL `
+$assertions=& $psql -X --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align `
+  --dbname $env:HL_PRODUCTION_SESSION_POOLER_URL `
   --file 'docs/production-deployment/sql/pre-migration-assertions.sql'
 Assert-NativeSuccess 'pre-migration assertions'
 $assertions | Set-Content -Encoding utf8 `
   (Join-Path $evidenceRoot 'pre-migration-assertions.json')
 ```
 
-Expected: all 12 checks report `PASS`. Any missing result, `FAIL`, warning, or
-query error is `NO-GO`.
+Expected: all 12 checks report `PASS`; check 10 explicitly reports
+`transaction_read_only=on`. Any missing result, `FAIL`, warning, or query
+error is `NO-GO`.
 
 ## 8. Confidential rollback rows
 
 ```powershell
-$rollbackRows=& $psql -X --set ON_ERROR_STOP=1 --tuples-only --no-align `
-  --dbname $env:HL_PRODUCTION_DATABASE_OWNER_URL `
+$rollbackRows=& $psql -X --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align `
+  --dbname $env:HL_PRODUCTION_SESSION_POOLER_URL `
   --file 'docs/production-deployment/sql/rollback-recovery-rows.sql'
 Assert-NativeSuccess 'rollback recovery-row export'
 $rollbackRows | Set-Content -Encoding utf8 `
   (Join-Path $evidenceRoot 'rollback-recovery-rows.json')
 ```
 
-This contains production identifiers. Encrypt it immediately, never commit it,
-and restrict it to the database and incident commanders.
+This contains production identifiers and must report
+`transaction_read_only=on`. Encrypt it immediately, never commit it, and
+restrict it to the database and incident commanders.
 
 While DDL remains frozen, set `$evidenceRoot` to a new timestamped folder on
-the same verified BitLocker drive, create it, and repeat steps 2 through 7.
-Schema, catalog, ledger, and assertions must match after excluding timestamps.
-A mismatch makes the baseline non-authoritative.
+the same verified BitLocker drive, create it, and repeat steps 3 through 8.
+Schema, roles, catalog, ledger, assertions, and rollback rows must match after
+excluding timestamps. A mismatch makes the baseline non-authoritative.
 
 ## 9. Immediate credential cleanup
 
 ```powershell
 Clear-ProductionBaselineCredential
-if (Test-Path Env:HL_PRODUCTION_DATABASE_OWNER_URL) {
+if (Test-Path Env:HL_PRODUCTION_SESSION_POOLER_URL) {
   throw 'Production database owner credential cleanup failed'
 }
 ```
@@ -356,9 +381,10 @@ Do not reconnect after step 9.
 
 ## Completion rule
 
-Baseline is `PASS` only when `transaction_read_only=on` was verified before
-capture, every native command exits zero, expected metadata is present, all
-assertions pass, both captures agree, the credential was cleared, BitLocker
-evidence shows full encryption with protection on, the manifest is
+Baseline is `PASS` only when every repository SQL capture reports
+`transaction_read_only=on` from inside its actual transaction, pinned
+PostgreSQL 17.10 `pg_dump --schema-only` exits zero, expected metadata is
+present, all assertions pass, both captures agree, the credential was cleared,
+BitLocker evidence shows full encryption with protection on, the manifest is
 independently verified, and founder-verified Dashboard backup/PITR evidence
 passes.
