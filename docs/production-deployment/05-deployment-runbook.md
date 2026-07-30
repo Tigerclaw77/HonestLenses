@@ -25,7 +25,7 @@ The database operator must not self-approve a failed or ambiguous gate.
 ## T-24 hours
 
 1. Freeze database migrations and production DDL.
-2. Check out annotated tag `hl-security-rc2-2026-07-30`, verify its commit,
+2. Check out annotated tag `hl-security-rc3-2026-07-30`, verify its commit,
    and require `git status --porcelain` to return no output.
 3. Complete [Production baseline capture](01-production-baseline.md) using the
    production database owner only with forced read-only transactions. Verify

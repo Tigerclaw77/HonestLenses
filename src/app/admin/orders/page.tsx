@@ -13,6 +13,7 @@ import {
   type PaymentLifecycleStatus,
 } from "@/lib/orders/getNextAction";
 import {
+  ADMIN_WORK_QUEUE_SECTIONS,
   isMerchantQueueBucket,
   type OperationalQueueBucket,
   type OperationalQueueClassification,
@@ -78,7 +79,7 @@ type Order = {
   rx_status?: string | null;
   archived?: boolean;
   archived_at?: string | null;
-  fulfillment_status?: FulfillmentStatus | null;
+  fulfillment_status?: string | null;
   payment_status?: PaymentStatus | null;
   stripe_payment_intent_status?: string | null;
   payment_status_source?: string | null;
@@ -278,14 +279,9 @@ type AdminApiPayload = {
   code?: string;
   reauthorization_required?: boolean;
   order?: Order;
-  action_required?: Order[];
-  active_fulfillment?: Order[];
-  verification_pending?: Order[];
-  customer_blocked?: Order[];
-  draft_or_test?: Order[];
-  needsAction?: Order[];
-  stalled?: Order[];
-  pipeline?: Order[];
+  awaiting_verification?: Order[];
+  ready_to_order?: Order[];
+  resolve_exception?: Order[];
   archive?: Order[];
   abandoned?: Order[];
   draft?: RecoveryEmailDraft;
@@ -306,7 +302,6 @@ const FULFILLMENT_PROGRESS_FLOW: FulfillmentStatus[] = [
 ];
 
 const HIGHLIGHT_MS = 120_000;
-const CUSTOMER_ACTION_RECENT_DAYS = 7;
 const MATERIAL_ACTIVITY_DIFF_MS = 5 * 60 * 1000;
 
 const CAPTURE_ADJUSTMENT_REASONS: CaptureAdjustmentReason[] = [
@@ -597,13 +592,6 @@ function formatRelativeAge(timestamp: number): string {
 
   const elapsedDays = Math.floor(elapsedHours / 24);
   return formatRelativeUnit(elapsedDays, "day");
-}
-
-function isRecentCustomerActivity(order: Order): boolean {
-  const timestamp = getLastOperationalActivityTimestamp(order);
-  if (!timestamp) return true;
-
-  return Date.now() - timestamp <= CUSTOMER_ACTION_RECENT_DAYS * 24 * 60 * 60 * 1000;
 }
 
 function formatOrderActivitySummary(order: Order): {
@@ -946,7 +934,7 @@ function EmailDeliveryWarning({ order }: { order: Order }) {
 
 function OperationalReasonBanner({ order }: { order: Order }) {
   const classification = getOrderOperationalClassification(order);
-  if (classification.bucket !== "action_required") return null;
+  if (classification.bucket !== "resolve_exception") return null;
 
   return (
     <div
@@ -960,7 +948,7 @@ function OperationalReasonBanner({ order }: { order: Order }) {
         marginBottom: 10,
       }}
     >
-      <div style={{ fontWeight: 900 }}>Action Required</div>
+      <div style={{ fontWeight: 900 }}>Resolve Exception</div>
       <div style={{ marginTop: 3, fontSize: 12, fontWeight: 750 }}>
         Reason: {classification.reasons.join("; ")}
       </div>
@@ -1024,7 +1012,7 @@ function getOrderOperationalBucket(order: Order): OperationalQueueBucket {
 }
 
 function shouldDefaultCollapse(order: Order): boolean {
-  return getOrderOperationalBucket(order) === "history_archive";
+  return !isMerchantQueueBucket(getOrderOperationalBucket(order));
 }
 
 function archiveOrderStatus(order: Order): { label: string; tone: BadgeTone } {
@@ -1034,10 +1022,17 @@ function archiveOrderStatus(order: Order): { label: string; tone: BadgeTone } {
 
   const payment = normalizedPaymentStatus(order);
   const fulfillment = normalizedFulfillmentStatus(order);
+  const rawFulfillment = order.fulfillment_status?.trim().toLowerCase();
 
   if (payment === "failed") return { label: "PAYMENT FAILED", tone: "blocked" };
   if (payment === "refunded") return { label: "REFUNDED", tone: "refund" };
   if (payment === "cancelled") return { label: "PAYMENT CANCELLED", tone: "blocked" };
+  if (rawFulfillment === "backordered") {
+    return { label: "BACKORDERED — ARMORY", tone: "warning" };
+  }
+  if (rawFulfillment === "delivered") {
+    return { label: "DELIVERED", tone: "good" };
+  }
   if (fulfillment === "cancelled") return { label: "CANCELLED", tone: "blocked" };
   if (fulfillment === "completed") return { label: "COMPLETED", tone: "good" };
   if (fulfillment === "shipped") return { label: "SHIPPED", tone: "good" };
@@ -1972,7 +1967,6 @@ export default function AdminOrdersPage() {
   const [abandonedOrders, setAbandonedOrders] = useState<Order[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [rxExpanded, setRxExpanded] = useState<string | null>(null);
-  const [showOlderCustomerAction, setShowOlderCustomerAction] = useState(false);
   const [recoveryDrafts, setRecoveryDrafts] = useState<
     Record<string, RecoveryEmailDraft>
   >({});
@@ -2079,32 +2073,16 @@ export default function AdminOrdersPage() {
     setAdminError(null);
     setQueueIntegrityIssues(json.integrity_issues ?? []);
 
-    const hasQueueGroups =
-      json.action_required !== undefined ||
-      json.active_fulfillment !== undefined ||
-      json.verification_pending !== undefined ||
-      json.customer_blocked !== undefined ||
-      json.draft_or_test !== undefined;
-    const activeOrders: Order[] = hasQueueGroups
-      ? [
-          ...(json.action_required ?? []),
-          ...(json.active_fulfillment ?? []),
-          ...(json.verification_pending ?? []),
-          ...(json.customer_blocked ?? []),
-          ...(json.draft_or_test ?? []),
-        ]
-      : [
-          ...(json.needsAction ?? []),
-          ...(json.stalled ?? []),
-          ...(json.pipeline ?? []),
-        ];
+    const activeOrders: Order[] = [
+      ...(json.awaiting_verification ?? []),
+      ...(json.ready_to_order ?? []),
+      ...(json.resolve_exception ?? []),
+    ];
     const hiddenIds = optimisticallyHiddenOrderIds.current;
     const combined: Order[] = [...activeOrders, ...(json.archive ?? [])].filter(
       (order) => !hiddenIds.has(order.id),
     );
-    const abandoned: Order[] = hasQueueGroups
-      ? []
-      : (json.abandoned ?? []).filter((order) => !hiddenIds.has(order.id));
+    const abandoned: Order[] = [];
 
     const paymentIntentOrders = activeOrders.filter(isNewPaymentIntentOrder);
 
@@ -2944,636 +2922,14 @@ export default function AdminOrdersPage() {
     navigator.clipboard.writeText(text);
   }
 
-  function renderExpandedOrderDetails(o: Order): ReactNode {
-    const rx = parseRx(o);
-    const rxStatus = displayRxStatus(o);
-    const rxSource = getRxSourceState(o);
-    const payment = paymentStatus(o);
-    const verification = getVerificationStatus(o);
-    const fulfillment = normalizedFulfillmentStatus(o);
-    const lensDisplay = getOrderLensDisplayName(o);
-    const nextAction = getNextAction(o);
-    const queueBucket = getOrderOperationalBucket(o);
-    const isMerchantLane = isMerchantQueueBucket(queueBucket);
-    const nextFulfillment = nextFulfillmentStatus(fulfillment);
-    const previousFulfillment = previousFulfillmentStatus(fulfillment);
-    const patientName = getPatientName(o);
-    const customerName = getCustomerName(o);
-    const showPatientName = namesDiffer(patientName, customerName);
-    const submittedQuantityDisplay = formatSubmittedOrderQuantity(o);
-    const adjustedQuantityDisplay = hasAdjustedOrderQuantity(o)
-      ? formatAdjustedOrderQuantity(o)
-      : null;
-
-    return (
-      <div
-        style={{
-          marginTop: 12,
-          fontSize: 13,
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <OperationalReasonBanner order={o} />
-        <NextActionBanner order={o} />
-        <EmailDeliveryWarning order={o} />
-
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 6,
-            marginBottom: 10,
-          }}
-        >
-          <span style={badgeStyle(payment.tone)}>Payment: {payment.label}</span>
-          <span style={badgeStyle(verification.tone)}>
-            Verification: {verification.label}
-          </span>
-          <span style={badgeStyle(fulfillmentTone(fulfillment))}>
-            Fulfillment: {labelizeStatus(fulfillment)}
-          </span>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 10,
-            marginTop: 12,
-            marginBottom: 12,
-          }}
-        >
-          <div style={mutedPanelStyle()}>
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>Order Summary</div>
-            <div>Ordered: {lensDisplay}</div>
-            {adjustedQuantityDisplay ? (
-              <>
-                <div>Corrected quantity: {adjustedQuantityDisplay}</div>
-                <div>Submitted quantity: {submittedQuantityDisplay}</div>
-              </>
-            ) : (
-              <div>Submitted quantity: {submittedQuantityDisplay}</div>
-            )}
-            <div>Authorized: {formatMoney(o.total_amount_cents)}</div>
-            <div>Capture: {formatMoney(effectiveCaptureAmountCents(o))}</div>
-            <div>Next: {nextAction.label}</div>
-          </div>
-
-          <div style={mutedPanelStyle()}>
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>
-              Customer / Shipping
-            </div>
-            <div>Customer: {customerName}</div>
-            {showPatientName && <div>Patient: {patientName}</div>}
-            <div style={{ marginTop: 6 }}>{o.shipping_address1 ?? "-"}</div>
-            {o.shipping_address2 && <div>{o.shipping_address2}</div>}
-            <div>
-              {[o.shipping_city, o.shipping_state, o.shipping_zip]
-                .filter(Boolean)
-                .join(", ")}
-            </div>
-            <div style={{ marginTop: 6 }}>
-              {o.shipping_phone ? (
-                <CopyableValue value={o.shipping_phone}>
-                  Phone: {o.shipping_phone}
-                </CopyableValue>
-              ) : (
-                "Phone: -"
-              )}
-            </div>
-            <div>
-              {o.shipping_email ? (
-                <CopyableValue value={o.shipping_email}>
-                  Email: {o.shipping_email}
-                </CopyableValue>
-              ) : (
-                "Email: -"
-              )}
-            </div>
-          </div>
-
-          <div style={mutedPanelStyle()}>
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>Payment</div>
-            <div>Status: {payment.label}</div>
-            <div>Authorized: {formatMoney(o.total_amount_cents)}</div>
-            <div>Capture: {formatMoney(effectiveCaptureAmountCents(o))}</div>
-            <div>
-              Shipping: {o.shipping_method === "express" ? "Express" : "Standard"}{" "}
-              {formatMoney(o.shipping_cents ?? 0)}
-            </div>
-            {o.payment_intent_id && (
-              <div>
-                <CopyableValue value={o.payment_intent_id}>
-                  PI: {o.payment_intent_id}
-                </CopyableValue>
-              </div>
-            )}
-            {o.stripe_payment_intent_status && (
-              <div>Stripe status: {o.stripe_payment_intent_status}</div>
-            )}
-          </div>
-
-          <div style={mutedPanelStyle()}>
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>Prescriber</div>
-            <div>Name: {o.prescriber_name ?? "-"}</div>
-            <div>Email: {o.prescriber_email ?? "-"}</div>
-            <div>Phone: {o.prescriber_phone ?? "-"}</div>
-          </div>
-
-          <div style={mutedPanelStyle()}>
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>
-              Internal / Audit
-            </div>
-            <div>
-              <CopyableValue value={o.id}>Order: {o.id}</CopyableValue>
-            </div>
-            <div>Created: {formatDateTime(o.created_at)}</div>
-            <div>
-              Last activity:{" "}
-              {formatDateTime(o.lastOperationalActivityAt ?? o.updated_at)}
-            </div>
-            <div>
-              Activity reason: {o.lastOperationalActivityReason ?? "Order updated"}
-            </div>
-            <div>Updated: {formatDateTime(o.updated_at)}</div>
-            <div>Rx source: {rxSource.label}</div>
-            <div>Rx detail: {rxStatus}</div>
-            {rx.exp && <div>Rx exp: {rx.exp}</div>}
-          </div>
-        </div>
-
-        {isMerchantLane && (
-          <>
-            <OrderQuantityAdjustmentPanel
-              order={o}
-              onAdjust={() => openOrderQuantityAdjustment(o, customerName)}
-            />
-
-            <PaymentAdjustmentPanel
-              order={o}
-              onAdjust={() => openCaptureAdjustment(o, customerName)}
-            />
-          </>
-        )}
-
-        {o.rx_upload_path && (
-          <div style={{ ...mutedPanelStyle(), marginBottom: 12 }}>
-            <div style={{ fontWeight: 800, marginBottom: 6 }}>Rx Image</div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                openRxImage(o, customerName);
-              }}
-              style={buttonStyle()}
-            >
-              View Rx Image
-            </button>
-            <div style={{ marginTop: 6, opacity: 0.72 }}>{o.rx_upload_path}</div>
-          </div>
-        )}
-
-        <RxDetailsPanel order={o} />
-
-        <div
-          style={{
-            ...mutedPanelStyle(),
-            display: "grid",
-            gap: 10,
-            marginBottom: 12,
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
-            {previousFulfillment && (
-              <button
-                type="button"
-                disabled={savingOrderId === o.id}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  updateFulfillmentStatus(o, previousFulfillment);
-                }}
-                style={buttonStyle()}
-              >
-                Undo to {labelizeStatus(previousFulfillment)}
-              </button>
-            )}
-
-            {nextFulfillment && (
-              <button
-                type="button"
-                disabled={savingOrderId === o.id}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  updateFulfillmentStatus(o, nextFulfillment);
-                }}
-                style={buttonStyle({
-                  background: "rgba(20,184,166,0.22)",
-                })}
-              >
-                {workflowActionLabel(fulfillment, nextFulfillment)}
-              </button>
-            )}
-
-            {fulfillment === "completed" && orderSupportsAdminNotes(o) && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  startReturnRefund(o, customerName);
-                }}
-                style={buttonStyle({
-                  background: "rgba(236,72,153,0.18)",
-                })}
-              >
-                Start Return / Refund
-              </button>
-            )}
-
-            <label style={{ fontWeight: 700 }}>
-              Advanced override
-              <select
-                value={fulfillment}
-                disabled={savingOrderId === o.id}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  const next = e.target.value;
-                  if (isFulfillmentStatus(next)) {
-                    updateFulfillmentStatus(o, next);
-                  }
-                }}
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                  marginLeft: 8,
-                  padding: "4px 8px",
-                  borderRadius: 4,
-                }}
-              >
-                {FULFILLMENT_STATUSES.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {savingOrderId === o.id && <span>Saving...</span>}
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            marginBottom: 12,
-            flexWrap: "wrap",
-          }}
-        >
-          {orderSupportsAdminNotes(o) && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                openNotes(o, customerName);
-              }}
-              onClickCapture={(e) => e.stopPropagation()}
-              style={buttonStyle()}
-            >
-              Notes
-            </button>
-          )}
-
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              copyOrderText(o, rx);
-            }}
-            onClickCapture={(e) => e.stopPropagation()}
-            style={buttonStyle()}
-          >
-            Copy Order
-          </button>
-
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              archiveOrder(o.id);
-            }}
-            onClickCapture={(e) => e.stopPropagation()}
-            style={buttonStyle({ color: "#fbbf24" })}
-          >
-            Archive
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  function renderCustomerActionRow(o: Order): ReactNode {
-    const activitySummary = formatOrderActivitySummary(o);
-    const activityTime = activitySummary.relative
-      ? `${activitySummary.time} \u2022 ${activitySummary.relative}`
-      : activitySummary.time;
-    const customerName = getCustomerName(o);
-    const lensDisplay = getOrderLensDisplayName(o);
-    const nextAction = getNextAction(o);
-    const flags = getOrderStatusFlags(o);
-    const isOpen = expanded === o.id;
-    const isHighlighted = highlightedOrderIds.has(o.id);
-    const amountDisplay = hasCaptureAdjustment(o)
-      ? `Capture ${formatMoney(effectiveCaptureAmountCents(o))}`
-      : formatMoney(o.total_amount_cents);
-
-    return (
-      <div
-        key={o.id}
-        style={{
-          border: isHighlighted
-            ? "1px solid rgba(186,230,253,0.95)"
-            : "1px solid rgba(148,163,184,0.16)",
-          borderRadius: 8,
-          background: isOpen
-            ? "rgba(30,41,59,0.5)"
-            : isHighlighted
-              ? "rgba(14,165,233,0.08)"
-              : "rgba(15,23,42,0.16)",
-          boxShadow: isHighlighted
-            ? "0 0 0 1px rgba(186,230,253,0.18), 0 0 20px rgba(14,165,233,0.16)"
-            : "none",
-          minWidth: 920,
-          overflow: "hidden",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => {
-            clearOrderHighlight(o.id);
-            setExpanded(isOpen ? null : o.id);
-          }}
-          aria-expanded={isOpen}
-          style={{
-            width: "100%",
-            minHeight: 52,
-            display: "grid",
-            gridTemplateColumns:
-              "122px minmax(130px, 1fr) minmax(190px, 1.35fr) 94px minmax(150px, 1fr) minmax(118px, 0.85fr) 62px",
-            gap: 10,
-            alignItems: "center",
-            border: 0,
-            background: "transparent",
-            color: "inherit",
-            cursor: "pointer",
-            padding: "6px 10px",
-            textAlign: "left",
-            fontSize: 12,
-            lineHeight: 1.25,
-          }}
-        >
-          <span>
-            <span style={{ display: "block", fontWeight: 900 }}>
-              {activitySummary.date}
-            </span>
-            <span style={{ display: "block", opacity: 0.72 }}>
-              {activityTime}
-            </span>
-            <span
-              style={{
-                display: "block",
-                color: "rgba(226,232,240,0.52)",
-                fontSize: 10,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {activitySummary.reason}
-            </span>
-          </span>
-
-          <span
-            style={{
-              fontWeight: 850,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-            title={customerName}
-          >
-            {customerName}
-          </span>
-
-          <span
-            style={{
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-            title={lensDisplay}
-          >
-            {lensDisplay}
-          </span>
-
-          <span style={{ fontWeight: 800 }}>{amountDisplay}</span>
-
-          <span
-            style={{
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              fontWeight: 800,
-            }}
-            title={nextAction.label}
-          >
-            {nextAction.label}
-          </span>
-
-          <span
-            style={{
-              display: "flex",
-              gap: 4,
-              flexWrap: "wrap",
-              alignItems: "center",
-            }}
-          >
-            {flags.map((flag) => (
-              <span
-                key={`${o.id}-${flag.label}-${flag.title}`}
-                style={compactBadgeStyle(flag.tone)}
-                title={flag.title}
-              >
-                {flag.label}
-              </span>
-            ))}
-          </span>
-
-          <span style={{ textAlign: "right", opacity: 0.7 }}>
-            {isOpen ? "Hide" : "Details"}
-          </span>
-        </button>
-
-        {isOpen && (
-          <div
-            style={{
-              borderTop: "1px solid rgba(148,163,184,0.14)",
-              padding: "0 10px 10px",
-            }}
-          >
-            {renderExpandedOrderDetails(o)}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  function renderCustomerActionSection(sectionOrders: Order[]): ReactNode {
-    const recentOrders = sectionOrders.filter(isRecentCustomerActivity);
-    const olderOrders = sectionOrders.filter(
-      (order) => !isRecentCustomerActivity(order),
-    );
-    const expandedOlderOrderVisible = olderOrders.some(
-      (order) => expanded === order.id,
-    );
-    const showOlder = showOlderCustomerAction || expandedOlderOrderVisible;
-
-    if (sectionOrders.length === 0) {
-      return (
-        <div
-          style={{
-            border: "1px solid rgba(148,163,184,0.16)",
-            borderRadius: 10,
-            padding: "10px 12px",
-            color: "rgba(226,232,240,0.6)",
-            fontSize: 13,
-          }}
-        >
-          No orders in this queue.
-        </div>
-      );
-    }
-
-    return (
-      <div style={{ overflowX: "auto", paddingBottom: 2 }}>
-        <div
-          style={{
-            minWidth: 920,
-            display: "grid",
-            gridTemplateColumns:
-              "122px minmax(130px, 1fr) minmax(190px, 1.35fr) 94px minmax(150px, 1fr) minmax(118px, 0.85fr) 62px",
-            gap: 10,
-            padding: "0 10px 5px",
-            color: "rgba(226,232,240,0.48)",
-            fontSize: 10,
-            fontWeight: 900,
-            textTransform: "uppercase",
-          }}
-        >
-          <span>Activity</span>
-          <span>Customer</span>
-          <span>Lens</span>
-          <span>Amount</span>
-          <span>Next</span>
-          <span>Flags</span>
-          <span style={{ textAlign: "right" }}>Open</span>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <div
-            style={{
-              minWidth: 920,
-              display: "flex",
-              alignItems: "baseline",
-              justifyContent: "space-between",
-              gap: 10,
-              padding: "2px 2px 0",
-              color: "rgba(226,232,240,0.62)",
-              fontSize: 12,
-              fontWeight: 800,
-            }}
-          >
-            <span>Recent</span>
-            <span style={{ fontSize: 11, opacity: 0.72 }}>
-              Last {CUSTOMER_ACTION_RECENT_DAYS} days
-            </span>
-          </div>
-
-          {recentOrders.length > 0 ? (
-            recentOrders.map(renderCustomerActionRow)
-          ) : (
-            <div
-              style={{
-                minWidth: 920,
-                border: "1px solid rgba(148,163,184,0.12)",
-                borderRadius: 8,
-                padding: "9px 10px",
-                color: "rgba(226,232,240,0.52)",
-                fontSize: 12,
-              }}
-            >
-              No recent customer action orders.
-            </div>
-          )}
-
-          {olderOrders.length > 0 && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  if (showOlder) {
-                    setShowOlderCustomerAction(false);
-                    if (expandedOlderOrderVisible) setExpanded(null);
-                    return;
-                  }
-
-                  setShowOlderCustomerAction(true);
-                }}
-                aria-expanded={showOlder}
-                style={{
-                  minWidth: 920,
-                  border: "1px solid rgba(148,163,184,0.16)",
-                  borderRadius: 8,
-                  background: "rgba(15,23,42,0.22)",
-                  color: "rgba(226,232,240,0.78)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 12,
-                  padding: "8px 10px",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 850,
-                  textAlign: "left",
-                }}
-              >
-                <span>Older Customer Action Required ({olderOrders.length})</span>
-                <span>{showOlder ? "▼ Collapse" : "▶ Expand"}</span>
-              </button>
-
-              {showOlder && olderOrders.map(renderCustomerActionRow)}
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  const actionRequiredOrders = orders.filter(
-    (order) => getOrderOperationalBucket(order) === "action_required",
+  const awaitingVerificationOrders = orders.filter(
+    (order) => getOrderOperationalBucket(order) === "awaiting_verification",
   );
-  const activeFulfillmentOrders = orders.filter(
-    (order) => getOrderOperationalBucket(order) === "active_fulfillment",
+  const readyToOrderOrders = orders.filter(
+    (order) => getOrderOperationalBucket(order) === "ready_to_order",
   );
-  const verificationPendingOrders = orders.filter(
-    (order) => getOrderOperationalBucket(order) === "verification_pending",
-  );
-  const customerBlockedOrders = orders.filter(
-    (order) => getOrderOperationalBucket(order) === "customer_blocked",
-  );
-  const draftOrTestOrders = orders.filter(
-    (order) => getOrderOperationalBucket(order) === "draft_or_test",
+  const resolveExceptionOrders = orders.filter(
+    (order) => getOrderOperationalBucket(order) === "resolve_exception",
   );
   const archiveOrders = orders.filter(shouldDefaultCollapse).sort(archiveSort);
   const sortSectionOrders = (sectionOrders: Order[]) =>
@@ -3583,45 +2939,15 @@ export default function AdminOrdersPage() {
       if (aOpen !== bOpen) return aOpen ? -1 : 1;
       return getOperationalSortTimestamp(b) - getOperationalSortTimestamp(a);
     });
-  const activeOrderSections: {
-    key: Exclude<OperationalQueueBucket, "history_archive">;
-    title: string;
-    description: string;
-    orders: Order[];
-  }[] = [
-    {
-      key: "action_required",
-      title: "Action Required",
-      description: "Operator can take a useful action now.",
-      orders: sortSectionOrders(actionRequiredOrders),
-    },
-    {
-      key: "active_fulfillment",
-      title: "Active Fulfillment",
-      description: "Paid or authorized orders ready to capture, order, ship, or finish.",
-      orders: sortSectionOrders(activeFulfillmentOrders),
-    },
-    {
-      key: "verification_pending",
-      title: "Verification Pending",
-      description:
-        "Paid or authorized orders waiting on doctor, passive verification, or customer Rx correction.",
-      orders: sortSectionOrders(verificationPendingOrders),
-    },
-    {
-      key: "customer_blocked",
-      title: "Customer Blocked / Abandoned",
-      description:
-        "Checkout/payment or customer-side step incomplete. Not merchant-actionable unless the customer returns.",
-      orders: sortSectionOrders(customerBlockedOrders),
-    },
-    {
-      key: "draft_or_test",
-      title: "Draft/Test/Internal",
-      description: "Internal, test, or experiment rows excluded from the work queue.",
-      orders: sortSectionOrders(draftOrTestOrders),
-    },
-  ];
+  const activeOrdersByBucket = {
+    awaiting_verification: awaitingVerificationOrders,
+    ready_to_order: readyToOrderOrders,
+    resolve_exception: resolveExceptionOrders,
+  };
+  const activeOrderSections = ADMIN_WORK_QUEUE_SECTIONS.map((section) => ({
+    ...section,
+    orders: sortSectionOrders(activeOrdersByBucket[section.key]),
+  }));
   const archiveCount = archiveOrders.length + abandonedOrders.length;
   const selectedAbandonedOrders = abandonedOrders.filter((order) =>
     selectedAbandonedOrderIds.has(order.id),
@@ -3648,7 +2974,7 @@ export default function AdminOrdersPage() {
   return (
     <main style={{ padding: 20 }} onClick={requestNotificationPermission}>
       <h1 style={{ fontSize: 26, fontWeight: 800, marginBottom: 20 }}>
-        Orders
+        Order Work Queue
       </h1>
 
       {adminError && (
@@ -3725,11 +3051,11 @@ export default function AdminOrdersPage() {
           }}
         >
           <div style={{ fontWeight: 950 }}>
-            Workflow integrity warning ({queueIntegrityIssues.length})
+            Work queue integrity warning ({queueIntegrityIssues.length})
           </div>
           <div style={{ marginTop: 4, fontSize: 12 }}>
-            These orders remain visible in an operational queue. Review the
-            conflicting state before relying on automation.
+            These orders remain visible under Resolve Exception. Review each
+            stated conflict before continuing.
           </div>
           <ul style={{ margin: "8px 0 0", paddingLeft: 20, fontSize: 12 }}>
             {queueIntegrityIssues.map((issue) => (
@@ -3766,9 +3092,7 @@ export default function AdminOrdersPage() {
               </div>
             </div>
 
-            {section.key === "customer_blocked" ? (
-              renderCustomerActionSection(section.orders)
-            ) : section.orders.length === 0 ? (
+            {section.orders.length === 0 ? (
               <div
                 style={{
                   border: "1px solid rgba(148,163,184,0.16)",
@@ -3806,7 +3130,7 @@ export default function AdminOrdersPage() {
             : null;
           const isHighlighted = highlightedOrderIds.has(o.id);
           const statusFlags = getOrderStatusFlags(o);
-          const isPriorityCard = section.key === "action_required";
+          const isPriorityCard = section.key === "resolve_exception";
 
           const patientName = getPatientName(o);
           const customerName = getCustomerName(o);
@@ -4024,7 +3348,7 @@ export default function AdminOrdersPage() {
                     <div style={{ marginTop: 5, fontWeight: 800 }}>
                       Next: {nextAction.label}
                     </div>
-                    {queueBucket === "action_required" && (
+                    {queueBucket === "resolve_exception" && (
                       <div
                         style={{
                           marginTop: 5,
@@ -4434,9 +3758,9 @@ export default function AdminOrdersPage() {
           History / Archive ({archiveCount})
         </h2>
         <p style={{ marginTop: 0, opacity: 0.72, fontSize: 13 }}>
-          Completed, cancelled, refunded, and other terminal orders are
-          compressed by default. Nonterminal orders remain in an operational
-          queue.
+          Supplier-managed orders, customer-blocked checkouts, drafts, and
+          terminal orders stay outside the active work queue and are compressed
+          here.
         </p>
         {archiveCount === 0 ? (
           <div style={{ ...mutedPanelStyle(), opacity: 0.72 }}>

@@ -125,7 +125,7 @@ $releaseCommit=git rev-parse HEAD
 Assert-NativeSuccess 'git rev-parse HEAD'
 $releaseTags=git tag --points-at HEAD
 Assert-NativeSuccess 'git tag --points-at HEAD'
-if ($releaseTags -notcontains 'hl-security-rc2-2026-07-30') {
+if ($releaseTags -notcontains 'hl-security-rc3-2026-07-30') {
   throw 'Checkout is not the approved release tag'
 }
 

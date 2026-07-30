@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { classifyOperationalQueue } from "@/lib/orders/operationalQueue";
+import { getArmoryOrderRouting } from "@/lib/orders/armoryRouting";
 import { getRxSourceState, getVerificationState } from "@/lib/orders/getNextAction";
 import { projectOrderCommerce } from "@/lib/orders/orderCommerce";
 import { projectPaymentState } from "@/lib/orders/paymentState";
@@ -37,6 +37,7 @@ const ORDER_FIELDS = [
   "prescriber_email",
   "prescriber_phone",
   "payment_intent_id",
+  "admin_notes",
   "archived_at",
   "passive_deadline_at",
   "total_amount_cents",
@@ -234,8 +235,9 @@ function toArmoryOrder(row: OrderRow) {
   const lifecycleOrder = {
     ...row,
     payment_status: paymentStatus,
-  } as Parameters<typeof classifyOperationalQueue>[0];
-  const adminQueue = classifyOperationalQueue(lifecycleOrder);
+  };
+  const armoryRouting = getArmoryOrderRouting(lifecycleOrder);
+  const adminQueue = armoryRouting.classification;
   const verification = getVerificationState(lifecycleOrder);
   const rxSource = getRxSourceState(lifecycleOrder);
   const completeness = dataCompleteness({
@@ -319,7 +321,16 @@ function toArmoryOrder(row: OrderRow) {
     operational: {
       adminBucket: adminQueue.bucket,
       adminReasons: adminQueue.reasons,
-      nextAction: adminQueue.nextActionLabel,
+      nextAction:
+        armoryRouting.lifecycleOwner === "armory" &&
+        !armoryRouting.founderActionRequired
+          ? "Track supplier lifecycle in Armory"
+          : adminQueue.nextActionLabel,
+      lifecycleOwner: armoryRouting.lifecycleOwner,
+      activeDashboardLane: armoryRouting.activeDashboardLane,
+      founderActionRequired: armoryRouting.founderActionRequired,
+      founderActionReasons: armoryRouting.founderActionReasons,
+      supplierManaged: armoryRouting.lifecycleOwner === "armory",
       terminal: adminQueue.bucket === "history_archive",
       testOrder: adminQueue.bucket === "draft_or_test",
       customerBlocked: adminQueue.bucket === "customer_blocked",
@@ -458,14 +469,14 @@ function operationalFlags({
   }
 
   const knownStatuses = ["draft", "authorized", "captured", "paid", "shipped", "completed", "cancelled", "canceled", "refunded", "failed"];
-  const knownFulfillment = ["review", "ready_to_order", "ordered", "backordered", "shipped", "completed", "hold", "cancelled", "canceled"];
+  const knownFulfillment = ["review", "ready_to_order", "ordered", "backordered", "shipped", "delivered", "completed", "hold", "cancelled", "canceled"];
   if (rawStatus && !knownStatuses.includes(rawStatus)) {
     add("unknown_state", `unknown payment/order status: ${rawStatus}`);
   }
   if (rawFulfillment && !knownFulfillment.includes(rawFulfillment)) {
     add("unknown_state", `unknown fulfillment status: ${rawFulfillment}`);
   }
-  if (["ordered", "shipped", "completed"].includes(rawFulfillment) && paymentStatus !== "captured") {
+  if (["ordered", "backordered", "shipped", "delivered", "completed"].includes(rawFulfillment) && paymentStatus !== "captured") {
     add("inconsistent_state", "fulfillment progressed without captured payment");
   }
   if (verificationComplete && !hasRxEvidence && activePayment) {

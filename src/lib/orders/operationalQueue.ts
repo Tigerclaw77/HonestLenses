@@ -13,12 +13,43 @@ import {
 } from "./paymentState";
 
 export type OperationalQueueBucket =
-  | "active_fulfillment"
-  | "action_required"
-  | "verification_pending"
+  | "awaiting_verification"
+  | "ready_to_order"
+  | "resolve_exception"
+  | "supplier_managed"
   | "customer_blocked"
   | "draft_or_test"
   | "history_archive";
+
+export type AdminWorkQueueBucket =
+  | "awaiting_verification"
+  | "ready_to_order"
+  | "resolve_exception";
+
+export const ADMIN_WORK_QUEUE_SECTIONS: ReadonlyArray<{
+  key: AdminWorkQueueBucket;
+  title: string;
+  description: string;
+}> = [
+  {
+    key: "awaiting_verification",
+    title: "Awaiting Verification",
+    description:
+      "Authorized or paid orders still moving through prescription verification.",
+  },
+  {
+    key: "ready_to_order",
+    title: "Ready to Order",
+    description:
+      "Verification is complete. Capture payment if needed, then place the supplier order.",
+  },
+  {
+    key: "resolve_exception",
+    title: "Resolve Exception",
+    description:
+      "A specific payment, verification, supplier, or data issue needs founder action.",
+  },
+];
 
 export type OperationalQueueClassification = {
   bucket: OperationalQueueBucket;
@@ -71,7 +102,9 @@ type FulfillmentStatus =
   | "review"
   | "ready_to_order"
   | "ordered"
+  | "backordered"
   | "shipped"
+  | "delivered"
   | "completed"
   | "hold"
   | "cancelled";
@@ -86,10 +119,23 @@ const CUSTOMER_BLOCKED_NEXT_ACTION_LABELS = new Set([
   "Wait for customer",
 ]);
 
-const NORMAL_FULFILLMENT_ACTIONS = new Set([
-  "Capture payment",
-  "Place vendor order",
-  "Confirm delivery",
+const SUPPLIER_MANAGED_FULFILLMENT_STATUSES = new Set<FulfillmentStatus>([
+  "ordered",
+  "backordered",
+  "shipped",
+  "delivered",
+]);
+
+const KNOWN_FULFILLMENT_STATUSES = new Set<FulfillmentStatus>([
+  "review",
+  "ready_to_order",
+  "ordered",
+  "backordered",
+  "shipped",
+  "delivered",
+  "completed",
+  "hold",
+  "cancelled",
 ]);
 
 function normalizedFulfillmentStatus(
@@ -99,7 +145,9 @@ function normalizedFulfillmentStatus(
     order.fulfillment_status === "review" ||
     order.fulfillment_status === "ready_to_order" ||
     order.fulfillment_status === "ordered" ||
+    order.fulfillment_status === "backordered" ||
     order.fulfillment_status === "shipped" ||
+    order.fulfillment_status === "delivered" ||
     order.fulfillment_status === "completed" ||
     order.fulfillment_status === "hold" ||
     order.fulfillment_status === "cancelled"
@@ -108,6 +156,7 @@ function normalizedFulfillmentStatus(
   }
 
   if (order.status === "completed") return "completed";
+  if (order.status === "delivered") return "delivered";
   if (order.status === "shipped") return "shipped";
   if (order.status === "cancelled") return "cancelled";
   return "review";
@@ -175,6 +224,89 @@ function isCustomerPaymentBlocked(
   );
 }
 
+function uniqueReasons(reasons: string[]): string[] {
+  return [...new Set(reasons.map((reason) => reason.trim()).filter(Boolean))];
+}
+
+function explicitFounderActionReasons(
+  order: OperationalQueueOrder,
+): string[] {
+  const notes = order.admin_notes?.trim() ?? "";
+  if (!notes) return [];
+
+  const reasons: string[] = [];
+  const markedReason = notes.match(
+    /(?:founder action required|resolve exception|armory exception)\s*:\s*([^\r\n]+)/i,
+  )?.[1];
+  if (markedReason) reasons.push(markedReason);
+
+  if (/\b(dispute|chargeback)\b/i.test(notes)) {
+    reasons.push("Payment dispute or chargeback requires founder review.");
+  }
+  if (/\b(address mismatch|wrong address)\b/i.test(notes)) {
+    reasons.push("Shipping address mismatch requires founder correction.");
+  }
+  if (/\b(rx|prescription) mismatch\b|\bwrong rx\b/i.test(notes)) {
+    reasons.push("Prescription mismatch requires founder review.");
+  }
+  if (/\bcomplaint\b|\bcustomer question\b|\border question\b/i.test(notes)) {
+    reasons.push("A customer complaint or order question requires founder response.");
+  }
+
+  return uniqueReasons(reasons);
+}
+
+function stateExceptionReasons(
+  order: OperationalQueueOrder,
+  fulfillment: FulfillmentStatus,
+  paymentStatus: PaymentLifecycleStatus,
+): string[] {
+  const reasons = explicitFounderActionReasons(order);
+  const rawFulfillment = normalizedText(order.fulfillment_status);
+  const localStatus = normalizedText(order.status);
+  const stripeStatus = normalizedText(order.stripe_payment_intent_status);
+
+  if (order.payment_status_source === "stripe_lookup_failed") {
+    reasons.push(
+      "Stripe payment status could not be refreshed; confirm payment before continuing.",
+    );
+  }
+
+  if (
+    rawFulfillment &&
+    !KNOWN_FULFILLMENT_STATUSES.has(rawFulfillment as FulfillmentStatus)
+  ) {
+    reasons.push(
+      `Unknown fulfillment status "${order.fulfillment_status}" requires correction.`,
+    );
+  }
+
+  if (
+    (stripeStatus === "succeeded" &&
+      localStatus !== "captured" &&
+      localStatus !== "completed") ||
+    (stripeStatus === "requires_capture" &&
+      (localStatus === "captured" || localStatus === "completed"))
+  ) {
+    reasons.push(
+      `Stored payment state "${localStatus || "empty"}" disagrees with Stripe "${stripeStatus}"; reconcile the order before continuing.`,
+    );
+  }
+
+  if (
+    ["ready_to_order", "ordered", "backordered", "shipped", "delivered", "completed"].includes(
+      fulfillment,
+    ) &&
+    paymentStatus !== "captured"
+  ) {
+    reasons.push(
+      `${fulfillment.replace(/_/g, " ")} fulfillment requires captured payment, but payment is ${paymentStatus}.`,
+    );
+  }
+
+  return uniqueReasons(reasons);
+}
+
 function classify(
   bucket: OperationalQueueBucket,
   operatorActionable: boolean,
@@ -190,25 +322,21 @@ function classify(
     .map((reason) => reason.trim())
     .filter(Boolean);
 
-  if (bucket === "action_required" && explicitReasons.length === 0) {
+  if (bucket === "resolve_exception" && explicitReasons.length === 0) {
     integrityIssues.push({
       code: "ACTION_REQUIRED_WITHOUT_REASON",
-      message: "Action Required has no operator-facing reason.",
+      message: "Resolve Exception has no operator-facing reason.",
     });
-    explicitReasons.push("workflow integrity issue: reason missing");
+    explicitReasons.push(
+      "Workflow integrity failed to provide an exception reason; inspect the order state before continuing.",
+    );
   }
 
   if (
     order.fulfillment_status &&
-    ![
-      "review",
-      "ready_to_order",
-      "ordered",
-      "shipped",
-      "completed",
-      "hold",
-      "cancelled",
-    ].includes(order.fulfillment_status)
+    !KNOWN_FULFILLMENT_STATUSES.has(
+      order.fulfillment_status as FulfillmentStatus,
+    )
   ) {
     integrityIssues.push({
       code: "UNKNOWN_FULFILLMENT_STATE",
@@ -247,7 +375,7 @@ function classify(
   }
 
   if (
-    ["ready_to_order", "ordered", "shipped", "completed"].includes(
+    ["ready_to_order", "ordered", "backordered", "shipped", "delivered", "completed"].includes(
       fulfillment,
     ) &&
     payment.status !== "captured"
@@ -287,14 +415,52 @@ export function classifyOperationalQueue(
   const fulfillment = normalizedFulfillmentStatus(order);
 
   if (isExplicitDraftOrTest(order)) {
-    return classify("draft_or_test", false, ["test/internal"], order);
+    return classify(
+      "draft_or_test",
+      false,
+      ["Internal, test, or experiment order."],
+      order,
+    );
   }
 
   if (hasEmailDeliveryAttention(order)) {
     return classify(
-      "action_required",
+      "resolve_exception",
       true,
-      ["customer email undeliverable"],
+      [
+        "Customer email could not be delivered; confirm or correct the email address.",
+      ],
+      order,
+    );
+  }
+
+  const exceptionReasons = stateExceptionReasons(
+    order,
+    fulfillment,
+    payment.status,
+  );
+  if (verification.status === "unknown") {
+    exceptionReasons.push(
+      `Unknown verification status "${verification.rawStatus ?? "empty"}" requires correction.`,
+    );
+  }
+
+  if (exceptionReasons.length > 0) {
+    return classify(
+      "resolve_exception",
+      true,
+      uniqueReasons(exceptionReasons),
+      order,
+    );
+  }
+
+  if (order.archived || order.archived_at) {
+    return classify(
+      "resolve_exception",
+      true,
+      [
+        "This order was archived before fulfillment completed; restore or resolve it.",
+      ],
       order,
     );
   }
@@ -307,51 +473,33 @@ export function classifyOperationalQueue(
     return classify("history_archive", false, ["terminal"], order);
   }
 
-  if (order.archived || order.archived_at) {
+  if (fulfillment === "hold") {
     return classify(
-      "action_required",
-      true,
-      ["archived before completion"],
-      order,
-    );
-  }
-
-  if (order.payment_status_source === "stripe_lookup_failed") {
-    return classify(
-      "action_required",
-      true,
-      ["Stripe payment status unavailable"],
-      order,
-    );
-  }
-
-  if (
-    order.fulfillment_status &&
-    ![
-      "review",
-      "ready_to_order",
-      "ordered",
-      "shipped",
-      "completed",
-      "hold",
-      "cancelled",
-    ].includes(order.fulfillment_status)
-  ) {
-    return classify(
-      "action_required",
-      true,
-      [`unknown fulfillment status: ${order.fulfillment_status}`],
-      order,
-    );
-  }
-
-  if (verification.status === "unknown") {
-    return classify(
-      "action_required",
+      "resolve_exception",
       true,
       [
-        `unknown verification status: ${verification.rawStatus ?? "empty"}`,
+        "Supplier workflow placed this order on hold; review the supplier issue in Armory and decide how to proceed.",
       ],
+      order,
+    );
+  }
+
+  if (verification.blocked) {
+    return classify(
+      "resolve_exception",
+      true,
+      [
+        `Prescription verification is ${verification.label.toLowerCase()}; resolve the verification issue before fulfillment.`,
+      ],
+      order,
+    );
+  }
+
+  if (SUPPLIER_MANAGED_FULFILLMENT_STATUSES.has(fulfillment)) {
+    return classify(
+      "supplier_managed",
+      false,
+      ["Supplier order placed; Armory owns lifecycle tracking."],
       order,
     );
   }
@@ -360,56 +508,92 @@ export function classifyOperationalQueue(
     isCustomerPaymentBlocked(order, payment.status) ||
     CUSTOMER_BLOCKED_NEXT_ACTION_LABELS.has(nextAction.label)
   ) {
-    return classify("customer_blocked", false, ["customer/payment"], order);
+    return classify(
+      "customer_blocked",
+      false,
+      ["Customer checkout or payment is incomplete."],
+      order,
+    );
   }
 
   if (!isPaymentAuthorizedOrCaptured(payment.status)) {
-    return classify("customer_blocked", false, ["unpaid"], order);
+    return classify(
+      "customer_blocked",
+      false,
+      ["Payment is not authorized or captured."],
+      order,
+    );
   }
 
-  if (fulfillment === "hold") {
-    return classify("action_required", true, ["hold"], order);
+  if (order.rx_status === "ocr_failed") {
+    return classify(
+      "awaiting_verification",
+      true,
+      ["Prescription image could not be read; review it manually."],
+      order,
+    );
   }
 
-  if (verification.blocked) {
-    return classify("action_required", true, ["verification blocked"], order);
-  }
-
-  if (order.rx_status === "ocr_failed" || verification.requiresReview) {
-    return classify("action_required", true, ["review prescription"], order);
+  if (verification.requiresReview) {
+    return classify(
+      "awaiting_verification",
+      true,
+      [
+        `Prescription verification requires review (${verification.label.toLowerCase()}).`,
+      ],
+      order,
+    );
   }
 
   if (verification.status === "information_needed") {
     return classify(
-      "verification_pending",
+      "awaiting_verification",
       false,
-      ["customer verification information"],
+      ["Prescription verification is waiting for customer information."],
       order,
     );
   }
 
   if (!rxSource.hasRxEvidence || order.rx_status === "expired") {
-    return classify("verification_pending", false, ["customer rx"], order);
+    return classify(
+      "awaiting_verification",
+      false,
+      [
+        "Valid prescription evidence is missing or expired; obtain updated prescription information.",
+      ],
+      order,
+    );
   }
 
   if (!verification.complete) {
-    if (nextAction.label === "Verify prescription") {
-      return classify("action_required", true, ["verify prescription"], order);
-    }
-
-    return classify("verification_pending", false, ["verification pending"], order);
+    const doctorVerification =
+      nextAction.label === "Await doctor verification";
+    return classify(
+      "awaiting_verification",
+      !doctorVerification,
+      [
+        doctorVerification
+          ? "Waiting for prescriber verification."
+          : "Prescription verification has not been completed.",
+      ],
+      order,
+    );
   }
 
   return classify(
-    "active_fulfillment",
-    NORMAL_FULFILLMENT_ACTIONS.has(nextAction.label),
-    ["fulfillment"],
+    "ready_to_order",
+    true,
+    [
+      payment.status === "authorized"
+        ? "Prescription verification is complete; capture payment before placing the supplier order."
+        : "Payment is captured and prescription verification is complete; place the supplier order.",
+    ],
     order,
   );
 }
 
 export function isMerchantQueueBucket(bucket: OperationalQueueBucket): boolean {
-  return bucket === "active_fulfillment" || bucket === "action_required";
+  return ADMIN_WORK_QUEUE_SECTIONS.some((section) => section.key === bucket);
 }
 
 /**
@@ -422,9 +606,10 @@ export function groupOperationalQueueOrders<T extends OperationalQueueOrder>(
   options: OperationalQueueOptions = {},
 ): OperationalQueueGroups<T> {
   const groups: OperationalQueueGroups<T> = {
-    active_fulfillment: [],
-    action_required: [],
-    verification_pending: [],
+    awaiting_verification: [],
+    ready_to_order: [],
+    resolve_exception: [],
+    supplier_managed: [],
     customer_blocked: [],
     draft_or_test: [],
     history_archive: [],
