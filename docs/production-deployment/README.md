@@ -1,7 +1,8 @@
 # Honest Lenses production deployment package
 
 Status: **release candidate frozen; ready for execution-time checks; not authorized for deployment**
-Prepared: 2026-07-29
+Prepared: 2026-07-30
+Package/runbook version: **1.1.0**
 Pinned Supabase CLI: `2.109.1`
 
 This is the permanent execution package for the reviewed Commerce v2 schema
@@ -73,15 +74,29 @@ production-evidence/
     write-drain-observation-1.json
     write-drain-observation-2.json
     toolchain.txt
-    backups.json
+    bitlocker-status.txt
+    supabase-project-identity.png
+    supabase-backup-status.png
+    supabase-pitr-status.png
     rollback-recovery-rows.json
     manifest.sha256
     deployment-log.md
 ```
 
-The database URL, access tokens, API keys, customer data, and rollback recovery
-rows must never be committed. Store the evidence folder encrypted with access
-limited to the deployment operators.
+The three Supabase PNG files may be replaced by the single three-page
+`supabase-backup-pitr-evidence.pdf` defined in the backup procedure.
+
+The database URL, credentials, API keys, customer data, and rollback recovery
+rows must never be committed. A local folder outside Git on a drive whose
+BitLocker status is `Fully Encrypted`, `100%`, and `Protection On` satisfies
+the encrypted-evidence requirement. Limit access to the deployment operators.
+
+## Changelog
+
+| Version | Date | Change |
+| --- | --- | --- |
+| 1.1.0 | 2026-07-30 | Replaced the dedicated read-only-role prerequisite with a guarded owner capture; replaced Management API backup evidence with founder-verified Dashboard evidence; accepted protected BitLocker-local storage |
+| 1.0.0 | 2026-07-29 | Initial frozen release-candidate package |
 
 ## Official references
 

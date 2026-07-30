@@ -16,11 +16,11 @@ Rule: every required item must be `PASS`; `NOT VERIFIED` is a `NO-GO`.
 
 | # | Gate | Decision: check one | Current preparation evidence |
 | ---: | --- | --- | --- |
-| 1 | Production schema/catalog baseline captured twice and checksummed | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
+| 1 | Production schema/catalog baseline captured twice with owner connection forced read-only; `transaction_read_only=on`; credential cleared; checksums verified | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
 | 2 | Repository matches approved production baseline; no unexplained drift | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
 | 3 | Migration history exact; Resend matched, two pending only | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | Partial: SQL/version reviewed; fresh output required |
-| 4 | Backup completed and recovery point recorded | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
-| 5 | PITR availability/retention or approved backup RPO verified | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
+| 4 | Founder-verified Supabase Dashboard evidence shows completed backup and recovery point | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
+| 5 | Founder-verified Dashboard evidence shows PITR availability/retention or approved backup RPO | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
 | 6 | Restore-to-new-project rehearsal passed; RTO accepted | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
 | 7 | Storage object recovery limitation accepted/covered | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
 | 8 | Migration SQL, hashes, order, locks, role, and transactions reviewed | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | PASS |
@@ -33,7 +33,7 @@ Rule: every required item must be `PASS`; `NOT VERIFIED` is a `NO-GO`.
 | 15 | Production build passes at release commit | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | Frozen release tree PASS; exact commit rerun required |
 | 16 | Commerce v2 disabled in code and every production runtime/worker | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | Code PASS; production NOT VERIFIED |
 | 17 | All production feature flags and release artifact verified | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
-| 18 | Production Supabase/Stripe/hosting identities and credentials verified | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
+| 18 | Production identities/credentials verified; baseline evidence stored outside Git on BitLocker drive with protection on | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | NOT VERIFIED |
 | 19 | Write-drain control, canary, zero-write proof, and reopen order verified | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | Implementation/unit gate PASS; production activation is an execution-time check |
 | 20 | Ordered smoke tests prepared; live canary explicitly approved or waived | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | Plan PASS; canary decision NOT VERIFIED |
 | 21 | First-hour/day monitoring owners and dashboards prepared | ☐ PASS ☐ FAIL ☐ NOT VERIFIED | Checklist PASS; owners NOT VERIFIED |

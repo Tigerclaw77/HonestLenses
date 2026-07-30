@@ -3,31 +3,28 @@
 Do not assume a Supabase backup, PITR window, or restorable Storage object
 backup exists. Verify each independently before migration.
 
-## 1. Read-only backup metadata
+## 1. Founder-verified Dashboard evidence
 
-Use a fine-grained Management API token with `backups_read` only:
+No Management API token is required. The founder opens the production project
+in the Supabase Dashboard and captures either these three screenshots or one
+three-page PDF containing the same views:
 
-```powershell
-$headers=@{ Authorization="Bearer $env:SUPABASE_ACCESS_TOKEN" }
-$uri="https://api.supabase.com/v1/projects/$env:HL_PRODUCTION_PROJECT_REF/database/backups"
-$backupState=Invoke-RestMethod -Method Get -Uri $uri -Headers $headers
-$backupState | ConvertTo-Json -Depth 20 |
-  Set-Content -Encoding utf8 '<evidence-folder>\backups.json'
-```
+1. `supabase-project-identity.png`: Settings/General with production project
+   name, project ref, and region visible.
+2. `supabase-backup-status.png`: Database/Backups with latest completed backup
+   status, type, timestamp, and the available backup/retention list visible.
+3. `supabase-pitr-status.png`: PITR enabled/disabled state and, when enabled,
+   earliest/latest available recovery points and recovery window.
 
-Expected HTTP status: `200`.
+The PDF alternative is `supabase-backup-pitr-evidence.pdf`, with those views
+in that order. Every view must be legible and visibly associated with the same
+production project. Do not include secrets or customer data.
 
-Record:
-
-- project region;
-- `walg_enabled`;
-- `pitr_enabled`;
-- each backup ID, type, status, and `inserted_at`;
-- `earliest_physical_backup_date_unix`;
-- `latest_physical_backup_date_unix`.
-
-Do not call `restore-pitr`, `undo`, or any `POST`, `PATCH`, or `DELETE`
-endpoint during verification.
+The founder records their name, verification UTC, project ref/region, backup
+status/type/time, PITR state/window, selected recovery path, and accepted RPO
+in `deployment-log.md`. The founder also records that no restore, clone, or
+other mutation was initiated. Any missing, stale, or ambiguous value is
+`NOT VERIFIED`.
 
 ## 2. Pass criteria
 
@@ -35,9 +32,8 @@ One of these recovery paths must be explicitly approved:
 
 ### Path A — PITR
 
-- `pitr_enabled=true`;
-- `walg_enabled=true`;
-- earliest/latest physical recovery timestamps are present;
+- the Dashboard shows PITR enabled;
+- earliest/latest recovery timestamps and the recovery window are visible;
 - latest recovery point is at or after the recorded pre-migration checkpoint,
   allowing for a quiet database where no newer WAL is necessary;
 - retention extends beyond the planned first-day monitoring period;
@@ -45,7 +41,7 @@ One of these recovery paths must be explicitly approved:
 
 ### Path B — completed physical/daily backup
 
-- at least one backup has `status=COMPLETED`;
+- the Dashboard shows at least one completed backup;
 - its timestamp is before the migration and within the accepted RPO;
 - a current logical schema dump and encrypted rollback-row export also exist;
 - founder explicitly accepts loss of writes between backup and incident;
@@ -118,7 +114,8 @@ All must be present:
 
 ## Status
 
-Until the read-only API response and restore rehearsal are captured:
+Until the founder-verified Dashboard evidence and restore rehearsal are
+captured:
 
 - Backup verified: `NOT VERIFIED`
 - PITR verified: `NOT VERIFIED`

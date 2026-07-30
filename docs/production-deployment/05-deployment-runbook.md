@@ -1,7 +1,16 @@
 # Production deployment runbook
 
+Version: **1.1.0** — Effective: **2026-07-30**
+
 This document is preparation only. Do not execute it without a separate,
 explicit production authorization.
+
+## Changelog
+
+| Version | Date | Change |
+| --- | --- | --- |
+| 1.1.0 | 2026-07-30 | Founder-approved baseline process: guarded production-owner capture, Dashboard backup/PITR evidence, and BitLocker-local evidence storage |
+| 1.0.0 | 2026-07-29 | Initial frozen release-candidate deployment runbook |
 
 ## Roles
 
@@ -16,11 +25,17 @@ The database operator must not self-approve a failed or ambiguous gate.
 ## T-24 hours
 
 1. Freeze database migrations and production DDL.
-2. Check out annotated tag `hl-security-rc1-2026-07-29`, verify its commit,
+2. Check out annotated tag `hl-security-rc2-2026-07-30`, verify its commit,
    and require `git status --porcelain` to return no output.
-3. Complete [Production baseline capture](01-production-baseline.md).
+3. Complete [Production baseline capture](01-production-baseline.md) using the
+   production database owner only with forced read-only transactions. Verify
+   `transaction_read_only=on`, use only the pinned clients and repository SQL,
+   prohibit interactive SQL, and clear the credential immediately after the
+   second capture.
 4. Complete [Drift verification](02-drift-verification.md).
-5. Complete [Backup verification](03-backup-verification.md).
+5. Have the founder capture and sign the exact Supabase Dashboard backup/PITR
+   evidence required by [Backup verification](03-backup-verification.md). No
+   Management API token is required.
 6. Verify all migration filenames and hashes in
    [Migration package](04-migration-package.md).
 7. In a clean PowerShell session define the native-exit guard and run the full
@@ -64,6 +79,9 @@ The database operator must not self-approve a failed or ambiguous gate.
 14. Review [Rollback guide](07-rollback-guide.md), named restore operator,
     accepted RPO/RTO, and Stripe replay plan.
 15. Create the [deployment log](10-deployment-log-template.md).
+16. Confirm the evidence folder is outside Git on a local BitLocker-protected
+    drive and `bitlocker-status.txt` shows `Fully Encrypted`, `100%`, and
+    `Protection On`.
 
 Any missing item is `NO-GO`.
 
@@ -163,10 +181,18 @@ investigate the security failure, and do not reopen writes.
 ## Immediate database verification
 
 ```powershell
+$env:PGOPTIONS='-c default_transaction_read_only=on -c lock_timeout=5s -c statement_timeout=120s'
 $psql=Join-Path $env:LOCALAPPDATA `
   'HonestLensesTools\PostgreSQL-17.10\pgsql\bin\psql.exe'
+$readOnlyState=& $psql -X --set ON_ERROR_STOP=1 --tuples-only --no-align `
+  --dbname $env:HL_PRODUCTION_DIRECT_DATABASE_URL `
+  --command 'SHOW transaction_read_only;'
+Assert-NativeSuccess 'post-migration read-only guard'
+if (($readOnlyState | Out-String).Trim() -ne 'on') {
+  throw 'Post-migration verification is not forced read-only'
+}
 $postAssertions=& $psql -X --set ON_ERROR_STOP=1 --tuples-only --no-align `
-  --dbname $env:HL_PRODUCTION_READONLY_DATABASE_URL `
+  --dbname $env:HL_PRODUCTION_DIRECT_DATABASE_URL `
   --file 'docs/production-deployment/sql/post-migration-assertions.sql'
 Assert-NativeSuccess 'post-migration assertions'
 $postAssertions | Set-Content -Encoding utf8 `
@@ -179,7 +205,7 @@ Then run:
 
 ```powershell
 $advisorOutput=supabase.cmd --output-format json db advisors `
-  --db-url $env:HL_PRODUCTION_READONLY_DATABASE_URL `
+  --db-url $env:HL_PRODUCTION_DIRECT_DATABASE_URL `
   --type security `
   --level info `
   --fail-on warn
@@ -188,7 +214,7 @@ $advisorOutput | Set-Content -Encoding utf8 `
   '<evidence-folder>\security-advisor.json'
 
 $finalCatalog=& $psql -X --set ON_ERROR_STOP=1 --tuples-only --no-align `
-  --dbname $env:HL_PRODUCTION_READONLY_DATABASE_URL `
+  --dbname $env:HL_PRODUCTION_DIRECT_DATABASE_URL `
   --file 'docs/production-deployment/sql/production-catalog-export.sql'
 Assert-NativeSuccess 'final production catalog'
 $finalCatalog | Set-Content -Encoding utf8 `
