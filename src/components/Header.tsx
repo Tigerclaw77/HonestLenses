@@ -22,15 +22,7 @@ export default function Header({
 
   const [isNavOpen, setIsNavOpen] = useState(false);
   const [hasItems, setHasItems] = useState(false);
-  const [user, setUser] = useState<User | null>(() => {
-    if (process.env.NODE_ENV === "development") {
-      return {
-        id: "ef2cc991-f65f-4ce0-85ba-f5816ce2ee76",
-        email: "dev@local.test",
-      } as User;
-    }
-    return null;
-  });
+  const [user, setUser] = useState<User | null>(null);
 
   const isHome = variant === "home";
   const showShop = variant !== "shop";
@@ -60,8 +52,6 @@ export default function Header({
 
   // Load user session
   useEffect(() => {
-    if (process.env.NODE_ENV === "development") return;
-
     supabase.auth.getUser().then(({ data }) => {
       setUser(data.user ?? null);
     });
@@ -84,13 +74,13 @@ export default function Header({
     }
 
     // Logged in → logout immediately
-    clearSessionState();
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (error) return;
 
+    clearSessionState();
+    setUser(null);
     if (window.location.pathname !== "/") {
       router.replace("/");
-    } else {
-      router.refresh();
     }
   }
 

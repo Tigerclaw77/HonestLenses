@@ -16,6 +16,22 @@ assert.ok(componentStart > detailsStart);
 
 const activeCard = source.slice(cardStart, detailsStart);
 const detailsSurface = source.slice(detailsStart, componentStart);
+const expandedCardStart = activeCard.indexOf("{isOpen &&");
+assert.ok(expandedCardStart >= 0);
+assert.ok(
+  activeCard.indexOf("<CustomerCopyGrid order={order} />") > expandedCardStart,
+  "customer processing fields render inside the existing expanded card",
+);
+assert.ok(
+  activeCard.indexOf('<RxDetailsPanel order={order} heading="Prescription" />') >
+    expandedCardStart,
+  "prescription processing renders inside the existing expanded card",
+);
+assert.equal(
+  activeCard.includes("runPrimaryAction"),
+  false,
+  "routine workflow actions do not route through Order Details",
+);
 const historyStart = source.indexOf("{archiveOrders.map");
 const abandonedStart = source.indexOf("{abandonedOrders.map", historyStart);
 const historyRows = source.slice(historyStart, abandonedStart);
@@ -57,13 +73,47 @@ for (const visibleQueueSignal of [
   );
 }
 
-for (const recordOnlyField of [
+for (const routineProcessingField of [
+  "shipping_first_name",
+  "shipping_last_name",
   "shipping_phone",
   "shipping_email",
   "shipping_address1",
+  "shipping_address2",
+  "shipping_city",
+  "shipping_state",
+  "shipping_zip",
+  "RxDetailsPanel",
+  'heading="Prescription"',
+  "CopyableValue",
+]) {
+  assert.equal(
+    activeCard.includes(routineProcessingField),
+    true,
+    `${routineProcessingField} is available in the expanded processing card`,
+  );
+}
+
+for (const copyLabel of [
+  "First name",
+  "Last name",
+  "Phone",
+  "Email",
+  "Street address",
+  "Apt / Suite",
+  "City",
+  "State",
+  "ZIP",
+]) {
+  assert.ok(
+    activeCard.includes(`label="${copyLabel}"`),
+    `${copyLabel} has its own one-click copy control`,
+  );
+}
+
+for (const recordOnlyField of [
   "payment_intent_id",
   "stripe_payment_intent_status",
-  "RxDetailsPanel",
   "Created:",
   "Updated:",
 ]) {
@@ -89,7 +139,6 @@ for (const detailsOnlyControl of [
   "Notes",
   "Copy Order",
   "Archive",
-  "Admin override",
 ]) {
   assert.equal(
     activeCard.includes(detailsOnlyControl),
@@ -109,7 +158,6 @@ for (const removedQueueRecordSignal of [
   "Captured:",
   "Created:",
   "Updated:",
-  "CopyableValue",
   "getOrderStatusFlags",
 ]) {
   assert.equal(
@@ -125,12 +173,52 @@ assert.ok(
   "verification attempts render as one compact tracker row",
 );
 assert.ok(
-  activeCard.includes('sectionKey === "ready_to_order"'),
-  "ready-to-order cards expose the vendor-order primary action",
+  activeCard.includes("workflowActionLabel(fulfillment, nextFulfillment)"),
+  "the next routine workflow action is a visible button",
 );
-assert.ok(activeCard.includes("Verify Prescription"));
-assert.ok(activeCard.includes("Place Vendor Order"));
-assert.ok(activeCard.includes("Resolve Exception"));
+assert.ok(
+  activeCard.includes("Undo to {labelizeStatus(previousFulfillment)}"),
+  "the previous routine workflow action is a visible button",
+);
+assert.ok(source.includes("Approve / Ready to Order"));
+assert.ok(source.includes("Place Vendor Order"));
+assert.ok(source.includes("Mark Shipped"));
+assert.ok(source.includes("Complete Order"));
+assert.ok(activeCard.includes("Return to Review"));
+
+const administrativeSelectStart = activeCard.indexOf(
+  'aria-label="Administrative action"',
+);
+const administrativeSelectEnd = activeCard.indexOf(
+  "</select>",
+  administrativeSelectStart,
+);
+assert.ok(administrativeSelectStart >= 0);
+assert.ok(administrativeSelectEnd > administrativeSelectStart);
+const administrativeSelect = activeCard.slice(
+  administrativeSelectStart,
+  administrativeSelectEnd,
+);
+assert.ok(administrativeSelect.includes('value="hold"'));
+assert.ok(administrativeSelect.includes('value="cancelled"'));
+for (const routineStatus of [
+  'value="review"',
+  'value="ready_to_order"',
+  'value="ordered"',
+  'value="shipped"',
+  'value="completed"',
+]) {
+  assert.equal(
+    administrativeSelect.includes(routineStatus),
+    false,
+    `${routineStatus} is a visible workflow action, not a dropdown option`,
+  );
+}
+assert.equal(
+  />\s*Admin override\s*</.test(source),
+  false,
+  "the all-status Admin override control is removed",
+);
 assert.equal(
   (activeCard.match(/data-active-order-card/g) ?? []).length,
   1,
