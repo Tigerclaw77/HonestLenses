@@ -32,6 +32,7 @@ export type DeliveryEventApplyResult = {
   duplicate?: boolean;
   matched?: boolean;
   order_id?: string;
+  processing_status?: "matched" | "unmatched";
 };
 
 type EventProcessorResult = {
@@ -40,6 +41,13 @@ type EventProcessorResult = {
   matched: boolean;
   orderId: string | null;
 };
+
+export class InvalidResendWebhookPayloadError extends Error {
+  constructor() {
+    super("Invalid Resend webhook payload.");
+    this.name = "InvalidResendWebhookPayloadError";
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -89,6 +97,23 @@ function bounceReason(data: Record<string, unknown>): string {
     : [];
 
   return [message, ...diagnostics].filter(Boolean).join(" | ") || "Email permanently bounced.";
+}
+
+export function assertValidResendWebhookPayload(
+  event: unknown,
+  svixId: string,
+): void {
+  if (!svixId || !isRecord(event) || !isRecord(event.data)) {
+    throw new InvalidResendWebhookPayloadError();
+  }
+
+  const valid = Boolean(
+    stringValue(event.type) &&
+      stringValue(event.data.email_id) &&
+      eventDate(event, event.data),
+  );
+
+  if (!valid) throw new InvalidResendWebhookPayloadError();
 }
 
 export function verifyResendWebhook(
@@ -171,6 +196,8 @@ export async function processResendDeliveryEvent(
     normalized: NormalizedResendDeliveryEvent,
   ) => Promise<DeliveryEventApplyResult>,
 ): Promise<EventProcessorResult> {
+  assertValidResendWebhookPayload(event, svixId);
+
   const normalized = normalizeResendDeliveryEvent(event, svixId);
   if (!normalized) {
     return { ignored: true, duplicate: false, matched: false, orderId: null };
