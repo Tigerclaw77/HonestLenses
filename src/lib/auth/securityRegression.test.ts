@@ -12,6 +12,7 @@ import {
 } from "./authorization";
 import { ROUTE_AUTHORIZATION_POLICY } from "./routePolicy";
 import { safeInternalPath } from "./safeRedirect";
+import { parseImplicitAuthSession } from "./callbackSession";
 import {
   createRequestSignature,
   hasValidSignedRequest,
@@ -26,6 +27,23 @@ assert.equal(safeInternalPath("//evil.example/path"), "/");
 assert.equal(safeInternalPath("/\\evil.example"), "/");
 assert.equal(safeInternalPath("/%0Ajavascript:alert(1)"), "/");
 assert.equal(safeInternalPath("/checkout?step=2#payment"), "/checkout?step=2#payment");
+
+assert.deepEqual(
+  parseImplicitAuthSession(
+    "#access_token=access-value&refresh_token=refresh-value&type=magiclink",
+  ),
+  {
+    accessToken: "access-value",
+    refreshToken: "refresh-value",
+  },
+);
+assert.equal(parseImplicitAuthSession("#access_token=access-value"), null);
+assert.equal(
+  parseImplicitAuthSession(
+    "#error=access_denied&access_token=access-value&refresh_token=refresh-value",
+  ),
+  null,
+);
 
 const orderId = "11111111-1111-4111-8111-111111111111";
 const issuedAt = 1_800_000_000;

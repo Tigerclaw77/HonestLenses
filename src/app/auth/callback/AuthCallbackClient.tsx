@@ -7,6 +7,7 @@ import { POSTHOG_EVENTS } from "@/lib/posthog/client";
 import { captureClientError } from "@/lib/telemetry/clientErrors";
 import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 import { safeInternalPath } from "@/lib/auth/safeRedirect";
+import { parseImplicitAuthSession } from "@/lib/auth/callbackSession";
 
 async function waitForSession(maxAttempts = 5) {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -37,9 +38,11 @@ export default function AuthCallbackClient() {
       const code = searchParams.get("code");
       const error = searchParams.get("error");
       const errorDescription = searchParams.get("error_description");
+      const implicitSession = parseImplicitAuthSession(window.location.hash);
 
       void trackFunnelEvent(POSTHOG_EVENTS.AUTH_CALLBACK_RECEIVED, {
         has_code: Boolean(code),
+        has_implicit_session: Boolean(implicitSession),
         has_error: Boolean(error),
         next_route: next,
       });
@@ -60,6 +63,19 @@ export default function AuthCallbackClient() {
             await supabase.auth.exchangeCodeForSession(code);
 
           if (exchangeError) throw exchangeError;
+        } else if (implicitSession) {
+          const { error: sessionExchangeError } = await supabase.auth.setSession({
+            access_token: implicitSession.accessToken,
+            refresh_token: implicitSession.refreshToken,
+          });
+
+          if (sessionExchangeError) throw sessionExchangeError;
+
+          window.history.replaceState(
+            null,
+            "",
+            `${window.location.pathname}${window.location.search}`,
+          );
         }
 
         const { session, error: sessionError, attempts } =

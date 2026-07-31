@@ -23,10 +23,8 @@ import {
   type OperationalQueueIntegrityIssue,
 } from "@/lib/orders/operationalQueue";
 import {
-  ADMIN_FULFILLMENT_STATUSES,
   assessAdminFulfillmentTransition,
   getAdminFulfillmentStatus,
-  isAdminFulfillmentStatus,
   type AdminFulfillmentStatus,
 } from "@/lib/orders/adminWorkflow";
 import {
@@ -297,9 +295,6 @@ type AdminApiPayload = {
   event_logged?: boolean;
   integrity_issues?: AdminQueueIntegrityIssue[];
 };
-
-const FULFILLMENT_STATUSES: readonly FulfillmentStatus[] =
-  ADMIN_FULFILLMENT_STATUSES;
 
 const FULFILLMENT_PROGRESS_FLOW: FulfillmentStatus[] = [
   "review",
@@ -659,10 +654,6 @@ function labelizeStatus(status: string): string {
   return status.replace(/_/g, " ").toUpperCase();
 }
 
-function isFulfillmentStatus(value: unknown): value is FulfillmentStatus {
-  return isAdminFulfillmentStatus(value);
-}
-
 function normalizedFulfillmentStatus(order: Order): FulfillmentStatus {
   return getAdminFulfillmentStatus(order);
 }
@@ -749,6 +740,33 @@ function nextFulfillmentStatus(status: FulfillmentStatus): FulfillmentStatus | n
   return FULFILLMENT_PROGRESS_FLOW[currentIndex + 1] ?? null;
 }
 
+
+function previousFulfillmentStatus(
+  status: FulfillmentStatus,
+): FulfillmentStatus | null {
+  const currentIndex = FULFILLMENT_PROGRESS_FLOW.indexOf(status);
+  if (currentIndex <= 0) return null;
+  return FULFILLMENT_PROGRESS_FLOW[currentIndex - 1] ?? null;
+}
+
+function workflowActionLabel(
+  current: FulfillmentStatus,
+  next: FulfillmentStatus,
+): string {
+  if (current === "review" && next === "ready_to_order") {
+    return "Approve / Ready to Order";
+  }
+  if (current === "ready_to_order" && next === "ordered") {
+    return "Place Vendor Order";
+  }
+  if (current === "ordered" && next === "shipped") {
+    return "Mark Shipped";
+  }
+  if (current === "shipped" && next === "completed") {
+    return "Complete Order";
+  }
+  return `Advance to ${labelizeStatus(next)}`;
+}
 
 function canPermanentlyDelete(order: Order): boolean {
   return Boolean(
@@ -1065,12 +1083,16 @@ function getOrderLensDisplayName(order: Order): string {
   );
 }
 
-function copyToClipboard(value?: string | null): void {
+async function copyToClipboard(value?: string | null): Promise<boolean> {
   const text = value?.trim();
-  if (!text) return;
-  navigator.clipboard.writeText(text).catch(() => {
-    // Clipboard writes can be blocked outside a direct user gesture.
-  });
+  if (!text || !navigator.clipboard) return false;
+
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isNewPaymentIntentOrder(order: Order): boolean {
@@ -1143,7 +1165,13 @@ function parseRx(order: Order): {
   }
 }
 
-function RxDetailsPanel({ order }: { order: Order }) {
+function RxDetailsPanel({
+  order,
+  heading = "Full Rx",
+}: {
+  order: Order;
+  heading?: string;
+}) {
   const details = fullRxDetails(order);
   const rows = [
     { label: "OD", eye: details.rx?.right ?? null },
@@ -1167,7 +1195,7 @@ function RxDetailsPanel({ order }: { order: Order }) {
       }}
       onClick={(e) => e.stopPropagation()}
     >
-      <div style={{ fontWeight: 700, marginBottom: 8 }}>Full Rx</div>
+      <div style={{ fontWeight: 700, marginBottom: 8 }}>{heading}</div>
 
       {details.hasStructured ? (
         <>
@@ -1252,10 +1280,12 @@ function RxDetailsPanel({ order }: { order: Order }) {
 
 function CopyableValue({
   value,
+  label,
   children,
   style,
 }: {
   value?: string | null;
+  label?: string;
   children?: ReactNode;
   style?: CSSProperties;
 }) {
@@ -1274,10 +1304,12 @@ function CopyableValue({
   return (
     <button
       type="button"
-      title={`Copy ${text}`}
-      onClick={(e) => {
+      title={`Copy ${label ?? text}`}
+      aria-label={`Copy ${label ?? text}`}
+      onClick={async (e) => {
         e.stopPropagation();
-        copyToClipboard(text);
+        const copiedSuccessfully = await copyToClipboard(text);
+        if (!copiedSuccessfully) return;
         setCopied(true);
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
         timeoutRef.current = setTimeout(() => setCopied(false), 1000);
@@ -1305,12 +1337,12 @@ function CopyableValue({
           color: "#86efac",
           fontSize: 11,
           fontWeight: 800,
-          opacity: copied ? 1 : 0,
+          opacity: copied ? 1 : 0.72,
           transition: "opacity 180ms ease",
           whiteSpace: "nowrap",
         }}
       >
-        Copied {"\u2713"}
+        {copied ? <>Copied {"\u2713"}</> : "Copy"}
       </span>
     </button>
   );
@@ -1457,7 +1489,6 @@ function PrescriberVerificationTracker({
 function ActiveOrderCard({
   order,
   sectionTitle,
-  sectionKey,
   isOpen,
   isHighlighted,
   savingOrderId,
@@ -1470,7 +1501,6 @@ function ActiveOrderCard({
 }: {
   order: Order;
   sectionTitle: string;
-  sectionKey: string;
   isOpen: boolean;
   isHighlighted: boolean;
   savingOrderId: string | null;
@@ -1489,23 +1519,9 @@ function ActiveOrderCard({
   const verification = getVerificationState(order);
   const fulfillment = normalizedFulfillmentStatus(order);
   const nextFulfillment = nextFulfillmentStatus(fulfillment);
+  const previousFulfillment = previousFulfillmentStatus(fulfillment);
   const nextAction = getNextAction(order);
   const classification = getOrderOperationalClassification(order);
-  const primaryActionLabel =
-    sectionKey === "awaiting_verification"
-      ? "Verify Prescription"
-      : sectionKey === "ready_to_order"
-        ? "Place Vendor Order"
-        : "Resolve Exception";
-
-  function runPrimaryAction() {
-    if (sectionKey === "ready_to_order" && nextFulfillment) {
-      onAdvanceFulfillment(nextFulfillment);
-      return;
-    }
-
-    onOpenDetails();
-  }
 
   return (
     <article
@@ -1620,12 +1636,14 @@ function ActiveOrderCard({
             marginTop: 8,
             paddingTop: 8,
             display: "grid",
-            gridTemplateColumns: "minmax(420px, 1.4fr) minmax(220px, 0.6fr)",
+            gridTemplateColumns: "minmax(460px, 1.35fr) minmax(240px, 0.65fr)",
             gap: 10,
-            alignItems: "stretch",
+            alignItems: "start",
           }}
         >
-          <div>
+          <div style={{ display: "grid", gap: 10 }}>
+            <CustomerCopyGrid order={order} />
+
             <div
               style={{
                 display: "flex",
@@ -1637,13 +1655,6 @@ function ActiveOrderCard({
               }}
             >
               <strong>Verification: {verification.label}</strong>
-              <button
-                type="button"
-                onClick={onOpenDetails}
-                style={buttonStyle({ fontSize: 11 })}
-              >
-                View Rx
-              </button>
               {order.rx_upload_path && (
                 <button
                   type="button"
@@ -1654,6 +1665,9 @@ function ActiveOrderCard({
                 </button>
               )}
             </div>
+
+            <RxDetailsPanel order={order} heading="Prescription" />
+
             <PrescriberVerificationTracker
               order={order}
               savingAttempt={savingVerificationAttempt}
@@ -1669,9 +1683,9 @@ function ActiveOrderCard({
               justifyContent: "space-between",
               gap: 12,
             }}
-          >
-            <div>
-              <div style={{ opacity: 0.58, fontSize: 10 }}>NEXT ACTION</div>
+            >
+              <div>
+                <div style={{ opacity: 0.58, fontSize: 10 }}>NEXT ACTION</div>
               <div
                 style={{
                   marginTop: 4,
@@ -1679,34 +1693,165 @@ function ActiveOrderCard({
                   fontWeight: 900,
                   color: "#bae6fd",
                 }}
-              >
-                {nextAction.label}
+                >
+                  {nextAction.label}
+                </div>
+                {classification.reasons.length > 0 && (
+                  <div
+                    style={{
+                      marginTop: 6,
+                      color: "#fde68a",
+                      fontSize: 11,
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    Reason: {classification.reasons.join("; ")}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: "grid", gap: 7 }}>
+                {nextFulfillment && (
+                  <button
+                    type="button"
+                    disabled={savingOrderId === order.id}
+                    onClick={() => onAdvanceFulfillment(nextFulfillment)}
+                    style={buttonStyle({
+                      width: "100%",
+                      padding: "9px 10px",
+                      fontSize: 12,
+                      fontWeight: 850,
+                      background: "rgba(20,184,166,0.28)",
+                    })}
+                  >
+                    {workflowActionLabel(fulfillment, nextFulfillment)}
+                  </button>
+                )}
+
+                {previousFulfillment && (
+                  <button
+                    type="button"
+                    disabled={savingOrderId === order.id}
+                    onClick={() => onAdvanceFulfillment(previousFulfillment)}
+                    style={buttonStyle({ width: "100%", fontSize: 11 })}
+                  >
+                    Undo to {labelizeStatus(previousFulfillment)}
+                  </button>
+                )}
+
+                {(fulfillment === "hold" || fulfillment === "cancelled") && (
+                  <button
+                    type="button"
+                    disabled={savingOrderId === order.id}
+                    onClick={() => onAdvanceFulfillment("review")}
+                    style={buttonStyle({
+                      width: "100%",
+                      fontSize: 11,
+                      background: "rgba(20,184,166,0.2)",
+                    })}
+                  >
+                    Return to Review
+                  </button>
+                )}
+
+                <label style={{ display: "grid", gap: 4, fontSize: 10 }}>
+                  <span style={{ opacity: 0.62 }}>Administrative action</span>
+                  <select
+                    aria-label="Administrative action"
+                    value=""
+                    disabled={savingOrderId === order.id}
+                    onChange={(event) => {
+                      const status = event.target.value;
+                      if (status === "hold" || status === "cancelled") {
+                        onAdvanceFulfillment(status);
+                      }
+                    }}
+                    style={{ padding: "6px 7px", borderRadius: 4 }}
+                  >
+                    <option value="">Choose rare action...</option>
+                    {fulfillment !== "hold" && (
+                      <option value="hold">Place on hold</option>
+                    )}
+                    {fulfillment !== "cancelled" && (
+                      <option value="cancelled">Cancel order</option>
+                    )}
+                  </select>
+                </label>
+
+                {savingOrderId === order.id && (
+                  <span style={{ fontSize: 11, opacity: 0.72 }}>Saving...</span>
+                )}
               </div>
             </div>
-            <button
-              type="button"
-              disabled={savingOrderId === order.id}
-              onClick={runPrimaryAction}
-              style={buttonStyle({
-                width: "100%",
-                padding: "9px 10px",
-                fontSize: 12,
-                fontWeight: 850,
-                background: "rgba(20,184,166,0.28)",
-              })}
-            >
-              {savingOrderId === order.id ? "Saving..." : primaryActionLabel}
-            </button>
-          </div>
         </div>
       )}
     </article>
   );
 }
 
+function CopyableCustomerField({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | null;
+}) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 10, opacity: 0.58, marginBottom: 2 }}>{label}</div>
+      {value?.trim() ? (
+        <CopyableValue
+          value={value}
+          label={label}
+          style={{ maxWidth: "100%", overflowWrap: "anywhere" }}
+        />
+      ) : (
+        <span style={{ opacity: 0.5 }}>-</span>
+      )}
+    </div>
+  );
+}
+
+function CustomerCopyGrid({ order }: { order: Order }) {
+  return (
+    <div style={mutedPanelStyle()}>
+      <div style={{ fontWeight: 800, marginBottom: 8 }}>Customer information</div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+          gap: "9px 12px",
+          fontSize: 12,
+        }}
+      >
+        <CopyableCustomerField
+          label="First name"
+          value={order.shipping_first_name}
+        />
+        <CopyableCustomerField
+          label="Last name"
+          value={order.shipping_last_name}
+        />
+        <CopyableCustomerField label="Phone" value={order.shipping_phone} />
+        <CopyableCustomerField label="Email" value={order.shipping_email} />
+        <CopyableCustomerField
+          label="Street address"
+          value={order.shipping_address1}
+        />
+        <CopyableCustomerField
+          label="Apt / Suite"
+          value={order.shipping_address2}
+        />
+        <CopyableCustomerField label="City" value={order.shipping_city} />
+        <CopyableCustomerField label="State" value={order.shipping_state} />
+        <CopyableCustomerField label="ZIP" value={order.shipping_zip} />
+      </div>
+    </div>
+  );
+}
+
 function OrderDetailsModal({
   order,
-  savingOrderId,
   onClose,
   onOpenRxImage,
   onOpenNotes,
@@ -1714,10 +1859,8 @@ function OrderDetailsModal({
   onArchive,
   onAdjustQuantity,
   onAdjustCapture,
-  onOverrideFulfillment,
 }: {
   order: Order;
-  savingOrderId: string | null;
   onClose: () => void;
   onOpenRxImage: () => void;
   onOpenNotes: () => void;
@@ -1725,7 +1868,6 @@ function OrderDetailsModal({
   onArchive: () => void;
   onAdjustQuantity: () => void;
   onAdjustCapture: () => void;
-  onOverrideFulfillment: (status: FulfillmentStatus) => void;
 }) {
   const customerName = getCustomerName(order);
   const patientName = getPatientName(order);
@@ -1907,34 +2049,6 @@ function OrderDetailsModal({
               Created: {formatAdminDateTime(order.created_at)}
             </div>
             <div>Updated: {formatAdminDateTime(order.updated_at)}</div>
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 7,
-                marginTop: 8,
-                fontWeight: 700,
-              }}
-            >
-              Admin override
-              <select
-                value={fulfillment}
-                disabled={savingOrderId === order.id}
-                onChange={(event) => {
-                  const status = event.target.value;
-                  if (isFulfillmentStatus(status)) {
-                    onOverrideFulfillment(status);
-                  }
-                }}
-                style={{ padding: "4px 7px", borderRadius: 4 }}
-              >
-                {FULFILLMENT_STATUSES.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
         </div>
 
@@ -3158,7 +3272,6 @@ export default function AdminOrdersPage() {
                     key={o.id}
                     order={o}
                     sectionTitle={section.title}
-                    sectionKey={section.key}
                     isOpen={expanded === o.id}
                     isHighlighted={highlightedOrderIds.has(o.id)}
                     savingOrderId={savingOrderId}
@@ -3540,7 +3653,6 @@ export default function AdminOrdersPage() {
       {detailsOrder && (
         <OrderDetailsModal
           order={detailsOrder}
-          savingOrderId={savingOrderId}
           onClose={() => setDetailsOrderId(null)}
           onOpenRxImage={() =>
             openRxImage(detailsOrder, getCustomerName(detailsOrder))
@@ -3561,9 +3673,6 @@ export default function AdminOrdersPage() {
           }
           onAdjustCapture={() =>
             openCaptureAdjustment(detailsOrder, getCustomerName(detailsOrder))
-          }
-          onOverrideFulfillment={(status) =>
-            updateFulfillmentStatus(detailsOrder, status)
           }
         />
       )}
