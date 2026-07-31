@@ -96,6 +96,18 @@ assertCounts(
 );
 
 assertCounts(
+  "new draft orders with persisted zero placeholders receive the calculated default",
+  resolveCartEyeBoxCounts({
+    hasRightEye: true,
+    hasLeftEye: true,
+    defaultPerEye: DEFAULT_PER_EYE,
+    storedRightBoxCount: 0,
+    storedLeftBoxCount: 0,
+  }),
+  { right: DEFAULT_PER_EYE, left: DEFAULT_PER_EYE, totalBoxes: 8 },
+);
+
+assertCounts(
   "changing eyes independently: one explicit eye edit preserves the other eye",
   resolveCartEyeBoxCounts({
     hasRightEye: true,

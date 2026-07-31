@@ -62,11 +62,16 @@ export function resolveCartEyeBoxCounts({
   storedRightBoxCount,
   storedLeftBoxCount,
 }: ResolveCartEyeBoxCountsInput): ResolvedCartEyeBoxCounts {
+  const hasStoredQuantity =
+    (isNonNegativeInteger(storedRightBoxCount) ? storedRightBoxCount : 0) +
+      (isNonNegativeInteger(storedLeftBoxCount) ? storedLeftBoxCount : 0) >
+    0;
+
   const right = resolveEyeBoxCount({
     hasEye: hasRightEye,
     hasRequestedCount: hasRequestedRightBoxCount,
     requestedCount: requestedRightBoxCount,
-    storedCount: storedRightBoxCount,
+    storedCount: hasStoredQuantity ? storedRightBoxCount : null,
     defaultPerEye,
   });
 
@@ -74,7 +79,7 @@ export function resolveCartEyeBoxCounts({
     hasEye: hasLeftEye,
     hasRequestedCount: hasRequestedLeftBoxCount,
     requestedCount: requestedLeftBoxCount,
-    storedCount: storedLeftBoxCount,
+    storedCount: hasStoredQuantity ? storedLeftBoxCount : null,
     defaultPerEye,
   });
 
