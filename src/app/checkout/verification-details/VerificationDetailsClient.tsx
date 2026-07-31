@@ -12,6 +12,7 @@ import {
   markStepStart,
   track,
 } from "@/lib/posthog/client";
+import { buildCheckoutSuccessPath } from "@/lib/orders/checkoutSuccess";
 
 type DetailsResponse = {
   ok?: boolean;
@@ -252,7 +253,12 @@ export default function VerificationDetailsPage() {
 
         if (isUploaded) {
           clearManualRxLocalStorage();
-          router.replace("/checkout/success?mode=uploaded");
+          router.replace(
+            buildCheckoutSuccessPath({
+              orderId: typedOrder.id,
+              mode: "uploaded",
+            }),
+          );
           return;
         }
 
@@ -383,15 +389,20 @@ export default function VerificationDetailsPage() {
 
     clearManualRxLocalStorage();
 
-    if (body.passive_deadline_at) {
-      router.replace(
-        `/checkout/success?deadline=${encodeURIComponent(
-          body.passive_deadline_at,
-        )}`,
-      );
-    } else {
-      router.replace("/checkout/success");
+    const completedOrderId = order?.id ?? orderId;
+    if (!completedOrderId) {
+      setError("Missing order id.");
+      setSubmitting(false);
+      return;
     }
+
+    router.replace(
+      buildCheckoutSuccessPath({
+        orderId: completedOrderId,
+        mode: "passive",
+        deadline: body.passive_deadline_at,
+      }),
+    );
   }
 
   if (loading) return <main className="content-shell">Loading…</main>;
