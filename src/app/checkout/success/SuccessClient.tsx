@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { POSTHOG_EVENTS, track } from "@/lib/posthog/client";
 
@@ -26,6 +26,9 @@ export default function CheckoutSuccessPage() {
   const deadlineRaw = searchParams.get("deadline");
   const deadlineDate = parseDeadline(deadlineRaw);
   const orderId = searchParams.get("orderId");
+  const [orderValidation, setOrderValidation] = useState<
+    "checking" | "valid" | "invalid"
+  >(orderId ? "checking" : "invalid");
 
   useEffect(() => {
     localStorage.removeItem("rx_upload_order_id");
@@ -37,6 +40,60 @@ export default function CheckoutSuccessPage() {
       source: "checkout_success_page",
     });
   }, [deadlineRaw, mode, orderId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!orderId) return;
+
+    fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
+      cache: "no-store",
+    })
+      .then((response) => {
+        if (!cancelled) {
+          setOrderValidation(response.ok ? "valid" : "invalid");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setOrderValidation("invalid");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
+
+  if (orderValidation === "checking") {
+    return (
+      <main>
+        <section className="content-shell">
+          <p>Confirming your order…</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (orderValidation === "invalid") {
+    return (
+      <main>
+        <section className="content-shell">
+          <h1>Order confirmation unavailable</h1>
+          <p>
+            We could not verify this order. Use the secure resume-order link
+            from your email, or start a new order.
+          </p>
+          <div>
+            <button onClick={() => router.push("/resume-order")}>
+              Resume an Order
+            </button>
+            <button onClick={() => router.push("/upload-prescription")}>
+              Start a New Order
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   const isUploaded = mode === "uploaded";
   const isPassive = mode === "passive";
