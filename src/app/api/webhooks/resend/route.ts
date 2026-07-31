@@ -3,13 +3,28 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 
 import {
+  assertValidResendWebhookPayload,
+  InvalidResendWebhookPayloadError,
+  type DeliveryEventApplyResult,
+  type NormalizedResendDeliveryEvent,
   processResendDeliveryEvent,
   verifyResendWebhook,
 } from "@/lib/emailDelivery";
-import { applyResendDeliveryEvent } from "@/lib/emailDeliveryServer";
 
-export async function POST(req: Request) {
-  const webhookSecret = process.env.RESEND_WEBHOOK_SECRET;
+type ResendWebhookDependencies = {
+  webhookSecret?: string;
+  verifyWebhook?: typeof verifyResendWebhook;
+  applyEvent?: (
+    event: NormalizedResendDeliveryEvent,
+  ) => Promise<DeliveryEventApplyResult>;
+};
+
+export async function handleResendWebhook(
+  req: Request,
+  dependencies: ResendWebhookDependencies = {},
+) {
+  const webhookSecret =
+    dependencies.webhookSecret ?? process.env.RESEND_WEBHOOK_SECRET;
   if (!webhookSecret) {
     console.error("RESEND_WEBHOOK_SECRET is not configured");
     return NextResponse.json(
@@ -30,7 +45,7 @@ export async function POST(req: Request) {
   let event: unknown;
 
   try {
-    event = verifyResendWebhook(
+    event = (dependencies.verifyWebhook ?? verifyResendWebhook)(
       payload,
       {
         id: svixId,
@@ -44,10 +59,14 @@ export async function POST(req: Request) {
   }
 
   try {
+    assertValidResendWebhookPayload(event, svixId);
+    const applyEvent =
+      dependencies.applyEvent ??
+      (await import("@/lib/emailDeliveryServer")).applyResendDeliveryEvent;
     const result = await processResendDeliveryEvent(
       event,
       svixId,
-      applyResendDeliveryEvent,
+      applyEvent,
     );
 
     if (result.ignored) {
@@ -64,10 +83,21 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ received: true, ...result });
   } catch (error) {
+    if (error instanceof InvalidResendWebhookPayloadError) {
+      return NextResponse.json(
+        { error: "Invalid webhook payload." },
+        { status: 400 },
+      );
+    }
+
     console.error("Resend webhook processing failed", { svixId, error });
     return NextResponse.json(
       { error: "Webhook processing failed." },
       { status: 500 },
     );
   }
+}
+
+export async function POST(req: Request) {
+  return handleResendWebhook(req);
 }
