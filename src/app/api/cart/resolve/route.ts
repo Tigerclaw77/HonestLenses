@@ -9,10 +9,16 @@ import {
 } from "@/lib/order-access";
 import { getSkuBoxDurationMonths } from "../../../../lib/pricing/skuDefaults";
 import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
-import { resolveCartEyeBoxCounts } from "@/lib/cart/resolveQuantities";
+import {
+  hasResolvedCartQuantity,
+  resolveCartEyeBoxCounts,
+} from "@/lib/cart/resolveQuantities";
 import { isShippingMethod } from "../../../../lib/shipping/resolveShipping";
 import { getAuthoritativeOrderQuote } from "@/lib/orders/orderPricing";
-import { getAuthoritativeOrderQuantity } from "@/lib/orders/orderQuantity";
+import {
+  getAuthoritativeOrderQuantity,
+  getStoredEyeQuantityPresence,
+} from "@/lib/orders/orderQuantity";
 import { validate as validateLensParams } from "@/LensCore";
 import { POSTHOG_EVENTS } from "../../../../lib/posthog/events";
 import {
@@ -366,6 +372,7 @@ export async function POST(req: Request) {
 
   const defaultPerEye = Math.ceil(targetMonths / monthsPerBox);
   const storedQuantity = getAuthoritativeOrderQuantity(order);
+  const storedEyeQuantityPresence = getStoredEyeQuantityPresence(order);
   const hasRequestedQuantity =
     hasOwn(body, "right_box_count") || hasOwn(body, "left_box_count");
 
@@ -390,7 +397,19 @@ export async function POST(req: Request) {
     hasRequestedLeftBoxCount: hasOwn(body, "left_box_count"),
     storedRightBoxCount: storedQuantity.right,
     storedLeftBoxCount: storedQuantity.left,
+    hasStoredRightBoxCount: storedEyeQuantityPresence.right,
+    hasStoredLeftBoxCount: storedEyeQuantityPresence.left,
   });
+
+  if (!hasResolvedCartQuantity(counts)) {
+    return NextResponse.json(
+      {
+        error: "Choose at least one box before resolving the cart.",
+        code: "EMPTY_CART",
+      },
+      { status: 400 },
+    );
+  }
 
   const right = counts.right;
   const left = counts.left;
