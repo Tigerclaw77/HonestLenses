@@ -3059,3 +3059,8 @@ body:has(.hl-overlay) {
     line-height: 1.5;
   }
 }
+/* Admin work-queue row trigger: visible keyboard focus without changing layout. */
+.admin-order-row-trigger:focus-visible {
+  outline: 2px solid #7dd3fc;
+  outline-offset: 3px;
+}

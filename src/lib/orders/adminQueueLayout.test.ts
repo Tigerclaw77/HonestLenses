@@ -1,6 +1,10 @@
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  isOrderRowControlTarget,
+  ORDER_ROW_CONTROL_SELECTOR,
+} from "@/lib/admin/orderRowInteraction";
 
 const source = readFileSync(
   join(process.cwd(), "src", "app", "admin", "orders", "page.tsx"),
@@ -22,6 +26,48 @@ assert.ok(
   activeCard.indexOf("<CustomerCopyGrid order={order} />") > expandedCardStart,
   "customer processing fields render inside the existing expanded card",
 );
+
+const rowToggleTestId = activeCard.indexOf(
+  'data-testid="admin-queue-row-toggle"',
+);
+const rowToggleStart = activeCard.lastIndexOf("<button", rowToggleTestId);
+const rowToggleEnd = activeCard.indexOf("</button>", rowToggleStart);
+assert.ok(
+  rowToggleTestId >= 0 && rowToggleStart >= 0 && rowToggleEnd > rowToggleStart,
+);
+const rowToggle = activeCard.slice(rowToggleStart, rowToggleEnd);
+for (const rowToggleContract of [
+  'type="button"',
+  "onClick={onToggleProcess}",
+  "aria-expanded={isOpen}",
+  "aria-controls={processingPanelId}",
+  'className="admin-order-row-trigger"',
+]) {
+  assert.ok(
+    rowToggle.includes(rowToggleContract),
+    `row toggle keeps ${rowToggleContract}`,
+  );
+}
+assert.ok(
+  activeCard.includes("if (isOpen || isOrderRowControlTarget(event.target)) return;"),
+  "collapsed card background expands while explicit controls remain isolated",
+);
+assert.ok(
+  activeCard.includes("id={processingPanelId}"),
+  "row toggle controls the inline processing panel",
+);
+
+const rowBoundary = {};
+const backgroundTarget = {
+  closest: () => null,
+} as unknown as EventTarget;
+const nestedControlTarget = {
+  closest: (selector: string) =>
+    selector === ORDER_ROW_CONTROL_SELECTOR ? rowBoundary : null,
+} as unknown as EventTarget;
+assert.equal(isOrderRowControlTarget(backgroundTarget), false);
+assert.equal(isOrderRowControlTarget(nestedControlTarget), true);
+assert.equal(isOrderRowControlTarget(null), false);
 assert.ok(
   activeCard.indexOf('<RxDetailsPanel order={order} heading="Prescription" />') >
     expandedCardStart,
@@ -110,6 +156,19 @@ for (const copyLabel of [
     `${copyLabel} has its own one-click copy control`,
   );
 }
+assert.ok(
+  detailsSurface.includes("<CustomerCopyGrid"),
+  "Order Details reuses the same individual customer-field copy controls",
+);
+assert.equal(
+  detailsSurface.includes("<CopyableValue value={order.payment_intent_id}"),
+  false,
+  "PaymentIntent remains visible without a copy affordance",
+);
+assert.ok(
+  detailsSurface.includes('PaymentIntent: {order.payment_intent_id ?? "-"}'),
+  "PaymentIntent remains available for troubleshooting",
+);
 
 for (const recordOnlyField of [
   "payment_intent_id",
