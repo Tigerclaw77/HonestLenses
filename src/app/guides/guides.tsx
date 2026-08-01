@@ -16,11 +16,15 @@ type GuideSection = {
 export type GuidePage = {
   slug: string;
   title: string;
+  metaTitle?: string;
+  h1?: string;
   description: string;
   summary: string;
   intro: ReactNode;
+  lead?: ReactNode;
   sections: GuideSection[];
   faqs: GuideFaq[];
+  postFaqSections?: GuideSection[];
 };
 
 function ActionLink({
@@ -35,6 +39,47 @@ function ActionLink({
       {children}
     </Link>
   );
+}
+
+function GuideCallout({ children }: { children: ReactNode }) {
+  return <div className={styles.callout}>{children}</div>;
+}
+
+function GuideTable({
+  headers,
+  rows,
+}: {
+  headers: string[];
+  rows: ReactNode[][];
+}) {
+  return (
+    <div className={styles.tableScroll}>
+      <table className={styles.articleTable}>
+        <thead>
+          <tr>
+            {headers.map((header) => (
+              <th key={header} scope="col">
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={rowIndex}>
+              {row.map((cell, cellIndex) => (
+                <td key={cellIndex}>{cell}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ProcessDiagram({ children }: { children: string }) {
+  return <pre className={styles.processDiagram}>{children}</pre>;
 }
 
 export const guides: GuidePage[] = [
@@ -1399,6 +1444,1069 @@ export const guides: GuidePage[] = [
         question: "Whose name should be on the prescription?",
         answer:
           "The prescription should be in the name of the person who will wear the contact lenses.",
+      },
+    ],
+  },
+  {
+    slug: "how-contact-lens-prescription-verification-works",
+    title:
+      "Contact Lens Prescription Verification: What Happens After You Order Online",
+    metaTitle: "How Online Contact Lens Prescription Verification Works",
+    h1: "What Happens After You Order Contacts Online? Prescription Verification Explained",
+    description:
+      "Learn what happens after you order contacts online, how prescription verification works, what eight business hours means, and what can delay an order.",
+    summary:
+      "A complete, plain-English explanation of contact lens prescription verification from checkout through fulfillment.",
+    intro: (
+      <>
+        When you order contact lenses online, the seller must confirm that the
+        lenses match a valid contact lens prescription before providing them to
+        you.
+      </>
+    ),
+    lead: (
+      <>
+        <p>That confirmation can happen in one of two ways:</p>
+        <ol>
+          <li>
+            You provide a readable copy of your current contact lens
+            prescription.
+          </li>
+          <li>
+            The seller sends a complete verification request to your eye doctor
+            or other authorized prescriber.
+          </li>
+        </ol>
+        <p>
+          If the prescription is confirmed—or qualifies for passive
+          verification after the federal response period—the order can move
+          forward. If the prescription is expired, invalid, or inconsistent
+          with the order, the problem must be resolved before the lenses can be
+          provided.
+        </p>
+        <p>
+          This guide explains exactly what happens from the moment you place the
+          order until verification is complete. The goal is to help you
+          understand the process—not to convince you to order from Honest
+          Lenses. Whether you buy from us or another seller, the verification
+          process follows the same federal rules.
+        </p>
+        <p>
+          If you have ever wondered why ordering contact lenses online can take
+          longer than ordering many other products, the steps below walk through
+          the entire process from checkout to shipment.
+        </p>
+      </>
+    ),
+    sections: [
+      {
+        heading: "Why Prescription Verification Exists",
+        content: (
+          <>
+            <p>
+              Contact lenses are prescription medical devices. They sit directly
+              on the eye and must match the product and fitting specifications
+              selected by an eye care professional.
+            </p>
+            <p>A contact lens prescription can include:</p>
+            <ul>
+              <li>The exact lens brand or manufacturer</li>
+              <li>Power or sphere</li>
+              <li>Base curve</li>
+              <li>Diameter</li>
+              <li>Cylinder and axis for toric lenses</li>
+              <li>
+                Add power or another add designation for multifocal lenses
+              </li>
+              <li>Issue and expiration dates</li>
+              <li>Prescriber information</li>
+            </ul>
+            <p>
+              The brand is not merely a shopping preference. Different contact
+              lenses can have different materials, shapes, dimensions, and
+              optical designs even when their power values look similar.
+            </p>
+            <p>
+              The FDA advises customers to check that the seller provides the
+              exact prescribed brand, lens name, power, base curve, diameter,
+              and any cylinder or axis values. A seller should not substitute
+              another lens without prescriber authorization. See the FDA&apos;s{" "}
+              <a href="https://www.fda.gov/medical-devices/contact-lenses/buying-contact-lenses">
+                guidance on buying contact lenses
+              </a>
+              .
+            </p>
+            <p>
+              Verification does not create a new prescription. It does not renew
+              an expired prescription or replace an eye examination. It confirms
+              that the order can be filled according to the prescription already
+              issued for the patient.
+            </p>
+            <GuideCallout>
+              <p>
+                <strong>From our experience</strong>
+              </p>
+              <p>
+                Many customers expect verification to be a second medical
+                review. It is not. Your prescriber has already determined which
+                lens is appropriate. Our job is to confirm that the product
+                being ordered matches that prescription accurately.
+              </p>
+            </GuideCallout>
+            <GuideTable
+              headers={["Agency", "Role"]}
+              rows={[
+                [
+                  "FDA",
+                  "Oversees contact lens safety, effectiveness, and manufacturing",
+                ],
+                [
+                  "FTC",
+                  "Enforces rules governing prescription release, verification, and contact lens sales",
+                ],
+              ]}
+            />
+            <p>
+              The federal verification requirements appear in the{" "}
+              <a href="https://www.ecfr.gov/current/title-16/chapter-I/subchapter-C/part-315">
+                FTC Contact Lens Rule, 16 CFR Part 315
+              </a>
+              .
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "What Happens After You Click “Place Order”",
+        content: (
+          <>
+            <p>The complete customer journey looks like this:</p>
+            <ProcessDiagram>{`You place the order
+        ↓
+Did you upload a prescription?
+        ├── Yes → Honest Lenses reviews the document
+        │             ↓
+        │       Is it readable, current, complete, and a match?
+        │             ├── Yes → Prescription verified
+        │             └── No  → More information or prescriber contact needed
+        │
+        └── No → You provide patient and prescriber details
+                      ↓
+                 Honest Lenses sends a complete verification request
+                      ↓
+                 Prescriber confirms, corrects, rejects, or does not respond
+                      ↓
+                 Verification outcome determined
+        ↓
+Payment completed after verification
+        ↓
+Order enters fulfillment
+        ↓
+Shipment and tracking`}</ProcessDiagram>
+            <GuideCallout>
+              <p>
+                <strong>Example A: Customer uploads a prescription</strong>
+              </p>
+              <p>
+                The customer uploads a clear, current prescription. Honest
+                Lenses reviews it. Verification completes, payment is captured,
+                and the order enters fulfillment.
+              </p>
+              <p>
+                <strong>Example B: Honest Lenses contacts the prescriber</strong>
+              </p>
+              <p>
+                The customer does not upload a prescription. Honest Lenses sends
+                a verification request to the prescriber. The office confirms
+                the prescription the next morning. Verification completes,
+                payment is captured, and the order enters fulfillment.
+              </p>
+            </GuideCallout>
+            <p>
+              Verification and fulfillment are separate stages. Completing
+              verification means the prescription requirement has been
+              satisfied. The order may still need normal product processing and
+              shipping time.
+            </p>
+            <h3>At-a-glance journey</h3>
+            <GuideTable
+              headers={["Stage", "What happens", "What you may see"]}
+              rows={[
+                [
+                  "Checkout",
+                  "You submit the order and payment information",
+                  "Order confirmation and pending payment authorization",
+                ],
+                [
+                  "Prescription review",
+                  "An uploaded document is reviewed, or verification details are collected",
+                  "Awaiting verification",
+                ],
+                [
+                  "Prescriber contact, if needed",
+                  "A complete request is sent to the prescriber",
+                  "Estimated verification window",
+                ],
+                [
+                  "Resolution",
+                  "Prescription is confirmed, corrected, denied, or passively verified",
+                  "Status update or request for information",
+                ],
+                [
+                  "Payment completion",
+                  "The authorized payment is captured after verification",
+                  "Payment changes from authorized to paid",
+                ],
+                [
+                  "Fulfillment",
+                  "The exact prescribed lenses enter the supplier process",
+                  "Ordered, shipped, and tracking updates",
+                ],
+              ]}
+            />
+          </>
+        ),
+      },
+      {
+        heading: "Where Payment Fits Into the Process",
+        content: (
+          <>
+            <p>
+              Honest Lenses authorizes your card when you place the order.
+              Payment is captured after prescription verification is complete.
+            </p>
+            <p>
+              An authorization confirms that the payment method can cover the
+              order. It may appear as a pending transaction in your bank
+              account, but it is not the same as a completed charge.
+            </p>
+            <p>
+              If the prescription cannot be verified and the order is canceled,
+              Honest Lenses does not capture the payment. Your bank controls how
+              quickly the pending authorization disappears.
+            </p>
+            <GuideCallout>
+              <p>
+                <strong>
+                  💳 Card authorization is not the same as a completed charge.
+                </strong>
+              </p>
+              <p>
+                Honest Lenses authorizes payment at checkout and captures it
+                after verification. Some banks display both stages similarly,
+                but they are different payment events.
+              </p>
+            </GuideCallout>
+            <p>
+              This payment sequence is an Honest Lenses policy. It is not part
+              of the federal prescription-verification rule.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "The Two Verification Paths",
+        content: (
+          <>
+            <p>
+              Federal law allows a seller to provide contact lenses when the
+              patient presents a valid prescription or when the prescription is
+              verified through direct communication with the prescriber. See{" "}
+              <a href="https://www.ecfr.gov/current/title-16/chapter-I/subchapter-C/part-315/section-315.5">
+                16 CFR §315.5
+              </a>
+              .
+            </p>
+            <h3>Path 1: You upload the prescription</h3>
+            <p>
+              A clear copy or photograph allows Honest Lenses to review the
+              prescription directly.
+            </p>
+            <p>The document should show:</p>
+            <ul>
+              <li>Patient name</li>
+              <li>Prescriber information</li>
+              <li>Examination, issue, and expiration dates</li>
+              <li>Exact lens brand or manufacturer</li>
+              <li>Prescription parameters for each eye</li>
+              <li>Base curve and diameter when applicable</li>
+              <li>Cylinder and axis for toric lenses</li>
+              <li>Add power or designation for multifocal lenses</li>
+            </ul>
+            <GuideCallout>
+              <p>
+                <strong>
+                  📄 Uploading usually makes verification more direct—but only
+                  when the document is readable and complete.
+                </strong>
+              </p>
+              <p>
+                A photograph that omits the expiration date, cuts off part of
+                the prescription, or is obscured by glare may require another
+                upload or prescriber contact.
+              </p>
+            </GuideCallout>
+            <p>
+              Uploading does not guarantee immediate approval. Honest Lenses
+              must still determine that the document is current, complete, and
+              consistent with the order.
+            </p>
+            <p>
+              For a detailed upload checklist, see{" "}
+              <Link href="/guides/what-information-is-needed-to-verify-a-contact-lens-prescription">
+                what information is needed to verify a contact lens prescription
+              </Link>
+              .
+            </p>
+            <GuideCallout>
+              <p>
+                <strong>From our experience</strong>
+              </p>
+              <p>
+                The most useful upload is usually the least complicated one:
+                one clear image of the entire official prescription, taken
+                straight on, with all four edges visible. Screenshots, partial
+                images, folded documents, and photographs taken from a distance
+                are more likely to hide information that matters.
+              </p>
+            </GuideCallout>
+            <h3>Path 2: Honest Lenses contacts the prescriber</h3>
+            <p>
+              If you do not upload a usable prescription, Honest Lenses
+              collects enough information to identify:
+            </p>
+            <ul>
+              <li>The patient</li>
+              <li>The prescribed lenses</li>
+              <li>The quantity ordered</li>
+              <li>The prescriber or practice</li>
+            </ul>
+            <p>
+              Honest Lenses then sends a complete verification request through
+              direct communication.
+            </p>
+            <p>
+              Under the Contact Lens Rule, direct communication means completed
+              communication by telephone, fax, or email. The federal response
+              period begins only after the prescriber receives the required
+              information.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "What Information Honest Lenses Needs",
+        content: (
+          <>
+            <p>
+              The required information depends on whether you upload a
+              prescription or use direct prescriber verification.
+            </p>
+            <h3>Information about the lenses</h3>
+            <p>
+              Honest Lenses needs enough information to identify the exact
+              product:
+            </p>
+            <ul>
+              <li>Lens brand or manufacturer</li>
+              <li>Power for each eye</li>
+              <li>Base curve or other appropriate fit designation</li>
+              <li>Diameter when applicable</li>
+              <li>Cylinder and axis when applicable</li>
+              <li>Multifocal add when applicable</li>
+              <li>Quantity ordered</li>
+            </ul>
+            <p>
+              A glasses prescription cannot be used in place of these details.
+              The differences are explained in{" "}
+              <Link href="/guides/can-i-use-my-glasses-prescription-to-buy-contacts">
+                Can I Use My Glasses Prescription to Buy Contact Lenses?
+              </Link>
+            </p>
+            <h3>Patient information</h3>
+            <p>
+              For a direct verification request, federal rules require the
+              patient&apos;s full name and address.
+            </p>
+            <p>
+              Honest Lenses also requests the patient&apos;s date of birth. Date
+              of birth is not one of the fields specifically required in the
+              federal verification request, but it helps the prescriber&apos;s
+              office identify the correct patient record.
+            </p>
+            <p>
+              Use the name, date of birth, and address that the office is most
+              likely to have on file.
+            </p>
+            <h3>Prescriber information</h3>
+            <p>
+              Honest Lenses needs enough information to identify and contact the
+              correct office:
+            </p>
+            <ul>
+              <li>Prescriber or doctor name</li>
+              <li>Practice name, if known</li>
+              <li>Office phone number or email address</li>
+              <li>Office location when available</li>
+            </ul>
+            <GuideCallout>
+              <p>
+                <strong>From our experience</strong>
+              </p>
+              <p>
+                Patient identity and office contact information cause more
+                avoidable friction than complicated prescription values. A
+                correct doctor name paired with an old office phone number may
+                still send the request to the wrong place. The current practice
+                name and a direct phone number or monitored email address are
+                especially helpful.
+              </p>
+            </GuideCallout>
+            <h3>Federal requirements versus Honest Lenses policies</h3>
+            <GuideTable
+              headers={["Information or action", "Source"]}
+              rows={[
+                [
+                  "A valid prescription must be presented or verified",
+                  "Federal requirement",
+                ],
+                [
+                  "The seller must offer a clear way to submit a prescription before requesting prescriber details",
+                  "Federal requirement",
+                ],
+                [
+                  "A direct request includes patient name, address, lens details, quantity, and timing information",
+                  "Federal requirement",
+                ],
+                [
+                  "Date of birth is collected to help the office match the patient record",
+                  "Honest Lenses operational policy",
+                ],
+                [
+                  "Payment is authorized at checkout and captured after verification",
+                  "Honest Lenses payment policy",
+                ],
+                [
+                  "Orders do not enter fulfillment until verification is complete",
+                  "Honest Lenses fulfillment policy consistent with the prescription requirement",
+                ],
+              ]}
+            />
+            <p>
+              The FTC&apos;s complete list of required verification information
+              is available in its{" "}
+              <a href="https://www.ftc.gov/business-guidance/resources/contact-lens-rule-guide-prescribers-sellers">
+                guide for prescribers and sellers
+              </a>
+              .
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "How Direct Verification Works",
+        content: (
+          <>
+            <p>
+              When Honest Lenses needs to contact the prescriber, it sends a
+              request using the available office contact information.
+            </p>
+            <p>The request identifies:</p>
+            <ul>
+              <li>The patient</li>
+              <li>
+                The lenses and prescription parameters supplied for the order
+              </li>
+              <li>The quantity ordered</li>
+              <li>The order date</li>
+              <li>The date and time of the verification request</li>
+              <li>How the prescriber can respond</li>
+              <li>How to contact Honest Lenses</li>
+            </ul>
+            <p>The prescriber can then:</p>
+            <ol>
+              <li>Confirm the prescription.</li>
+              <li>Correct inaccurate information.</li>
+              <li>
+                Explain that the prescription is expired, inaccurate, or
+                otherwise invalid.
+              </li>
+              <li>Not respond before the federal deadline.</li>
+            </ol>
+            <p>
+              The seller must provide a reasonable opportunity for the
+              prescriber to respond. It must also retain records of verification
+              requests and responses as required by the Contact Lens Rule.
+            </p>
+            <GuideCallout>
+              <p>
+                <strong>From our experience</strong>
+              </p>
+              <p>
+                A verification request is easier for an office to process when
+                the patient name matches its chart and the lens information is
+                complete. Calling the office yourself is not required, but
+                letting the staff know that a request is coming can help them
+                recognize it.
+              </p>
+            </GuideCallout>
+          </>
+        ),
+      },
+      {
+        heading: "Passive Verification and the Eight-Business-Hour Rule",
+        content: (
+          <>
+            <p>Passive verification applies when:</p>
+            <ol>
+              <li>
+                The seller sends a complete verification request through direct
+                communication.
+              </li>
+              <li>The prescriber receives it.</li>
+              <li>
+                The seller provides a reasonable opportunity to respond.
+              </li>
+              <li>Eight business hours pass without a response.</li>
+            </ol>
+            <p>
+              At that point, the prescription is considered verified under the
+              Contact Lens Rule.
+            </p>
+            <GuideCallout>
+              <p>
+                <strong>
+                  ⚠️ Eight business hours does not mean eight clock hours.
+                </strong>
+              </p>
+              <p>
+                The clock starts when the prescriber receives a complete
+                request—not when the customer places the order or enters the
+                doctor&apos;s information.
+              </p>
+            </GuideCallout>
+            <p>
+              A business hour is an hour between 9:00 a.m. and 5:00 p.m., Monday
+              through Friday, excluding federal holidays, in the prescriber&apos;s
+              time zone.
+            </p>
+            <p>
+              Saturday hours may count only if the seller has actual knowledge
+              of the prescriber&apos;s regular Saturday hours and keeps the
+              required record.
+            </p>
+            <h3>Example: received late Monday</h3>
+            <ProcessDiagram>{`Monday
+4:00–5:00 p.m.         1 business hour
+
+Tuesday
+9:00 a.m.–4:00 p.m.    7 business hours
+
+Tuesday at 4:00 p.m.   Eight-business-hour period ends`}</ProcessDiagram>
+            <h3>Example: received Friday without known Saturday hours</h3>
+            <ProcessDiagram>{`Friday
+11:00 a.m.–5:00 p.m.    6 business hours
+
+Weekend
+No hours counted
+
+Monday
+9:00–11:00 a.m.         Final 2 business hours
+
+Monday at 11:00 a.m.    Eight-business-hour period ends`}</ProcessDiagram>
+            <h3>Example: received after hours</h3>
+            <p>
+              A request received at 7:00 p.m. Tuesday begins counting at 9:00
+              a.m. Wednesday. If there is no federal holiday, the
+              eight-business-hour period ends at 5:00 p.m. Wednesday.
+            </p>
+            <p>
+              These examples follow the{" "}
+              <a href="https://www.ftc.gov/business-guidance/resources/faqs-complying-contact-lens-rule">
+                FTC&apos;s Contact Lens Rule FAQ
+              </a>
+              .
+            </p>
+            <GuideCallout>
+              <p>
+                <strong>From our experience</strong>
+              </p>
+              <p>
+                The most common timing misconception is that the clock begins at
+                checkout. It may take additional time to collect missing
+                details, identify the correct office, and complete delivery of
+                the verification request. None of that time is part of the
+                eight-business-hour period.
+              </p>
+            </GuideCallout>
+            <p>
+              For a deeper explanation of the rule, see{" "}
+              <Link href="/guides/passive-prescription-verification">
+                What Is Passive Prescription Verification?
+              </Link>{" "}
+              For more timing examples, see{" "}
+              <Link href="/guides/how-long-does-contact-lens-verification-take">
+                How Long Does Contact Lens Verification Take?
+              </Link>
+            </p>
+            <GuideCallout>
+              <p>
+                <strong>
+                  ⚠️ Passive verification does not renew an expired prescription.
+                </strong>
+              </p>
+              <p>
+                It does not extend an expiration date already known to have
+                passed, override a timely denial, correct contradictory
+                information, or permit a different brand to be substituted.
+              </p>
+            </GuideCallout>
+          </>
+        ),
+      },
+      {
+        heading: "What Each Prescriber Response Means",
+        content: (
+          <>
+            <GuideTable
+              headers={[
+                "Prescriber response",
+                "Verification result",
+                "What happens next",
+              ]}
+              rows={[
+                [
+                  "Confirms the information",
+                  "Verified",
+                  "Payment can be captured and fulfillment can begin",
+                ],
+                [
+                  "Supplies corrected information",
+                  "Corrected prescription is verified",
+                  "Honest Lenses checks whether the corrected prescription matches the order",
+                ],
+                [
+                  "Reports it as expired, inaccurate, or invalid",
+                  "Not fillable as submitted",
+                  "Order pauses while the problem is resolved",
+                ],
+                [
+                  "Does not respond within eight business hours",
+                  "Passively verified",
+                  "The order may proceed if no other issue remains",
+                ],
+              ]}
+            />
+            <h3>The prescriber confirms it</h3>
+            <p>The prescription is verified as submitted.</p>
+            <p>
+              Honest Lenses can capture the authorized payment and move the
+              order into fulfillment. Normal product processing and shipping
+              time still apply.
+            </p>
+            <h3>The prescriber changes something</h3>
+            <p>
+              Federal rules treat the prescription as verified when the
+              prescriber supplies accurate corrected information. The
+              customer&apos;s order must still agree with that corrected
+              prescription.
+            </p>
+            <ul>
+              <li>If the order already matches, it can proceed.</li>
+              <li>
+                If it does not match, Honest Lenses pauses the order and
+                contacts the customer.
+              </li>
+              <li>
+                Honest Lenses does not silently substitute another brand or
+                treat a mismatched order as approved.
+              </li>
+            </ul>
+            <h3>The prescriber rejects it</h3>
+            <p>
+              A prescriber may report that the prescription is expired,
+              inaccurate, or otherwise invalid. A timely denial should explain
+              the reason.
+            </p>
+            <p>
+              Honest Lenses cannot fill the prescription as submitted. The
+              customer may need to:
+            </p>
+            <ul>
+              <li>Upload a current prescription</li>
+              <li>Correct patient or prescriber information</li>
+              <li>Confirm corrected order details</li>
+              <li>Obtain a new contact lens prescription</li>
+            </ul>
+            <p>
+              The focused guide{" "}
+              <Link href="/guides/why-was-my-contact-lens-prescription-rejected">
+                Why Was My Contact Lens Prescription Rejected?
+              </Link>{" "}
+              explains these outcomes in more detail.
+            </p>
+            <h3>The prescriber never responds</h3>
+            <p>
+              If the office received a complete request and eight business
+              hours pass without a response, the prescription is passively
+              verified.
+            </p>
+            <p>“No response” does not mean:</p>
+            <ul>
+              <li>The office actively approved the prescription</li>
+              <li>Eight clock hours passed</li>
+              <li>The clock started at checkout</li>
+              <li>An incomplete request became complete</li>
+              <li>A known expired prescription was renewed</li>
+            </ul>
+            <p>
+              For the non-response pathway specifically, see{" "}
+              <Link href="/guides/what-happens-if-my-eye-doctor-does-not-respond">
+                What Happens If My Eye Doctor Does Not Respond?
+              </Link>
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "Common Reasons Verification Is Delayed",
+        content: (
+          <>
+            <p>
+              The most preventable delays usually involve missing, unreadable,
+              or mismatched information.
+            </p>
+            <GuideTable
+              headers={["Cause", "Why it creates a delay"]}
+              rows={[
+                [
+                  "Blurred or cropped upload",
+                  "Important prescription fields cannot be read",
+                ],
+                [
+                  "Missing expiration date",
+                  "The document may not establish that the prescription is current",
+                ],
+                [
+                  "Wrong lens brand",
+                  "Sellers generally may not substitute another prescribed product",
+                ],
+                [
+                  "Missing toric or multifocal values",
+                  "The order may not contain enough information to fill the prescription",
+                ],
+                [
+                  "Patient name does not match",
+                  "The office may not find the correct record",
+                ],
+                [
+                  "Outdated office information",
+                  "The request may not reach the prescriber",
+                ],
+                [
+                  "After-hours delivery",
+                  "The federal clock may not begin until the next business period",
+                ],
+                [
+                  "Weekend or federal holiday",
+                  "Those hours generally do not count",
+                ],
+                [
+                  "Prescriber correction or denial",
+                  "The submitted order may no longer match",
+                ],
+                [
+                  "Verification information still missing",
+                  "A complete request cannot be sent yet",
+                ],
+              ]}
+            />
+            <GuideCallout>
+              <p>
+                <strong>From our experience: the most avoidable mistakes</strong>
+              </p>
+              <ul>
+                <li>
+                  Uploading only the lens values while cutting off the patient,
+                  prescriber, or expiration information
+                </li>
+                <li>
+                  Entering a nickname when the office has a different legal name
+                  on file
+                </li>
+                <li>
+                  Selecting a similar-looking lens instead of the exact
+                  prescribed brand
+                </li>
+                <li>
+                  Providing contact information for a former office location
+                </li>
+                <li>
+                  Submitting a glasses prescription or old contact lens box as
+                  though it were a current contact lens prescription
+                </li>
+              </ul>
+            </GuideCallout>
+            <p>
+              A contact lens box can help identify the product, but it usually
+              does not establish that the prescription is current.
+            </p>
+            <p>
+              For the wider order timeline—including product availability and
+              shipping—see{" "}
+              <Link href="/guides/why-is-my-contact-lens-order-delayed">
+                Why Is My Contact Lens Order Delayed?
+              </Link>
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "What Customers Can Do to Help",
+        content: (
+          <>
+            <h3>Use a current contact lens prescription</h3>
+            <p>
+              Check the expiration date before ordering. If it has expired,
+              passive verification is not a renewal process. See{" "}
+              <Link href="/guides/can-i-buy-contacts-with-expired-prescription">
+                Can I Buy Contacts With an Expired Prescription?
+              </Link>
+            </p>
+            <h3>Upload the entire document</h3>
+            <p>Make sure the image shows:</p>
+            <ul>
+              <li>Patient name</li>
+              <li>Prescriber information</li>
+              <li>Lens brand</li>
+              <li>Values for both eyes</li>
+              <li>Issue or examination date</li>
+              <li>Expiration date</li>
+            </ul>
+            <p>
+              Photograph it straight on, with good light, no glare, and all
+              edges visible.
+            </p>
+            <h3>Select the exact lens</h3>
+            <p>
+              Match the brand and product name before entering the prescription
+              values. Do not assume that lenses with similar names are
+              interchangeable.
+            </p>
+            <h3>Use information the office will recognize</h3>
+            <p>
+              Use the patient&apos;s charted name, correct date of birth, and the
+              address most likely to appear in the prescriber&apos;s records.
+            </p>
+            <h3>Provide current office contact information</h3>
+            <p>
+              A current practice name and direct phone number or monitored email
+              address help the request reach the intended office.
+            </p>
+            <h3>Let the office know a request is coming</h3>
+            <p>
+              You do not have to obtain approval yourself. A brief notice can
+              help the office recognize the request among its normal calls,
+              faxes, and emails.
+            </p>
+            <h3>Respond when Honest Lenses asks for something</h3>
+            <p>
+              Honest Lenses contacts the customer when information is missing,
+              conflicting, or requires a decision. Responding promptly keeps
+              the order from remaining paused.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "Frequently Misunderstood Situations",
+        content: (
+          <GuideTable
+            headers={["Misunderstanding", "What is actually true"]}
+            rows={[
+              [
+                "“Verification gives me a new prescription.”",
+                "Verification confirms an existing prescription. It is not an examination or renewal.",
+              ],
+              [
+                "“The clock starts when I order.”",
+                "It starts after the prescriber receives a complete verification request.",
+              ],
+              [
+                "“Eight business hours means later today.”",
+                "Business hours, weekends, holidays, time zone, and receipt time affect the deadline.",
+              ],
+              [
+                "“No response means my doctor approved it.”",
+                "It may result in passive verification, but it is not active approval.",
+              ],
+              [
+                "“My contact lens box is my prescription.”",
+                "The box can identify the lens, but it may not show prescription validity or prescriber information.",
+              ],
+              [
+                "“My glasses prescription is close enough.”",
+                "Glasses and contact lens prescriptions are not interchangeable.",
+              ],
+              [
+                "“The seller can switch me to something similar.”",
+                "Sellers generally may not alter the prescription or substitute another brand without authorization.",
+              ],
+              [
+                "“Uploading means immediate approval.”",
+                "The document must still be readable, current, complete, and consistent with the order.",
+              ],
+              [
+                "“A pending card transaction means I was charged.”",
+                "Honest Lenses authorizes payment before verification and captures it afterward.",
+              ],
+              [
+                "“The eight-hour and 40-hour rules are the same.”",
+                "Eight hours concerns verification. The separate 40-business-hour rule concerns certain requests for an additional prescription copy.",
+              ],
+            ]}
+          />
+        ),
+      },
+    ],
+    faqs: [
+      {
+        question: "Do I have to upload my prescription?",
+        answer:
+          "No. Honest Lenses offers a way to upload the prescription, but you may instead provide the patient and prescriber information needed for direct verification. A complete upload can avoid the prescriber-response timeline.",
+      },
+      {
+        question: "How long does verification take?",
+        answer:
+          "It depends on the path. An uploaded prescription may be reviewed directly. If prescriber verification is required, the federal period is eight business hours after the prescriber receives a complete request. The total time from checkout may be longer when information is missing, the office cannot be reached, or the request arrives outside business hours.",
+      },
+      {
+        question: "Does the clock begin when I place the order?",
+        answer:
+          "No. It begins when the prescriber receives the complete verification request.",
+      },
+      {
+        question: "What if the eye doctor does not respond?",
+        answer:
+          "If a complete request was received and the prescriber does not respond within eight business hours, the prescription is passively verified under the Contact Lens Rule.",
+      },
+      {
+        question: "Can the prescriber reject the request?",
+        answer:
+          "Yes. The prescriber may report that the prescription is inaccurate, expired, or otherwise invalid. A timely denial should explain the reason.",
+      },
+      {
+        question: "What if the prescriber corrects a value?",
+        answer:
+          "The corrected prescription is considered verified, but the order must match it. If it does not, Honest Lenses pauses the order and contacts the customer.",
+      },
+      {
+        question: "Can passive verification renew an expired prescription?",
+        answer:
+          "No. It is not an examination or renewal and does not extend an expiration date already known to have passed.",
+      },
+      {
+        question: "Can I use a glasses prescription?",
+        answer:
+          "No. A contact lens prescription includes product and fitting information that a glasses prescription does not provide.",
+      },
+      {
+        question: "Why does the exact brand matter?",
+        answer:
+          "Brands can differ in material, shape, dimensions, and optical design. Federal rules generally prohibit sellers from altering the prescribed brand, and the FDA advises customers not to accept substitutions without prescriber approval.",
+      },
+      {
+        question: "Do decorative or zero-power contacts require a prescription?",
+        answer:
+          "Yes. The Contact Lens Rule also applies to decorative, cosmetic, and plano contact lenses.",
+      },
+      {
+        question: "When does Honest Lenses charge my card?",
+        answer:
+          "Honest Lenses authorizes the payment when the order is placed and captures it after prescription verification is complete.",
+      },
+      {
+        question: "Can another person order contacts for me?",
+        answer:
+          "Another person can help place the order, but the prescription and patient information must belong to the person who will wear the lenses.",
+      },
+      {
+        question: "How will I know verification is complete?",
+        answer:
+          "Honest Lenses provides status updates through the customer order page and order-related emails. If customer action is needed, the message should explain what information or decision is required.",
+      },
+    ],
+    postFaqSections: [
+      {
+        heading: "What Customers Should Expect From Honest Lenses",
+        content: (
+          <>
+            <p>
+              Prescription verification exists to protect the patient and make
+              sure the order matches what the prescriber authorized. The goal is
+              accuracy—not creating an obstacle between the customer and the
+              lenses they need.
+            </p>
+            <p>
+              Verification is generally straightforward when the prescription
+              information is complete and the correct prescriber can be reached.
+            </p>
+            <p>Honest Lenses handles as much of the process as possible:</p>
+            <ul>
+              <li>Reviewing an uploaded prescription</li>
+              <li>
+                Preparing and sending the verification request when needed
+              </li>
+              <li>Tracking the applicable response period</li>
+              <li>Recording the outcome</li>
+              <li>
+                Moving the order forward when verification is complete
+              </li>
+            </ul>
+            <p>
+              Customers are contacted when action is genuinely required—for
+              example, when a document is unreadable, information is missing, or
+              the prescriber provides a correction or denial.
+            </p>
+            <p>
+              If nothing is required from the customer, Honest Lenses continues
+              handling the verification process and provides status updates as
+              the order moves forward.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "Primary Sources",
+        content: (
+          <ul>
+            <li>
+              <a href="https://www.ecfr.gov/current/title-16/chapter-I/subchapter-C/part-315">
+                Electronic Code of Federal Regulations: 16 CFR Part 315
+              </a>
+            </li>
+            <li>
+              <a href="https://www.ftc.gov/business-guidance/resources/contact-lens-rule-guide-prescribers-sellers">
+                FTC: The Contact Lens Rule—A Guide for Prescribers and Sellers
+              </a>
+            </li>
+            <li>
+              <a href="https://www.ftc.gov/business-guidance/resources/faqs-complying-contact-lens-rule">
+                FTC: FAQs—Complying with the Contact Lens Rule
+              </a>
+            </li>
+            <li>
+              <a href="https://www.fda.gov/medical-devices/contact-lenses/contact-lens-prescription">
+                FDA: Contact Lens Prescription
+              </a>
+            </li>
+            <li>
+              <a href="https://www.fda.gov/medical-devices/contact-lenses/buying-contact-lenses">
+                FDA: Buying Contact Lenses
+              </a>
+            </li>
+          </ul>
+        ),
       },
     ],
   },

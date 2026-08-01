@@ -50,12 +50,14 @@ export default function GuideArticle({ guide }: { guide: GuidePage }) {
 
           <header className={styles.articleHeader}>
             <p className={styles.eyebrow}>Honest Lenses Guide</p>
-            <h1>{guide.title}</h1>
+            <h1>{guide.h1 ?? guide.title}</h1>
             <p className={styles.articleIntro}>{guide.intro}</p>
           </header>
 
           <div className={styles.articleGrid}>
             <article className={styles.articleBody}>
+              {guide.lead}
+
               {guide.sections.map((section) => {
                 const id = getSectionId(section.heading);
 
@@ -81,6 +83,21 @@ export default function GuideArticle({ guide }: { guide: GuidePage }) {
                 ))}
               </section>
 
+              {guide.postFaqSections?.map((section) => {
+                const id = getSectionId(section.heading);
+
+                return (
+                  <section
+                    key={section.heading}
+                    id={id}
+                    className={styles.articleSection}
+                  >
+                    <h2>{section.heading}</h2>
+                    {section.content}
+                  </section>
+                );
+              })}
+
               <div className={styles.trustBlock}>
                 <p>Written for Honest Lenses by Dr. Paul Driggers, OD.</p>
                 <p>
@@ -99,6 +116,11 @@ export default function GuideArticle({ guide }: { guide: GuidePage }) {
                 </a>
               ))}
               <a href="#faq">FAQ</a>
+              {guide.postFaqSections?.map((section) => (
+                <a key={section.heading} href={`#${getSectionId(section.heading)}`}>
+                  {section.heading}
+                </a>
+              ))}
 
               <p className={styles.sideNavTitle} style={{ marginTop: "1.4rem" }}>
                 More Guides

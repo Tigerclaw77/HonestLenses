@@ -154,6 +154,18 @@
   padding-left: 1.15rem;
 }
 
+.articleBody ol {
+  margin: 0.8rem 0 1rem;
+  padding-left: 1.3rem;
+}
+
+.articleBody h3 {
+  margin: 1.5rem 0 0.7rem;
+  color: #ffffff;
+  font-size: 1.08rem;
+  line-height: 1.4;
+}
+
 .articleBody li + li {
   margin-top: 0.62rem;
 }
@@ -164,6 +176,60 @@
   border-left: 3px solid rgba(216, 210, 255, 0.7);
   border-radius: 0 8px 8px 0;
   background: rgba(216, 210, 255, 0.07);
+}
+
+.processDiagram {
+  overflow-x: auto;
+  margin: 1.25rem 0;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(2, 6, 23, 0.55);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.tableScroll {
+  overflow-x: auto;
+  margin: 1.25rem 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+.articleTable {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.articleTable th,
+.articleTable td {
+  padding: 0.8rem 0.9rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: left;
+  vertical-align: top;
+}
+
+.articleTable th {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
+  font-weight: 700;
+}
+
+.articleTable tr:last-child td {
+  border-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  .processDiagram {
+    font-size: 0.74rem;
+  }
 }
 
 .actionLinks {
