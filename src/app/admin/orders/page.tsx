@@ -32,6 +32,7 @@ import {
   type AdminExceptionBadge,
 } from "@/lib/orders/adminPresentation";
 import type { ManualVerificationAttemptMethod } from "@/lib/orders/verificationAttempts";
+import { isOrderRowControlTarget } from "@/lib/admin/orderRowInteraction";
 
 /* =========================
    Types
@@ -1522,12 +1523,17 @@ function ActiveOrderCard({
   const previousFulfillment = previousFulfillmentStatus(fulfillment);
   const nextAction = getNextAction(order);
   const classification = getOrderOperationalClassification(order);
+  const processingPanelId = `order-processing-${order.id}`;
 
   return (
     <article
       data-active-order-card
       data-testid="admin-queue-card"
       data-order-id={order.id}
+      onClick={(event) => {
+        if (isOpen || isOrderRowControlTarget(event.target)) return;
+        onToggleProcess();
+      }}
       style={{
         border: isHighlighted
           ? "1px solid rgba(186,230,253,0.95)"
@@ -1538,6 +1544,7 @@ function ActiveOrderCard({
         boxShadow: isHighlighted
           ? "0 0 0 1px rgba(186,230,253,0.18)"
           : "none",
+        cursor: isOpen ? "default" : "pointer",
       }}
     >
       <div
@@ -1550,56 +1557,84 @@ function ActiveOrderCard({
           fontSize: 12,
         }}
       >
-        <div>
-          <div style={{ opacity: 0.56, fontSize: 10 }}>Customer</div>
-          <div style={{ fontWeight: 850, fontSize: 13 }}>{customerName}</div>
-        </div>
-
-        <div>
-          <div style={{ opacity: 0.56, fontSize: 10 }}>Product</div>
-          <div style={{ fontWeight: 850, fontSize: 13 }}>{lensDisplay}</div>
-        </div>
-
-        <div>
-          <div style={{ opacity: 0.56, fontSize: 10 }}>Amount</div>
-          <div style={{ fontWeight: 850, fontSize: 13 }}>
-            {formatMoney(order.total_amount_cents)}
+        <button
+          type="button"
+          data-testid="admin-queue-row-toggle"
+          className="admin-order-row-trigger"
+          onClick={onToggleProcess}
+          aria-expanded={isOpen}
+          aria-controls={processingPanelId}
+          aria-label={`${isOpen ? "Collapse" : "Expand"} processing for ${customerName}`}
+          style={{
+            gridColumn: "1 / 7",
+            display: "grid",
+            gridTemplateColumns:
+              "minmax(150px, 1.1fr) minmax(180px, 1.35fr) minmax(90px, 0.62fr) minmax(130px, 0.82fr) minmax(90px, 0.62fr) minmax(180px, 1.2fr)",
+            gap: 10,
+            alignItems: "center",
+            width: "100%",
+            minWidth: 0,
+            padding: 0,
+            border: "none",
+            borderRadius: 6,
+            background: "transparent",
+            color: "inherit",
+            font: "inherit",
+            textAlign: "left",
+            cursor: "pointer",
+          }}
+        >
+          <div>
+            <div style={{ opacity: 0.56, fontSize: 10 }}>Customer</div>
+            <div style={{ fontWeight: 850, fontSize: 13 }}>{customerName}</div>
           </div>
-        </div>
 
-        <div>
-          <div style={{ opacity: 0.56, fontSize: 10 }}>Queue Status</div>
-          <div style={{ fontWeight: 800 }}>{sectionTitle}</div>
-        </div>
-
-        <div>
-          <div style={{ opacity: 0.56, fontSize: 10 }}>Age</div>
-          <div style={{ fontWeight: 800 }}>
-            {activity.relative || activity.date}
+          <div>
+            <div style={{ opacity: 0.56, fontSize: 10 }}>Product</div>
+            <div style={{ fontWeight: 850, fontSize: 13 }}>{lensDisplay}</div>
           </div>
-        </div>
 
-        <div>
-          <div style={{ opacity: 0.56, fontSize: 10 }}>Next Action</div>
-          <div style={{ fontWeight: 850, color: "#bae6fd" }}>
-            {nextAction.label}
-          </div>
-          {classification.bucket === "resolve_exception" && (
-            <div
-              style={{
-                color: "#fde68a",
-                fontSize: 10,
-                lineHeight: 1.2,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-              title={classification.reasons.join("; ")}
-            >
-              {classification.reasons[0]}
+          <div>
+            <div style={{ opacity: 0.56, fontSize: 10 }}>Amount</div>
+            <div style={{ fontWeight: 850, fontSize: 13 }}>
+              {formatMoney(order.total_amount_cents)}
             </div>
-          )}
-        </div>
+          </div>
+
+          <div>
+            <div style={{ opacity: 0.56, fontSize: 10 }}>Queue Status</div>
+            <div style={{ fontWeight: 800 }}>{sectionTitle}</div>
+          </div>
+
+          <div>
+            <div style={{ opacity: 0.56, fontSize: 10 }}>Age</div>
+            <div style={{ fontWeight: 800 }}>
+              {activity.relative || activity.date}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ opacity: 0.56, fontSize: 10 }}>Next Action</div>
+            <div style={{ fontWeight: 850, color: "#bae6fd" }}>
+              {nextAction.label}
+            </div>
+            {classification.bucket === "resolve_exception" && (
+              <div
+                style={{
+                  color: "#fde68a",
+                  fontSize: 10,
+                  lineHeight: 1.2,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+                title={classification.reasons.join("; ")}
+              >
+                {classification.reasons[0]}
+              </div>
+            )}
+          </div>
+        </button>
 
         <div
           style={{
@@ -1612,6 +1647,7 @@ function ActiveOrderCard({
             type="button"
             onClick={onToggleProcess}
             aria-expanded={isOpen}
+            aria-controls={processingPanelId}
             style={buttonStyle({
               fontSize: 11,
               background: "rgba(20,184,166,0.22)",
@@ -1631,6 +1667,7 @@ function ActiveOrderCard({
 
       {isOpen && (
         <div
+          id={processingPanelId}
           style={{
             borderTop: "1px solid rgba(148,163,184,0.18)",
             marginTop: 8,
@@ -1812,10 +1849,21 @@ function CopyableCustomerField({
   );
 }
 
-function CustomerCopyGrid({ order }: { order: Order }) {
+function CustomerCopyGrid({
+  order,
+  heading = "Customer information",
+  patientName,
+}: {
+  order: Order;
+  heading?: string;
+  patientName?: string | null;
+}) {
   return (
     <div style={mutedPanelStyle()}>
-      <div style={{ fontWeight: 800, marginBottom: 8 }}>Customer information</div>
+      <div style={{ fontWeight: 800, marginBottom: 8 }}>{heading}</div>
+      {patientName && (
+        <div style={{ marginBottom: 8, fontSize: 12 }}>Patient: {patientName}</div>
+      )}
       <div
         style={{
           display: "grid",
@@ -1976,24 +2024,11 @@ function OrderDetailsModal({
             <div>Total: {formatMoney(order.total_amount_cents)}</div>
           </div>
 
-          <div style={mutedPanelStyle()}>
-            <div style={{ fontWeight: 800, marginBottom: 5 }}>
-              Customer / Shipping
-            </div>
-            <div>{customerName}</div>
-            {showPatientName && <div>Patient: {patientName}</div>}
-            <div style={{ marginTop: 5 }}>{order.shipping_address1 ?? "-"}</div>
-            {order.shipping_address2 && <div>{order.shipping_address2}</div>}
-            <div>
-              {[order.shipping_city, order.shipping_state, order.shipping_zip]
-                .filter(Boolean)
-                .join(", ")}
-            </div>
-            <div style={{ marginTop: 5 }}>
-              Phone: {order.shipping_phone ?? "-"}
-            </div>
-            <div>Email: {order.shipping_email ?? "-"}</div>
-          </div>
+          <CustomerCopyGrid
+            order={order}
+            heading="Customer / Shipping"
+            patientName={showPatientName ? patientName : null}
+          />
 
           <div style={mutedPanelStyle()}>
             <div style={{ fontWeight: 800, marginBottom: 5 }}>
@@ -2005,10 +2040,8 @@ function OrderDetailsModal({
               Capture: {formatMoney(effectiveCaptureAmountCents(order))}
             </div>
             <div>Stripe: {order.stripe_payment_intent_status ?? "-"}</div>
-            <div style={{ marginTop: 5 }}>
-              <CopyableValue value={order.payment_intent_id}>
-                PaymentIntent: {order.payment_intent_id ?? "-"}
-              </CopyableValue>
+            <div style={{ marginTop: 5, overflowWrap: "anywhere" }}>
+              PaymentIntent: {order.payment_intent_id ?? "-"}
             </div>
             {isMerchantLane && (
               <div
