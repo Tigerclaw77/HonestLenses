@@ -23,30 +23,36 @@ function count(value: number | null | undefined): number | null {
     : null;
 }
 
+function getAdjustedOrderQuantity(
+  order: OrderQuantityFields,
+): AuthoritativeOrderQuantity | null {
+  const right = count(order.adjusted_right_box_count);
+  const left = count(order.adjusted_left_box_count);
+  const total = count(order.adjusted_total_box_count);
+
+  if (
+    right !== null &&
+    left !== null &&
+    total !== null &&
+    right + left === total &&
+    total > 0
+  ) {
+    return { right, left, total, adjusted: true };
+  }
+
+  return null;
+}
+
 export function getAuthoritativeOrderQuantity(
   order: OrderQuantityFields,
 ): AuthoritativeOrderQuantity {
-  const adjustedRight = count(order.adjusted_right_box_count);
-  const adjustedLeft = count(order.adjusted_left_box_count);
-  const adjustedTotal = count(order.adjusted_total_box_count);
+  const adjusted = getAdjustedOrderQuantity(order);
+  if (adjusted) return adjusted;
 
-  if (
-    adjustedRight !== null &&
-    adjustedLeft !== null &&
-    adjustedTotal !== null &&
-    adjustedRight + adjustedLeft === adjustedTotal &&
-    adjustedTotal > 0
-  ) {
-    return {
-      right: adjustedRight,
-      left: adjustedLeft,
-      total: adjustedTotal,
-      adjusted: true,
-    };
-  }
-
-  const right = count(order.right_box_count) ?? 0;
-  const left = count(order.left_box_count) ?? 0;
+  const storedRight = count(order.right_box_count);
+  const storedLeft = count(order.left_box_count);
+  const right = storedRight ?? 0;
+  const left = storedLeft ?? 0;
   const storedTotal = count(order.total_box_count) ?? count(order.box_count);
 
   return {
@@ -54,5 +60,19 @@ export function getAuthoritativeOrderQuantity(
     left,
     total: storedTotal ?? right + left,
     adjusted: false,
+  };
+}
+
+export function getStoredEyeQuantityPresence(order: OrderQuantityFields): {
+  right: boolean;
+  left: boolean;
+} {
+  if (getAdjustedOrderQuantity(order)) {
+    return { right: true, left: true };
+  }
+
+  return {
+    right: count(order.right_box_count) !== null,
+    left: count(order.left_box_count) !== null,
   };
 }

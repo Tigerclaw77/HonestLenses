@@ -8,6 +8,8 @@ export type ResolveCartEyeBoxCountsInput = {
   hasRequestedLeftBoxCount?: boolean;
   storedRightBoxCount?: number | null;
   storedLeftBoxCount?: number | null;
+  hasStoredRightBoxCount?: boolean;
+  hasStoredLeftBoxCount?: boolean;
 };
 
 export type ResolvedCartEyeBoxCounts = {
@@ -30,12 +32,14 @@ function resolveEyeBoxCount({
   hasRequestedCount,
   requestedCount,
   storedCount,
+  hasStoredCount,
   defaultPerEye,
 }: {
   hasEye: boolean;
   hasRequestedCount: boolean;
   requestedCount?: number | null;
   storedCount?: number | null;
+  hasStoredCount: boolean;
   defaultPerEye: number;
 }): number | null {
   if (!hasEye) return null;
@@ -44,7 +48,7 @@ function resolveEyeBoxCount({
     return requestedCount;
   }
 
-  if (isNonNegativeInteger(storedCount)) {
+  if (hasStoredCount && isNonNegativeInteger(storedCount)) {
     return storedCount;
   }
 
@@ -61,6 +65,8 @@ export function resolveCartEyeBoxCounts({
   hasRequestedLeftBoxCount = false,
   storedRightBoxCount,
   storedLeftBoxCount,
+  hasStoredRightBoxCount,
+  hasStoredLeftBoxCount,
 }: ResolveCartEyeBoxCountsInput): ResolvedCartEyeBoxCounts {
   const hasStoredQuantity =
     (isNonNegativeInteger(storedRightBoxCount) ? storedRightBoxCount : 0) +
@@ -71,7 +77,11 @@ export function resolveCartEyeBoxCounts({
     hasEye: hasRightEye,
     hasRequestedCount: hasRequestedRightBoxCount,
     requestedCount: requestedRightBoxCount,
-    storedCount: hasStoredQuantity ? storedRightBoxCount : null,
+    storedCount: storedRightBoxCount,
+    hasStoredCount:
+      hasStoredQuantity &&
+      (hasStoredRightBoxCount ??
+        (storedRightBoxCount !== null && storedRightBoxCount !== undefined)),
     defaultPerEye,
   });
 
@@ -79,7 +89,11 @@ export function resolveCartEyeBoxCounts({
     hasEye: hasLeftEye,
     hasRequestedCount: hasRequestedLeftBoxCount,
     requestedCount: requestedLeftBoxCount,
-    storedCount: hasStoredQuantity ? storedLeftBoxCount : null,
+    storedCount: storedLeftBoxCount,
+    hasStoredCount:
+      hasStoredQuantity &&
+      (hasStoredLeftBoxCount ??
+        (storedLeftBoxCount !== null && storedLeftBoxCount !== undefined)),
     defaultPerEye,
   });
 
@@ -88,4 +102,10 @@ export function resolveCartEyeBoxCounts({
     left,
     totalBoxes: (right ?? 0) + (left ?? 0),
   };
+}
+
+export function hasResolvedCartQuantity(
+  counts: ResolvedCartEyeBoxCounts,
+): boolean {
+  return counts.totalBoxes > 0;
 }
