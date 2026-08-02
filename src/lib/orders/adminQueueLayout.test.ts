@@ -412,6 +412,10 @@ assert.ok(
 );
 assert.ok(systemHealthClient.includes("No operational issues detected."));
 assert.ok(systemHealthClient.includes("count > 0"));
+assert.ok(systemHealthClient.includes('fetch("/api/admin/orders"'));
+assert.ok(systemHealthClient.includes("ordersBody.integrity_issues"));
+assert.ok(systemHealthClient.includes("issue.customerName"));
+assert.ok(systemHealthClient.includes("issue.message"));
 assert.equal(systemHealthClient.includes("Commerce v2"), false);
 assert.equal(systemHealthPage.includes("Commerce System Health"), false);
 assert.equal(systemHealthPage.includes("payment ledger"), false);
