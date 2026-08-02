@@ -21,6 +21,7 @@ const guideSlugs = [
   "can-i-use-my-glasses-prescription-to-buy-contacts",
   "why-do-contact-lens-prescriptions-expire",
   "can-someone-else-order-contacts-for-me",
+  "buying-contact-lenses-online",
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {

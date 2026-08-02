@@ -33,12 +33,73 @@ function FaqJsonLd({ guide }: { guide: GuidePage }) {
   );
 }
 
+function PillarJsonLd({ guide }: { guide: GuidePage }) {
+  if (!guide.includeArticleSchema) return null;
+
+  const url = `https://honestlenses.com${getGuideUrl(guide.slug)}`;
+  const article = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: guide.h1 ?? guide.title,
+    description: guide.description,
+    url,
+    mainEntityOfPage: url,
+    author: {
+      "@type": "Person",
+      name: "Dr. Paul Driggers, OD",
+    },
+    publisher: {
+      "@type": "Organization",
+      name: "Honest Lenses",
+      url: "https://honestlenses.com",
+    },
+  };
+  const breadcrumb = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Home",
+        item: "https://honestlenses.com",
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: "Guides",
+        item: "https://honestlenses.com/guides",
+      },
+      {
+        "@type": "ListItem",
+        position: 3,
+        name: guide.title,
+        item: url,
+      },
+    ],
+  };
+
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(article) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumb) }}
+      />
+    </>
+  );
+}
+
 export default function GuideArticle({ guide }: { guide: GuidePage }) {
   const relatedGuides = guides.filter((item) => item.slug !== guide.slug);
 
   return (
     <>
       <FaqJsonLd guide={guide} />
+      <PillarJsonLd guide={guide} />
 
       <main className={styles.guideShell}>
         <div className={styles.guideWrap}>
@@ -46,6 +107,12 @@ export default function GuideArticle({ guide }: { guide: GuidePage }) {
             <Link href="/">Home</Link>
             <span>/</span>
             <Link href="/guides">Guides</Link>
+            {guide.includeArticleSchema && (
+              <>
+                <span>/</span>
+                <span aria-current="page">{guide.title}</span>
+              </>
+            )}
           </nav>
 
           <header className={styles.articleHeader}>
