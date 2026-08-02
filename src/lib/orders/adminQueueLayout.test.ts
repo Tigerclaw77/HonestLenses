@@ -20,10 +20,17 @@ assert.ok(componentStart > detailsStart);
 
 const activeCard = source.slice(cardStart, detailsStart);
 const detailsSurface = source.slice(detailsStart, componentStart);
+const copyableValueStart = source.indexOf("function CopyableValue");
+const verificationAttemptStart = source.indexOf(
+  "function VerificationAttemptRow",
+  copyableValueStart,
+);
+const copyableValue = source.slice(copyableValueStart, verificationAttemptStart);
 const expandedCardStart = activeCard.indexOf("{isOpen &&");
 assert.ok(expandedCardStart >= 0);
 assert.ok(
-  activeCard.indexOf("<CustomerCopyGrid order={order} />") > expandedCardStart,
+  activeCard.indexOf("<CustomerInformationBlock order={order} />") >
+    expandedCardStart,
   "customer processing fields render inside the existing expanded card",
 );
 
@@ -157,7 +164,7 @@ for (const copyLabel of [
   );
 }
 assert.ok(
-  detailsSurface.includes("<CustomerCopyGrid"),
+  detailsSurface.includes("<CustomerInformationBlock"),
   "Order Details reuses the same individual customer-field copy controls",
 );
 assert.equal(
@@ -168,6 +175,56 @@ assert.equal(
 assert.ok(
   detailsSurface.includes('PaymentIntent: {order.payment_intent_id ?? "-"}'),
   "PaymentIntent remains available for troubleshooting",
+);
+
+const customerInformationStart = activeCard.indexOf(
+  "function CustomerInformationBlock",
+);
+assert.ok(customerInformationStart >= 0);
+const customerInformation = activeCard.slice(customerInformationStart);
+assert.equal(
+  customerInformation.includes('display: "grid"'),
+  false,
+  "customer information reads as an address block rather than a field grid",
+);
+for (const line of [
+  'data-customer-line="name"',
+  'data-customer-line="address"',
+  'data-customer-line="contact"',
+]) {
+  assert.ok(
+    customerInformation.includes(line),
+    `${line} preserves shipping-label reading order`,
+  );
+}
+const customerFieldOrder = [
+  'label="First name"',
+  'label="Last name"',
+  'label="Street address"',
+  'label="Apt / Suite"',
+  'label="City"',
+  'label="State"',
+  'label="ZIP"',
+  'label="Phone"',
+  'label="Email"',
+];
+let previousCustomerField = -1;
+for (const field of customerFieldOrder) {
+  const fieldIndex = customerInformation.indexOf(field);
+  assert.ok(
+    fieldIndex > previousCustomerField,
+    `${field} follows natural reading order`,
+  );
+  previousCustomerField = fieldIndex;
+}
+assert.equal(
+  copyableValue.includes(': "Copy"'),
+  false,
+  "copy labels are not permanently rendered beside customer information",
+);
+assert.ok(copyableValue.includes('className="admin-copyable-value__icon"'));
+assert.ok(
+  copyableValue.includes('className="admin-copyable-value__feedback">Copied'),
 );
 
 for (const recordOnlyField of [

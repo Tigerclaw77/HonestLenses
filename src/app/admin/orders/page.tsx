@@ -1305,6 +1305,8 @@ function CopyableValue({
   return (
     <button
       type="button"
+      className="admin-copyable-value"
+      data-copied={copied ? "true" : "false"}
       title={`Copy ${label ?? text}`}
       aria-label={`Copy ${label ?? text}`}
       onClick={async (e) => {
@@ -1315,35 +1317,26 @@ function CopyableValue({
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
         timeoutRef.current = setTimeout(() => setCopied(false), 1000);
       }}
-      style={{
-        display: "inline-flex",
-        alignItems: "baseline",
-        gap: 6,
-        padding: 0,
-        border: "none",
-        background: "transparent",
-        color: "inherit",
-        font: "inherit",
-        textAlign: "left",
-        cursor: "copy",
-        textDecoration: "underline dotted rgba(148,163,184,0.7)",
-        textUnderlineOffset: 3,
-        ...style,
-      }}
+      style={style}
     >
       <span>{children ?? text}</span>
       <span
+        className="admin-copyable-value__indicator"
         aria-live="polite"
-        style={{
-          color: "#86efac",
-          fontSize: 11,
-          fontWeight: 800,
-          opacity: copied ? 1 : 0.72,
-          transition: "opacity 180ms ease",
-          whiteSpace: "nowrap",
-        }}
       >
-        {copied ? <>Copied {"\u2713"}</> : "Copy"}
+        {copied ? (
+          <span className="admin-copyable-value__feedback">Copied</span>
+        ) : (
+          <svg
+            className="admin-copyable-value__icon"
+            aria-hidden="true"
+            viewBox="0 0 16 16"
+            fill="none"
+          >
+            <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+            <path d="M10.5 5.5V3A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h2.5" />
+          </svg>
+        )}
       </span>
     </button>
   );
@@ -1679,7 +1672,7 @@ function ActiveOrderCard({
           }}
         >
           <div style={{ display: "grid", gap: 10 }}>
-            <CustomerCopyGrid order={order} />
+            <CustomerInformationBlock order={order} />
 
             <div
               style={{
@@ -1826,30 +1819,27 @@ function ActiveOrderCard({
   );
 }
 
-function CopyableCustomerField({
+function CopyableCustomerValue({
   label,
   value,
+  style,
 }: {
   label: string;
   value?: string | null;
+  style?: CSSProperties;
 }) {
+  if (!value?.trim()) return null;
+
   return (
-    <div style={{ minWidth: 0 }}>
-      <div style={{ fontSize: 10, opacity: 0.58, marginBottom: 2 }}>{label}</div>
-      {value?.trim() ? (
-        <CopyableValue
-          value={value}
-          label={label}
-          style={{ maxWidth: "100%", overflowWrap: "anywhere" }}
-        />
-      ) : (
-        <span style={{ opacity: 0.5 }}>-</span>
-      )}
-    </div>
+    <CopyableValue
+      value={value}
+      label={label}
+      style={{ maxWidth: "100%", overflowWrap: "anywhere", ...style }}
+    />
   );
 }
 
-function CustomerCopyGrid({
+function CustomerInformationBlock({
   order,
   heading = "Customer information",
   patientName,
@@ -1858,42 +1848,77 @@ function CustomerCopyGrid({
   heading?: string;
   patientName?: string | null;
 }) {
+  const firstName = order.shipping_first_name?.trim();
+  const lastName = order.shipping_last_name?.trim();
+  const street = order.shipping_address1?.trim();
+  const apartment = order.shipping_address2?.trim();
+  const city = order.shipping_city?.trim();
+  const state = order.shipping_state?.trim();
+  const zip = order.shipping_zip?.trim();
+  const phone = order.shipping_phone?.trim();
+  const email = order.shipping_email?.trim();
+  const hasLocality = Boolean(city || state || zip);
+
   return (
     <div style={mutedPanelStyle()}>
       <div style={{ fontWeight: 800, marginBottom: 8 }}>{heading}</div>
       {patientName && (
         <div style={{ marginBottom: 8, fontSize: 12 }}>Patient: {patientName}</div>
       )}
-      <div
+      <address
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-          gap: "9px 12px",
+          fontStyle: "normal",
           fontSize: 12,
+          lineHeight: 1.55,
         }}
       >
-        <CopyableCustomerField
-          label="First name"
-          value={order.shipping_first_name}
-        />
-        <CopyableCustomerField
-          label="Last name"
-          value={order.shipping_last_name}
-        />
-        <CopyableCustomerField label="Phone" value={order.shipping_phone} />
-        <CopyableCustomerField label="Email" value={order.shipping_email} />
-        <CopyableCustomerField
-          label="Street address"
-          value={order.shipping_address1}
-        />
-        <CopyableCustomerField
-          label="Apt / Suite"
-          value={order.shipping_address2}
-        />
-        <CopyableCustomerField label="City" value={order.shipping_city} />
-        <CopyableCustomerField label="State" value={order.shipping_state} />
-        <CopyableCustomerField label="ZIP" value={order.shipping_zip} />
-      </div>
+        {(firstName || lastName) && (
+          <div data-customer-line="name" style={{ fontWeight: 750 }}>
+            <CopyableCustomerValue label="First name" value={firstName} />
+            {firstName && lastName ? " " : null}
+            <CopyableCustomerValue label="Last name" value={lastName} />
+          </div>
+        )}
+
+        {(street || apartment || hasLocality) && (
+          <div data-customer-line="address" style={{ marginTop: 8 }}>
+            {street && (
+              <div>
+                <CopyableCustomerValue label="Street address" value={street} />
+              </div>
+            )}
+            {apartment && (
+              <div>
+                <CopyableCustomerValue label="Apt / Suite" value={apartment} />
+              </div>
+            )}
+            {hasLocality && (
+              <div>
+                <CopyableCustomerValue label="City" value={city} />
+                {city && (state || zip) ? ", " : null}
+                <CopyableCustomerValue label="State" value={state} />
+                {state && zip ? " " : null}
+                <CopyableCustomerValue label="ZIP" value={zip} />
+              </div>
+            )}
+          </div>
+        )}
+
+        {(phone || email) && (
+          <div data-customer-line="contact" style={{ marginTop: 8 }}>
+            {phone && (
+              <div>
+                <CopyableCustomerValue label="Phone" value={phone} />
+              </div>
+            )}
+            {email && (
+              <div>
+                <CopyableCustomerValue label="Email" value={email} />
+              </div>
+            )}
+          </div>
+        )}
+      </address>
     </div>
   );
 }
@@ -2024,7 +2049,7 @@ function OrderDetailsModal({
             <div>Total: {formatMoney(order.total_amount_cents)}</div>
           </div>
 
-          <CustomerCopyGrid
+          <CustomerInformationBlock
             order={order}
             heading="Customer / Shipping"
             patientName={showPatientName ? patientName : null}
