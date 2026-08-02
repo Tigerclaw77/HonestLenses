@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase-client";
 
 type Metrics = Record<
   | "orphaned_orders"
@@ -11,6 +12,12 @@ type Metrics = Record<
   | "reconciliation_failures",
   number
 >;
+
+type OrderIntegrityIssue = {
+  orderId: string;
+  customerName: string;
+  message: string;
+};
 
 const LABELS: Record<keyof Metrics, string> = {
   orphaned_orders: "Orders missing from work queues",
@@ -28,33 +35,66 @@ function OperationalHealthy() {
 export default function SystemHealthClient() {
   const [state, setState] = useState<
     | { kind: "loading" }
-    | { kind: "disabled" }
-    | { kind: "ready"; metrics: Metrics }
-    | { kind: "error"; message: string }
+    | {
+        kind: "ready";
+        metrics: Metrics | null;
+        orderIssues: OrderIntegrityIssue[];
+        checksUnavailable: boolean;
+      }
+    | { kind: "error" }
   >({ kind: "loading" });
 
   useEffect(() => {
     let active = true;
-    fetch("/api/admin/system-health", { cache: "no-store" })
-      .then(async (response) => {
-        const body = (await response.json()) as {
+    supabase.auth
+      .getSession()
+      .then(async ({ data }) => {
+        const headers: HeadersInit = data.session?.access_token
+          ? { Authorization: `Bearer ${data.session.access_token}` }
+          : {};
+        const [healthResponse, ordersResponse] = await Promise.all([
+          fetch("/api/admin/system-health", {
+            cache: "no-store",
+            credentials: "same-origin",
+            headers,
+          }),
+          fetch("/api/admin/orders", {
+            cache: "no-store",
+            credentials: "same-origin",
+            headers,
+          }),
+        ]);
+        const healthBody = (await healthResponse.json()) as {
           enabled?: boolean;
           metrics?: Metrics;
-          error?: string;
         };
-        if (!response.ok) throw new Error(body.error ?? "Health query failed");
-        if (!body.enabled || !body.metrics) return { kind: "disabled" } as const;
-        return { kind: "ready", metrics: body.metrics } as const;
+        const ordersBody = (await ordersResponse.json()) as {
+          integrity_issues?: OrderIntegrityIssue[];
+        };
+
+        if (!healthResponse.ok && !ordersResponse.ok) {
+          throw new Error("Operational health is unavailable");
+        }
+
+        return {
+          kind: "ready",
+          metrics:
+            healthResponse.ok && healthBody.enabled && healthBody.metrics
+              ? healthBody.metrics
+              : null,
+          orderIssues: ordersResponse.ok
+            ? (ordersBody.integrity_issues ?? [])
+            : [],
+          checksUnavailable: !healthResponse.ok || !ordersResponse.ok,
+        } as const;
       })
       .then((next) => {
         if (active) setState(next);
       })
       .catch((error: unknown) => {
         if (active) {
-          setState({
-            kind: "error",
-            message: error instanceof Error ? error.message : String(error),
-          });
+          void error;
+          setState({ kind: "error" });
         }
       });
     return () => {
@@ -63,13 +103,20 @@ export default function SystemHealthClient() {
   }, []);
 
   if (state.kind === "loading") return <p>Checking operational health…</p>;
-  if (state.kind === "disabled") return <OperationalHealthy />;
   if (state.kind === "error") {
     return <p role="alert">Operational health is unavailable.</p>;
   }
 
-  const issues = Object.entries(state.metrics).filter(([, count]) => count > 0);
-  if (issues.length === 0) return <OperationalHealthy />;
+  const metricIssues = state.metrics
+    ? Object.entries(state.metrics).filter(([, count]) => count > 0)
+    : [];
+  if (
+    metricIssues.length === 0 &&
+    state.orderIssues.length === 0 &&
+    !state.checksUnavailable
+  ) {
+    return <OperationalHealthy />;
+  }
 
   return (
     <div
@@ -79,7 +126,28 @@ export default function SystemHealthClient() {
         gap: 12,
       }}
     >
-      {issues.map(([metric, count]) => (
+      {state.checksUnavailable && (
+        <p role="alert" style={{ gridColumn: "1 / -1" }}>
+          Some operational checks are unavailable.
+        </p>
+      )}
+      {state.orderIssues.map((issue) => (
+        <article
+          key={`${issue.orderId}:${issue.message}`}
+          style={{
+            border: "1px solid rgba(251,191,36,0.34)",
+            borderRadius: 10,
+            padding: 16,
+            background: "rgba(120,53,15,0.2)",
+          }}
+        >
+          <strong>{issue.customerName}</strong>
+          <div style={{ color: "#fde68a", fontSize: 13, marginTop: 8 }}>
+            {issue.message}
+          </div>
+        </article>
+      ))}
+      {metricIssues.map(([metric, count]) => (
         <article
           key={metric}
           style={{
