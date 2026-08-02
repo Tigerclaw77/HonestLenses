@@ -84,6 +84,16 @@ export default async function LensPage({ params }: Props) {
         Lens Rule, either through direct verification or prescriber confirmation.
       </p>
 
+      <p>
+        <a
+          href={`/enter-prescription?right=${encodeURIComponent(
+            lens.coreId,
+          )}&left=${encodeURIComponent(lens.coreId)}`}
+        >
+          Order {lens.displayName}
+        </a>
+      </p>
+
       {/* Navigation / internal links */}
       <h2>Explore More</h2>
 
