@@ -10,6 +10,10 @@ const source = readFileSync(
   join(process.cwd(), "src", "app", "admin", "orders", "page.tsx"),
   "utf8",
 );
+const styles = readFileSync(
+  join(process.cwd(), "src", "styles", "globals.css"),
+  "utf8",
+);
 
 const cardStart = source.indexOf("function ActiveOrderCard");
 const detailsStart = source.indexOf("function OrderDetailsModal");
@@ -225,6 +229,30 @@ assert.equal(
 assert.ok(copyableValue.includes('className="admin-copyable-value__icon"'));
 assert.ok(
   copyableValue.includes('className="admin-copyable-value__feedback">Copied'),
+);
+assert.ok(
+  copyableValue.includes(
+    '<span className="admin-copyable-value__text">{children ?? text}</span>',
+  ),
+  "the displayed value is the complete copy target",
+);
+assert.ok(
+  copyableValue.includes("e.stopPropagation()"),
+  "copy targets do not toggle their containing order row",
+);
+assert.ok(
+  styles.includes("cursor: pointer"),
+  "copyable values use a pointer cursor",
+);
+assert.ok(
+  styles.includes(
+    ".admin-copyable-value:hover .admin-copyable-value__text",
+  ),
+  "hover subtly underlines the value itself",
+);
+assert.ok(
+  styles.includes("pointer-events: none"),
+  "the copy icon cannot become a separate click target",
 );
 
 for (const recordOnlyField of [
