@@ -3075,7 +3075,20 @@ body:has(.hl-overlay) {
   color: inherit;
   font: inherit;
   text-align: left;
-  cursor: copy;
+  cursor: pointer;
+}
+
+.admin-copyable-value__text {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 150ms ease;
+}
+
+.admin-copyable-value:hover .admin-copyable-value__text,
+.admin-copyable-value:focus-visible .admin-copyable-value__text {
+  text-decoration-color: rgba(148, 163, 184, 0.72);
 }
 
 .admin-copyable-value:focus-visible {
@@ -3090,6 +3103,7 @@ body:has(.hl-overlay) {
   margin-left: 0;
   overflow: hidden;
   opacity: 0;
+  pointer-events: none;
   white-space: nowrap;
   transition:
     max-width 150ms ease,

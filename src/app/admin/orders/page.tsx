@@ -1319,7 +1319,7 @@ function CopyableValue({
       }}
       style={style}
     >
-      <span>{children ?? text}</span>
+      <span className="admin-copyable-value__text">{children ?? text}</span>
       <span
         className="admin-copyable-value__indicator"
         aria-live="polite"
