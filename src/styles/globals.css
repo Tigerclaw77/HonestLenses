@@ -1254,7 +1254,11 @@ main {
 
   .site-footer .footer-right {
     display: flex;
-    gap: 1.25rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+    gap: 0.75rem 1.25rem;
     margin-top: 0.25rem;
   }
 
