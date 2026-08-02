@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import Stripe from "stripe";
 
 import { CommerceService } from "./commerceService";
 import { projectStripePaymentIntent } from "./paymentProjection";
 import { reconcilePayments } from "./reconciliationService";
+import {
+  processLegacyStripeWebhook,
+  type LegacyStripeWebhookOrder,
+} from "../payments/legacyStripeWebhook";
 import type {
   CommerceRepository,
   OperationClaim,
@@ -339,17 +345,24 @@ class MemoryStripe implements StripeGateway {
   }
 }
 
-function stripeEvent(id: string, created: number): Stripe.Event {
+function stripeEvent(
+  id: string,
+  createdOrType: number | Stripe.Event.Type,
+  object: Stripe.Event.Data.Object = intent(),
+): Stripe.Event {
   return {
     id,
     object: "event",
     api_version: "2025-12-15.clover",
-    created,
-    data: { object: intent() },
+    created: typeof createdOrType === "number" ? createdOrType : 1_700_000_000,
+    data: { object },
     livemode: false,
     pending_webhooks: 1,
     request: { id: null, idempotency_key: null },
-    type: "payment_intent.amount_capturable_updated",
+    type:
+      typeof createdOrType === "number"
+        ? "payment_intent.amount_capturable_updated"
+        : createdOrType,
   } as Stripe.Event;
 }
 
@@ -565,6 +578,117 @@ async function main() {
         "sk_test_local",
       ),
     /signature/i,
+  );
+
+  const webhookRoute = readFileSync(
+    join(
+      process.cwd(),
+      "src",
+      "app",
+      "api",
+      "webhooks",
+      "stripe",
+      "route.ts",
+    ),
+    "utf8",
+  );
+  const signatureVerificationIndex = webhookRoute.indexOf(
+    "event = verifyStripeWebhook",
+  );
+  const disabledAcknowledgementIndex = webhookRoute.indexOf(
+    "if (!isCommerceV2Enabled())",
+  );
+  assert(
+    signatureVerificationIndex >= 0 &&
+      disabledAcknowledgementIndex > signatureVerificationIndex,
+    "Commerce v2 gating occurs only after Stripe signature verification",
+  );
+  assert.match(webhookRoute, /received:\s*true/);
+  assert.match(webhookRoute, /processLegacyStripeWebhook/);
+  assert.doesNotMatch(
+    webhookRoute,
+    /Commerce v2 is not enabled/,
+    "disabled Commerce v2 acknowledges signed events instead of returning 503",
+  );
+
+  const legacyOrder: LegacyStripeWebhookOrder = {
+    id: ORDER.id,
+    status: "authorized",
+    payment_intent_id: "pi_legacy",
+    total_amount_cents: 10_000,
+    capture_amount_cents: null,
+    feedback_credit_cents: null,
+  };
+  let legacyCaptureMutations = 0;
+  const legacyRepository = {
+    async findOrder(orderId: string, paymentIntentId: string) {
+      return orderId === legacyOrder.id &&
+        paymentIntentId === legacyOrder.payment_intent_id
+        ? legacyOrder
+        : null;
+    },
+    async markCaptured(orderId: string, paymentIntentId: string) {
+      if (
+        orderId !== legacyOrder.id ||
+        paymentIntentId !== legacyOrder.payment_intent_id ||
+        legacyOrder.status !== "authorized"
+      ) {
+        return false;
+      }
+      legacyOrder.status = "captured";
+      legacyCaptureMutations += 1;
+      return true;
+    },
+  };
+  const legacySucceededEvent = stripeEvent(
+    "evt_legacy_succeeded",
+    "payment_intent.succeeded",
+    intent({
+      id: "pi_legacy",
+      status: "succeeded",
+      amount_capturable: 0,
+      amount_received: 10_000,
+      metadata: { order_id: ORDER.id },
+    }),
+  );
+  assert.deepEqual(
+    await processLegacyStripeWebhook(legacySucceededEvent, legacyRepository),
+    {
+      processed: true,
+      ignored: false,
+      reason: "captured",
+      orderId: ORDER.id,
+    },
+    "legacy mode reconciles an exact-amount succeeded PaymentIntent",
+  );
+  assert.deepEqual(
+    await processLegacyStripeWebhook(legacySucceededEvent, legacyRepository),
+    {
+      processed: false,
+      ignored: false,
+      reason: "already_current",
+      orderId: ORDER.id,
+    },
+    "replaying a legacy succeeded event is idempotent",
+  );
+  assert.equal(legacyCaptureMutations, 1);
+
+  for (const eventType of [
+    "payment_intent.created",
+    "payment_intent.amount_capturable_updated",
+    "payment_intent.canceled",
+  ] as const) {
+    const ignored = await processLegacyStripeWebhook(
+      stripeEvent(`evt_legacy_${eventType}`, eventType, intent()),
+      legacyRepository,
+    );
+    assert.equal(ignored.reason, "event_not_used_by_legacy");
+    assert.equal(ignored.ignored, true);
+  }
+  assert.equal(
+    legacyCaptureMutations,
+    1,
+    "acknowledged legacy events do not mutate order state",
   );
 
   const reconcileRepository = new MemoryRepository();

@@ -9,15 +9,42 @@ import {
   processStripeWebhook,
   verifyStripeWebhook,
 } from "@/lib/commerce-v2/webhookService";
+import { supabaseServer } from "@/lib/supabase-server";
+import {
+  processLegacyStripeWebhook,
+  type LegacyStripeWebhookRepository,
+} from "@/lib/payments/legacyStripeWebhook";
+
+const legacyRepository: LegacyStripeWebhookRepository = {
+  async findOrder(orderId, paymentIntentId) {
+    const { data, error } = await supabaseServer
+      .from("orders")
+      .select(
+        "id, status, payment_intent_id, total_amount_cents, capture_amount_cents, feedback_credit_cents",
+      )
+      .eq("id", orderId)
+      .eq("payment_intent_id", paymentIntentId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data;
+  },
+  async markCaptured(orderId, paymentIntentId) {
+    const { data, error } = await supabaseServer
+      .from("orders")
+      .update({ status: "captured", updated_at: new Date().toISOString() })
+      .eq("id", orderId)
+      .eq("payment_intent_id", paymentIntentId)
+      .eq("status", "authorized")
+      .select("id")
+      .maybeSingle();
+
+    if (error) throw error;
+    return Boolean(data);
+  },
+};
 
 export async function POST(request: Request) {
-  if (!isCommerceV2Enabled()) {
-    return NextResponse.json(
-      { error: "Commerce v2 is not enabled." },
-      { status: 503 },
-    );
-  }
-
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
     console.error("STRIPE_WEBHOOK_SECRET is not configured");
@@ -44,6 +71,30 @@ export async function POST(request: Request) {
       { error: "Invalid webhook signature." },
       { status: 400 },
     );
+  }
+
+  if (!isCommerceV2Enabled()) {
+    try {
+      const result = await processLegacyStripeWebhook(
+        event,
+        legacyRepository,
+      );
+      return NextResponse.json({
+        received: true,
+        mode: "legacy",
+        stripeEventId: event.id,
+        ...result,
+      });
+    } catch (error) {
+      console.error("Legacy Stripe webhook processing failed", {
+        stripeEventId: event.id,
+        error,
+      });
+      return NextResponse.json(
+        { error: "Webhook processing failed." },
+        { status: 500 },
+      );
+    }
   }
 
   try {
