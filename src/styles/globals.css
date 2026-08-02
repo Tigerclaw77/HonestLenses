@@ -3064,3 +3064,57 @@ body:has(.hl-overlay) {
   outline: 2px solid #7dd3fc;
   outline-offset: 3px;
 }
+
+.admin-copyable-value {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: copy;
+}
+
+.admin-copyable-value:focus-visible {
+  outline: 2px solid #7dd3fc;
+  outline-offset: 2px;
+}
+
+.admin-copyable-value__indicator {
+  display: inline-flex;
+  align-items: center;
+  max-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  transition:
+    max-width 150ms ease,
+    margin-left 150ms ease,
+    opacity 150ms ease;
+}
+
+.admin-copyable-value:hover .admin-copyable-value__indicator,
+.admin-copyable-value:focus-visible .admin-copyable-value__indicator,
+.admin-copyable-value[data-copied="true"] .admin-copyable-value__indicator {
+  max-width: 64px;
+  margin-left: 5px;
+  opacity: 1;
+}
+
+.admin-copyable-value__icon {
+  width: 12px;
+  height: 12px;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  opacity: 0.62;
+}
+
+.admin-copyable-value__feedback {
+  color: #86efac;
+  font-size: 11px;
+  font-weight: 700;
+}
