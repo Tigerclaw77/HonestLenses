@@ -25,6 +25,7 @@ export type GuidePage = {
   sections: GuideSection[];
   faqs: GuideFaq[];
   postFaqSections?: GuideSection[];
+  includeArticleSchema?: boolean;
 };
 
 function ActionLink({
@@ -2505,6 +2506,910 @@ Monday at 11:00 a.m.    Eight-business-hour period ends`}</ProcessDiagram>
                 FDA: Buying Contact Lenses
               </a>
             </li>
+          </ul>
+        ),
+      },
+    ],
+  },
+  {
+    slug: "buying-contact-lenses-online",
+    title: "Buying Contact Lenses Online: A Complete Consumer Guide",
+    metaTitle: "Buying Contact Lenses Online: Complete Consumer Guide",
+    h1: "Buying Contact Lenses Online: A Complete Consumer Guide",
+    description:
+      "Learn how to buy contact lenses online safely, match your prescription, calculate boxes, compare total prices, verify your prescription, and avoid questionable sellers.",
+    summary:
+      "A complete consumer guide to seller safety, exact product matching, quantities, pricing, prescription verification, payment, and delivery.",
+    includeArticleSchema: true,
+    intro: (
+      <>
+        Buying contact lenses online is usually straightforward when you order
+        the exact lenses your eye care professional prescribed. This guide
+        explains every major decision—from choosing a seller to receiving your
+        shipment—so you know what to expect before placing an order.
+        <br />
+        <br />
+        You will still need a current contact lens prescription, and the seller
+        must obtain or verify that prescription before providing the lenses.
+        These requirements exist because contact lenses rest directly on the eye
+        and the exact product matters.
+      </>
+    ),
+    lead: (
+      <>
+        <p>
+          This is an educational guide, not a recommendation to buy from Honest
+          Lenses or any particular seller. Whether you buy from Honest Lenses or
+          another legitimate U.S. seller, the same federal
+          prescription-verification rules apply.
+        </p>
+        <h2>What You’ll Learn</h2>
+        <ul>
+          <li>How to know whether it is safe to buy contacts online</li>
+          <li>What information you need before ordering</li>
+          <li>How to identify the exact prescribed product</li>
+          <li>How to calculate the right quantity</li>
+          <li>How to compare real prices</li>
+          <li>What happens after checkout</li>
+          <li>Which delays are normal</li>
+          <li>When to return to your eye doctor instead of ordering online</li>
+        </ul>
+        <GuideCallout>
+          <p>
+            <strong>The short version</strong>
+          </p>
+          <p>
+            Buying contacts online is generally safe when you use a legitimate
+            seller, order the exact product prescribed for you, provide accurate
+            prescription information, and follow your prescriber’s wear and care
+            instructions.
+          </p>
+          <p>
+            An online store should help you fill an existing contact lens
+            prescription. It should not choose a new lens for you.
+          </p>
+        </GuideCallout>
+      </>
+    ),
+    sections: [
+      {
+        heading: "Is It Safe to Buy Contact Lenses Online?",
+        content: (
+          <>
+            <p>
+              Yes—provided you have been properly fitted, use a current
+              prescription, and buy from a seller that follows federal
+              prescription requirements.
+            </p>
+            <p>
+              The important distinction is between <strong>fitting contact lenses</strong>{" "}
+              and <strong>filling a contact lens prescription</strong>:
+            </p>
+            <ul>
+              <li>
+                Your eye care professional examines your eyes, fits the lenses,
+                evaluates how they perform, and determines what you may safely wear.
+              </li>
+              <li>The seller supplies the product authorized by that prescription.</li>
+              <li>
+                The seller should not independently change the prescribed brand,
+                lens design, or parameters.
+              </li>
+            </ul>
+            <h3>Why contact lenses are regulated</h3>
+            <p>
+              Contact lenses rest directly on the eye. Differences in material,
+              shape, dimensions, surface design, and replacement schedule can
+              affect how a lens fits and performs.
+            </p>
+            <p>
+              The FDA regulates contact lenses as medical devices. The FTC
+              enforces the Contact Lens Rule, which requires sellers to obtain a
+              prescription copy or verify the prescription information with the
+              prescriber before providing the lenses.
+            </p>
+            <p>
+              These rules apply to vision-correcting contacts and decorative or
+              cosmetic contacts.
+            </p>
+            <h3>Why legitimate sellers verify prescriptions</h3>
+            <p>
+              Prescription verification is not evidence that something is wrong
+              with your order. It is a standard part of legally providing contact
+              lenses.
+            </p>
+            <p>A legitimate seller should either:</p>
+            <ol>
+              <li>Accept a readable copy of your current contact lens prescription; or</li>
+              <li>
+                Collect the information needed to send a complete verification
+                request to your prescriber.
+              </li>
+            </ol>
+            <p>
+              A seller promising to provide contact lenses without a prescription
+              or verification is avoiding a basic consumer-safety requirement.
+            </p>
+            <p>
+              For the complete post-checkout process, see{" "}
+              <Link href="/guides/how-contact-lens-prescription-verification-works">
+                Contact Lens Prescription Verification: What Happens After You Order Online
+              </Link>
+              .
+            </p>
+            <h3>Why exact product matching matters</h3>
+            <p>
+              The FDA advises consumers to confirm the exact brand, lens name,
+              power, base curve, diameter, and any applicable cylinder or axis values.
+            </p>
+            <p>
+              Two products can have the same power and still be materially
+              different. A similar name, replacement schedule, or package design
+              does not make one lens interchangeable with another.
+            </p>
+            <GuideCallout>
+              <p>
+                <strong>From our experience: similar product names create avoidable mistakes</strong>
+              </p>
+              <p>
+                Product families often include spherical, toric, multifocal,
+                daily, and reusable versions. Selecting the familiar brand name
+                without checking the complete product name can lead to an order
+                for the wrong lens design.
+              </p>
+            </GuideCallout>
+            <h3>Warning signs of a questionable seller</h3>
+            <p>Use caution when a seller:</p>
+            <ul>
+              <li>Says no prescription is needed</li>
+              <li>Does not offer any prescription-verification process</li>
+              <li>Encourages you to choose a different brand without prescriber involvement</li>
+              <li>Treats matching power as sufficient product matching</li>
+              <li>Cannot clearly identify the product or manufacturer</li>
+              <li>Does not provide accessible contact information</li>
+              <li>Hides shipping costs or mandatory fees until late in checkout</li>
+              <li>Has no understandable return or damaged-shipment policy</li>
+              <li>Sends a different product without authorization</li>
+            </ul>
+            <p>
+              The FDA recommends buying from a supplier you know to be reliable
+              and not accepting a substitute unless your eye care professional approves it.
+            </p>
+            <GuideTable
+              headers={["Reliable-seller signal", "Warning sign"]}
+              rows={[
+                ["Requires a prescription or verification", "Promises contacts without a prescription"],
+                ["Identifies the exact product and manufacturer", "Uses vague or incomplete product names"],
+                ["Requires eye-specific prescription values", "Requests only a single power"],
+                ["Explains shipping and returns", "Hides essential policies"],
+                ["Provides customer-support contact information", "Offers no practical way to resolve a problem"],
+                ["Does not change the prescribed product", "Promotes an unauthorized “equivalent” lens"],
+              ]}
+            />
+          </>
+        ),
+      },
+      {
+        heading: "Online Ordering Is Not an Online Fitting",
+        content: (
+          <>
+            <p>
+              Online ordering works best when you are refilling contact lenses
+              that have already been fitted and prescribed.
+            </p>
+            <p>
+              If you have never worn contact lenses, your glasses prescription is
+              not enough. You need a contact lens examination and fitting. The
+              prescriber evaluates your eyes, tries lenses on them, checks vision
+              and fit, and gives you wear and care instructions.
+            </p>
+            <p>You should also return to your prescriber before ordering if:</p>
+            <ul>
+              <li>Your prescription has expired</li>
+              <li>Your vision has changed</li>
+              <li>Your current lenses have become uncomfortable</li>
+              <li>You have redness, pain, discharge, light sensitivity, or reduced vision</li>
+              <li>You want to change brands or lens types</li>
+              <li>You want a different replacement schedule</li>
+              <li>Your fitting has not been finalized</li>
+            </ul>
+            <p>
+              The CDC advises people considering a different contact lens type to
+              speak with their eye care provider.
+            </p>
+            <GuideCallout>
+              <p><strong>Important</strong></p>
+              <p>
+                A retailer can help identify and supply the lens written on your
+                prescription. A retailer should not decide which lens is medically
+                appropriate for your eyes.
+              </p>
+            </GuideCallout>
+          </>
+        ),
+      },
+      {
+        heading: "What You Need Before Ordering",
+        content: (
+          <>
+            <p>
+              Preparing the information first makes checkout easier and reduces
+              preventable verification delays.
+            </p>
+            <GuideTable
+              headers={["What you need", "Why it matters"]}
+              rows={[
+                ["Current contact lens prescription", "Establishes the product and parameters authorized for the wearer"],
+                ["Complete product name", "Distinguishes spherical, toric, multifocal, daily, and reusable versions"],
+                ["Separate values for each eye", "The two eyes frequently have different prescriptions"],
+                ["Prescription expiration date", "Determines whether the prescription is still current"],
+                ["Prescriber name and contact information", "Allows verification when a prescription copy is not supplied"],
+                ["Intended supply length", "Helps determine the correct number of boxes"],
+                ["Shipping and contact information", "Supports delivery and any necessary customer communication"],
+              ]}
+            />
+            <h3>A contact lens box can help—but it is not the prescription</h3>
+            <p>The box can help identify:</p>
+            <ul>
+              <li>Brand</li><li>Product name</li><li>Power</li><li>Base curve</li>
+              <li>Diameter</li><li>Cylinder and axis, when applicable</li>
+              <li>Add power or multifocal design, when applicable</li>
+            </ul>
+            <p>But a box usually does not establish:</p>
+            <ul>
+              <li>Whether the prescription remains valid</li>
+              <li>When it expires</li><li>Who prescribed it</li>
+              <li>Whether the prescription has changed</li>
+              <li>Whether the box belongs to the intended wearer</li>
+            </ul>
+            <p>
+              Use a box as a product-identification reference, not as proof of a
+              current prescription.
+            </p>
+            <h3>You have a right to your prescription</h3>
+            <p>
+              Under the Contact Lens Rule, your prescriber generally must provide
+              your contact lens prescription after completing the fitting. The FTC
+              also explains that you may request an additional copy.
+            </p>
+            <p>Saving a clear photograph or downloadable copy can make future orders easier.</p>
+          </>
+        ),
+      },
+      {
+        heading: "The Complete Online Buying Process",
+        content: (
+          <>
+            <ProcessDiagram>{`Contact lens exam and completed fitting
+                 ↓
+Receive or locate the contact lens prescription
+                 ↓
+Choose a legitimate seller
+                 ↓
+Match the exact prescribed product
+                 ↓
+Enter right-eye and left-eye values
+                 ↓
+Choose pack size and number of boxes
+                 ↓
+Review product cost, shipping, taxes, and policies
+                 ↓
+Submit the order and payment information
+                 ↓
+Prescription verification
+                 ↓
+Payment completion under the seller’s policy
+                 ↓
+Fulfillment, shipment, and delivery`}</ProcessDiagram>
+            <p>
+              <strong>Accessible diagram description:</strong> The process begins
+              with a completed fitting and prescription, moves through seller
+              selection, exact product matching, quantity and price review, and
+              checkout, then continues through prescription verification, payment
+              completion, fulfillment, and delivery.
+            </p>
+            <p>
+              The first half is the buying decision. Prescription verification
+              begins after the order information has been submitted.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "How to Match the Correct Contact Lens",
+        content: (
+          <>
+            <p>Start with the complete product name on the prescription—not the power.</p>
+            <p>A prescription may identify:</p>
+            <ul>
+              <li>Manufacturer or brand</li><li>Product family</li>
+              <li>Spherical, toric, or multifocal design</li><li>Daily or reusable version</li>
+              <li>Base curve</li><li>Diameter</li><li>Power</li><li>Cylinder and axis</li>
+              <li>Add power or multifocal design</li><li>Color, when prescribed</li>
+            </ul>
+            <h3>Common prescription fields</h3>
+            <GuideTable
+              headers={["Field", "What it identifies", "Ordering rule"]}
+              rows={[
+                ["OD", "Right eye", "Enter only the values prescribed for the right eye"],
+                ["OS", "Left eye", "Enter only the values prescribed for the left eye"],
+                ["SPH, PWR, or D", "Lens power", "Preserve the plus or minus sign"],
+                ["BC", "Base curve", "Match the prescribed product option"],
+                ["DIA", "Diameter", "Match the prescribed product option"],
+                ["CYL", "Astigmatism correction", "Required for applicable toric prescriptions"],
+                ["AXIS", "Orientation of cylinder correction", "Enter with the corresponding cylinder"],
+                ["ADD", "Multifocal near addition", "Match the prescribed multifocal option"],
+                ["Brand or manufacturer", "Prescribed lens product", "Do not replace it with a merely similar lens"],
+              ]}
+            />
+            <p>
+              This table explains how to transfer information into an order. It
+              does not provide a way to select or modify a prescription.
+            </p>
+            <h3>Check the complete product name</h3>
+            <p>These are not necessarily interchangeable:</p>
+            <ul>
+              <li>A spherical lens and the toric version of the same brand</li>
+              <li>A spherical lens and the multifocal version</li>
+              <li>A daily disposable and a reusable lens from the same family</li>
+              <li>An older product and a newer product carrying a similar name</li>
+            </ul>
+            <h3>Check each eye independently</h3>
+            <p>Do not assume both eyes use:</p>
+            <ul>
+              <li>The same power</li><li>The same product</li>
+              <li>The same cylinder or axis</li><li>The same multifocal add</li>
+              <li>The same number of boxes</li>
+            </ul>
+            <GuideCallout>
+              <p><strong>From our experience: right-eye and left-eye transposition is easy to miss</strong></p>
+              <p>
+                A customer may enter all the correct numbers but attach them to
+                the wrong eye. Reading one complete row at a time—product, power,
+                and any additional values—reduces this risk.
+              </p>
+            </GuideCallout>
+            <h3>What about private-label contacts?</h3>
+            <p>
+              Some manufacturers sell the same lens under a private-label or
+              store-brand name. The FTC addresses how equivalent brand information
+              should appear on these prescriptions.
+            </p>
+            <p>
+              Do not decide equivalence from appearance, packaging, or online
+              claims alone. Use the manufacturer information on the prescription
+              or ask the prescriber to confirm the authorized product.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "How Many Boxes Do You Need?",
+        content: (
+          <>
+            <p>The answer depends on:</p>
+            <ol>
+              <li>How often each lens is replaced</li><li>How many lenses are in each box</li>
+              <li>Whether both eyes use the same product</li>
+              <li>How often you actually wear daily disposables</li>
+              <li>How long a supply you intend to purchase</li>
+            </ol>
+            <p>
+              An “annual supply” does not mean twelve boxes. It means enough
+              prescribed lenses to cover approximately twelve months according to
+              the product’s replacement schedule and pack size.
+            </p>
+            <h3>Basic quantity method</h3>
+            <p>Calculate each eye separately:</p>
+            <ProcessDiagram>{`Replacement cycles needed for one eye
+÷
+Lenses in one box
+=
+Boxes needed for that eye`}</ProcessDiagram>
+            <p>
+              Round up when the result is not a whole box. Then repeat the
+              calculation for the other eye.
+            </p>
+            <h3>Common examples</h3>
+            <GuideTable
+              headers={["Product format", "Approximate coverage of one box for one eye"]}
+              rows={[
+                ["30-pack daily disposable", "30 wear days"],
+                ["90-pack daily disposable", "90 wear days"],
+                ["6-pack two-week lens", "12 weeks when replaced every two weeks"],
+                ["6-pack monthly lens", "6 months when replaced monthly"],
+              ]}
+            />
+            <p>
+              These are general examples. Follow the replacement schedule
+              prescribed for the exact product.
+            </p>
+            <p>
+              For reusable lenses, the replacement schedule normally runs
+              according to the prescribed interval after the lens is opened—not
+              merely the number of days it was worn. Follow the manufacturer’s
+              instructions and your prescriber’s directions.
+            </p>
+            <h3>If both eyes have the same prescription</h3>
+            <p>
+              You may still need boxes allocated to each eye, depending on how the
+              seller structures the order. Confirm that the total number of lenses
+              covers both eyes for the intended period.
+            </p>
+            <h3>If the eyes have different prescriptions</h3>
+            <p>
+              Each eye needs its own supply. A box labeled with the right-eye power
+              cannot also cover the left eye when the values differ.
+            </p>
+            <h3>If the eyes use different products</h3>
+            <p>
+              Calculate the supply for each product independently. Do not combine
+              products merely because their box counts are similar.
+            </p>
+            <h3>Intermittent daily-disposable wear</h3>
+            <p>
+              If you wear daily disposables only on certain days, calculate based
+              on expected wear days rather than calendar days. Leave a practical
+              margin so an unexpected need does not leave you without lenses.
+            </p>
+            <GuideCallout>
+              <p><strong>From our experience: “boxes” and “months” are not interchangeable</strong></p>
+              <p>
+                Customers sometimes compare two offers by box count even when the
+                boxes contain different numbers of lenses. Compare the actual
+                number of prescribed lenses and the resulting supply length.
+              </p>
+            </GuideCallout>
+            <h3>Honest Lenses annual-supply policy</h3>
+            <p>
+              Honest Lenses calculates annual-supply quantities from the product’s
+              pack size and replacement schedule. A qualifying twelve-month supply
+              receives free standard shipping. Express shipping is not included in
+              that waiver.
+            </p>
+            <p>This is an Honest Lenses policy, not a federal requirement.</p>
+            <p>
+              For larger purchases, see{" "}
+              <Link href="/contacts/annual-supply-contact-lenses">
+                Annual Supply Contact Lenses
+              </Link>
+              .
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "How to Compare Prices Accurately",
+        content: (
+          <>
+            <p>A lower advertised box price does not necessarily mean a lower total cost.</p>
+            <p>Compare the same:</p>
+            <ul>
+              <li>Product</li><li>Pack size</li><li>Prescription configuration</li>
+              <li>Number of boxes per eye</li><li>Supply length</li>
+              <li>Shipping method</li><li>Return eligibility</li>
+            </ul>
+            <h3>The useful comparison</h3>
+            <ProcessDiagram>{`Product cost
++ shipping
++ mandatory fees
++ applicable tax
+− confirmed discounts or benefits
+=
+Delivered total`}</ProcessDiagram>
+            <p>Then compare the delivered total for the same supply length.</p>
+            <GuideTable
+              headers={["Comparison item", "Why it matters"]}
+              rows={[
+                ["Exact lens", "Different products naturally have different prices"],
+                ["Pack size", "A 30-pack and 90-pack should not be compared as equal boxes"],
+                ["Quantity per eye", "Different prescriptions may require separate boxes"],
+                ["Shipping", "A low product price may be offset by shipping charges"],
+                ["Mandatory fees", "Fees can change the total late in checkout"],
+                ["Returns", "A restrictive policy changes the practical value of the purchase"],
+                ["Rebates", "Eligibility, documentation, seller, and timing may vary"],
+                ["Insurance or account benefits", "Network rules and reimbursement requirements may differ"],
+              ]}
+            />
+            <h3>Check insurance, HSA, FSA, and rebate terms before relying on them</h3>
+            <p>Do not assume every seller:</p>
+            <ul>
+              <li>Is in-network with your vision plan</li>
+              <li>Can apply benefits directly</li><li>Accepts every HSA or FSA card</li>
+              <li>Qualifies for a manufacturer rebate</li>
+              <li>Supplies the exact documentation your plan requires</li>
+            </ul>
+            <p>
+              Confirm the seller’s current policy and your plan’s eligibility
+              rules before placing the order.
+            </p>
+            <p>
+              Honest Lenses provides an order receipt, but customers should
+              confirm reimbursement eligibility with their plan administrator.
+              This is an Honest Lenses operational statement, not tax or insurance advice.
+            </p>
+            <p>
+              For a deeper explanation of online pricing, see{" "}
+              <Link href="/guides/why-are-contact-lenses-cheaper-online">
+                Why Are Contact Lenses Cheaper Online?
+              </Link>
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "Review the Return Policy Before Opening Anything",
+        content: (
+          <>
+            <p>
+              Contact lenses are regulated products. Opened boxes generally
+              cannot be returned to inventory.
+            </p>
+            <p>At Honest Lenses:</p>
+            <ul>
+              <li>Customers should inspect the shipment before opening boxes.</li>
+              <li>
+                A wrong product, prescription mismatch, or transit damage should
+                be reported within seven days of delivery.
+              </li>
+              <li>Eligible unopened boxes may be returned within 60 days of delivery.</li>
+              <li>Opened boxes are not eligible for return.</li>
+              <li>
+                Return shipping is the customer’s responsibility unless the
+                return results from an Honest Lenses error.
+              </li>
+              <li>
+                Refunds are issued after eligible returned products are received
+                and inspected.
+              </li>
+            </ul>
+            <p>These are Honest Lenses policies. Other sellers may have different terms.</p>
+            <p>
+              Read the complete <Link href="/returns">Returns and Refunds Policy</Link>{" "}
+              before ordering.
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "What Happens to Your Prescription?",
+        content: (
+          <>
+            <p>
+              An online seller must obtain a prescription copy or verify the
+              prescription information with the prescriber before providing the lenses.
+            </p>
+            <p>There are two common paths.</p>
+            <h3>Path 1: You provide a prescription copy</h3>
+            <ProcessDiagram>{`Readable current prescription
+             ↓
+Seller checks completeness and order match
+             ↓
+Prescription verified
+             ↓
+Order may proceed`}</ProcessDiagram>
+            <p>
+              Uploading a prescription often removes the need to wait for a
+              prescriber response, but the document must still be readable,
+              current, complete, and consistent with the order.
+            </p>
+            <h3>Path 2: The seller contacts the prescriber</h3>
+            <ProcessDiagram>{`Customer supplies prescription and prescriber information
+                         ↓
+Seller prepares a complete verification request
+                         ↓
+Prescriber receives the request
+                         ↓
+Eight federal business-hour response period
+                         ↓
+Confirmed, corrected, denied, or no response`}</ProcessDiagram>
+            <p>
+              The federal response period does not start when you click “Place
+              Order.” It starts when the prescriber receives a complete
+              verification request.
+            </p>
+            <GuideCallout>
+              <p><strong>Eight business hours does not mean eight clock hours.</strong></p>
+              <p>
+                Federal business hours are generally counted between 9 a.m. and
+                5 p.m., Monday through Friday, in the prescriber’s time zone,
+                excluding federal holidays. Saturday hours count only under the
+                conditions specified by the Contact Lens Rule.
+              </p>
+            </GuideCallout>
+            <p>Verification may end with:</p>
+            <ul>
+              <li>Confirmation</li><li>Corrected prescription information</li>
+              <li>A timely denial</li><li>Passive verification after no timely response</li>
+            </ul>
+            <p>
+              The complete explanation—including the federal clock, corrections,
+              denials, and non-response—is in{" "}
+              <Link href="/guides/how-contact-lens-prescription-verification-works">
+                Contact Lens Prescription Verification: What Happens After You Order Online
+              </Link>
+              .
+            </p>
+            <h3>What if the prescription is expired?</h3>
+            <p>
+              Passive verification does not renew an expired prescription. If the
+              prescription is known to be expired, obtain a new one before ordering.
+            </p>
+            <p>
+              See{" "}
+              <Link href="/guides/can-i-buy-contacts-with-expired-prescription">
+                Can I Buy Contacts With an Expired Prescription?
+              </Link>
+            </p>
+            <h3>What if you have only a glasses prescription?</h3>
+            <p>
+              A glasses prescription does not contain the complete product and
+              fitting information needed to order contact lenses.
+            </p>
+            <p>
+              See{" "}
+              <Link href="/guides/can-i-use-my-glasses-prescription-to-buy-contacts">
+                Can I Use My Glasses Prescription to Buy Contact Lenses?
+              </Link>
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "What Happens to Payment?",
+        content: (
+          <>
+            <p>
+              Federal prescription rules do not dictate exactly when a seller
+              must authorize or capture a card payment. Payment timing is a seller policy.
+            </p>
+            <p>At Honest Lenses:</p>
+            <ol>
+              <li>The checkout page displays the complete amount submitted for authorization.</li>
+              <li>The payment is authorized when the order is placed.</li>
+              <li>Prescription verification is completed.</li>
+              <li>The authorized payment is captured when the order is eligible to proceed.</li>
+            </ol>
+            <ProcessDiagram>{`Displayed checkout total
+            =
+Stripe authorization amount
+            ↓
+Prescription verification
+            ↓
+Capture of the authorized amount`}</ProcessDiagram>
+            <p>
+              A card authorization is not the same as a completed charge. It
+              reserves the approved amount while verification is pending.
+            </p>
+            <p>
+              If an order cannot proceed, the authorization may be canceled. A
+              bank may continue showing a pending authorization temporarily while
+              processing its release.
+            </p>
+            <GuideCallout>
+              <p><strong>Honest Lenses policy—not federal law</strong></p>
+              <p>
+                Honest Lenses authorizes payment at checkout and captures it after
+                verification. Other sellers may charge at a different point in their process.
+              </p>
+            </GuideCallout>
+          </>
+        ),
+      },
+      {
+        heading: "What Happens After Verification?",
+        content: (
+          <>
+            <p>Once the prescription is verified and no other issue remains:</p>
+            <ol>
+              <li>Payment can be completed under the seller’s policy.</li>
+              <li>The order enters fulfillment.</li>
+              <li>The prescribed product is prepared through the seller’s supply process.</li>
+              <li>The shipment is handed to the carrier.</li>
+              <li>Tracking becomes available.</li><li>The customer receives the order.</li>
+            </ol>
+            <p>
+              Prescription verification time and shipping time are separate. Fast
+              shipping does not make verification instantaneous, and completed
+              verification does not guarantee that every product is immediately available.
+            </p>
+            <p>Common causes of additional time include:</p>
+            <ul>
+              <li>Incomplete prescription information</li><li>An unreadable upload</li>
+              <li>Outdated prescriber contact information</li>
+              <li>A product or parameter requiring additional sourcing time</li>
+              <li>Weekends or federal holidays</li><li>Carrier processing</li>
+              <li>Address problems</li>
+              <li>A prescriber correction that no longer matches the order</li>
+            </ul>
+            <p>
+              For a focused breakdown, see{" "}
+              <Link href="/guides/why-is-my-contact-lens-order-delayed">
+                Why Is My Contact Lens Order Delayed?
+              </Link>
+            </p>
+            <GuideCallout>
+              <p><strong>From our experience: ordering before the final pair avoids unnecessary pressure</strong></p>
+              <p>
+                Verification, product processing, and shipping are separate
+                stages. Waiting until no usable lenses remain turns an ordinary
+                delay into an urgent problem the seller may not be able to eliminate.
+              </p>
+            </GuideCallout>
+          </>
+        ),
+      },
+      {
+        heading: "Common Buying Situations",
+        content: (
+          <>
+            <GuideTable
+              headers={["Your situation", "Appropriate next step"]}
+              rows={[
+                ["You have a clear, current contact lens prescription", "Match the exact product, enter each eye, and upload the prescription"],
+                ["You have a current prescription but no copy", "Ask the prescriber for a copy or provide the information needed for verification"],
+                ["Your prescription is expired", "Obtain a new contact lens prescription"],
+                ["You have only a glasses prescription", "Schedule a contact lens fitting"],
+                ["You want a different brand or replacement schedule", "Ask the prescriber to fit and prescribe the new product"],
+                ["Your eyes use different prescriptions", "Enter and calculate each eye separately"],
+                ["Your eyes use different products", "Build a separate supply for each prescribed product"],
+                ["Someone else is placing the order", "Use the wearer’s prescription and patient information"],
+                ["You are almost out of lenses", "Account for verification, fulfillment, and shipping time"],
+                ["You received a different product", "Do not open it; contact the seller and, when appropriate, your prescriber"],
+              ]}
+            />
+            <p>
+              For orders placed on another wearer’s behalf, see{" "}
+              <Link href="/guides/can-someone-else-order-contacts-for-me">
+                Can Someone Else Order Contact Lenses for Me?
+              </Link>
+            </p>
+          </>
+        ),
+      },
+      {
+        heading: "Final Pre-Order Checklist",
+        content: (
+          <>
+            <h3>Prescription</h3>
+            <ul>
+              <li>☐ The document is a contact lens prescription, not a glasses prescription.</li>
+              <li>☐ It belongs to the person who will wear the lenses.</li>
+              <li>☐ It has not expired.</li>
+              <li>☐ The patient, prescriber, issue, and expiration information is visible.</li>
+              <li>☐ The image is readable and uncropped.</li>
+            </ul>
+            <h3>Product</h3>
+            <ul>
+              <li>☐ The complete product name matches.</li>
+              <li>☐ Spherical, toric, multifocal, daily, or reusable design matches.</li>
+              <li>☐ Right-eye values are entered under the right eye.</li>
+              <li>☐ Left-eye values are entered under the left eye.</li>
+              <li>☐ Plus and minus signs are correct.</li>
+              <li>☐ Cylinder, axis, add, color, or other required options match.</li>
+            </ul>
+            <h3>Quantity</h3>
+            <ul>
+              <li>☐ Pack size has been checked.</li>
+              <li>☐ Each eye has enough lenses for the intended period.</li>
+              <li>☐ Different products have been calculated separately.</li>
+              <li>☐ The replacement schedule has not been confused with box count.</li>
+            </ul>
+            <h3>Seller and total</h3>
+            <ul>
+              <li>☐ The seller requires a prescription or verification.</li>
+              <li>☐ Product source and identity are clear.</li>
+              <li>☐ The delivered total includes shipping and mandatory fees.</li>
+              <li>☐ Insurance, account-benefit, or rebate eligibility has been confirmed.</li>
+              <li>☐ Shipping expectations are understood.</li>
+              <li>☐ The return policy has been reviewed.</li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        heading: "What a Good Online Order Should Feel Like",
+        content: (
+          <>
+            <p>A good contact lens order should be understandable.</p>
+            <p>You should know:</p>
+            <ul>
+              <li>Which product you selected</li><li>Which values belong to each eye</li>
+              <li>How many lenses you are purchasing</li>
+              <li>How long the supply is expected to last</li>
+              <li>What the complete price is</li><li>How the prescription will be verified</li>
+              <li>When payment occurs</li><li>What must happen before shipping</li>
+              <li>What to do if something is wrong</li>
+            </ul>
+            <p>
+              Prescription requirements are not intended to prevent consumers
+              from shopping around. They exist so that sellers provide the
+              product an eye care professional fitted and authorized.
+            </p>
+            <p>
+              Honest Lenses handles the verification and fulfillment work it can
+              handle. Customers are contacted when information, correction, or a
+              decision is genuinely required.
+            </p>
+          </>
+        ),
+      },
+    ],
+    faqs: [
+      {
+        question: "Is it legal to buy contact lenses online?",
+        answer:
+          "Yes. In the United States, sellers may provide contact lenses after obtaining a prescription copy or verifying the prescription through the procedures established by the Contact Lens Rule.",
+      },
+      {
+        question: "Can I buy contacts online without a prescription?",
+        answer:
+          "A legitimate seller cannot provide contact lenses without obtaining or verifying a valid prescription. This applies even to decorative contacts without vision correction.",
+      },
+      {
+        question: "Can I order using the information on my old box?",
+        answer:
+          "The box can help identify the product and parameters, but it does not prove that the prescription remains current. The seller still needs a valid prescription or enough accurate information to verify it.",
+      },
+      {
+        question: "Can I use my glasses prescription?",
+        answer:
+          "No. Contact lenses require product and fitting information that is not present on an ordinary glasses prescription.",
+      },
+      {
+        question: "Can I switch to a cheaper brand with the same power?",
+        answer:
+          "Usually not without prescriber authorization. Power alone does not establish that another lens has the same material, dimensions, fit, or optical design.",
+      },
+      {
+        question: "Do I have to upload the prescription?",
+        answer:
+          "Not necessarily. A seller may verify the prescription with the prescriber when you provide complete and accurate prescription and prescriber information. The seller must also provide a clear opportunity to submit the prescription directly.",
+      },
+      {
+        question: "How do I know how many boxes to buy?",
+        answer:
+          "Calculate each eye separately using the product’s replacement schedule and the number of lenses in each box. Do not compare box counts without checking pack size.",
+      },
+      {
+        question: "Is an annual supply always twelve boxes?",
+        answer:
+          "No. The necessary box count depends on replacement schedule, pack size, and whether the two eyes use the same product. “Annual supply” describes coverage, not a universal box count.",
+      },
+      {
+        question: "What happens if my doctor does not respond?",
+        answer:
+          "If the prescriber received a complete verification request and does not respond within eight federal business hours, the prescription may be passively verified. This does not renew an expired prescription or correct inaccurate information.",
+      },
+      {
+        question: "When will Honest Lenses charge my card?",
+        answer:
+          "Honest Lenses authorizes the displayed checkout total when the order is placed and captures the authorized payment after prescription verification is complete.",
+      },
+      {
+        question: "Can another person order contacts for me?",
+        answer:
+          "Yes. The payment or shipping information may belong to another person, but the patient and prescription information must belong to the person who will wear the lenses.",
+      },
+      {
+        question: "What should I do when the shipment arrives?",
+        answer:
+          "Before opening boxes, confirm the product name, prescription parameters, quantity, and package condition. If something is wrong, keep the boxes unopened and contact the seller.",
+      },
+    ],
+    postFaqSections: [
+      {
+        heading: "Primary Sources",
+        content: (
+          <ul>
+            <li><a href="https://www.fda.gov/medical-devices/contact-lenses/buying-contact-lenses">FDA: Buying Contact Lenses</a></li>
+            <li><a href="https://www.ftc.gov/legal-library/browse/rules/contact-lens-rule">FTC: Contact Lens Rule</a></li>
+            <li><a href="https://www.ftc.gov/business-guidance/resources/contact-lens-rule-guide-prescribers-sellers">FTC: The Contact Lens Rule—A Guide for Prescribers and Sellers</a></li>
+            <li><a href="https://consumer.ftc.gov/articles/buying-prescription-glasses-or-contact-lenses-your-rights">FTC Consumer Advice: Buying Prescription Glasses or Contact Lenses</a></li>
+            <li><a href="https://www.ftc.gov/business-guidance/resources/faqs-complying-contact-lens-rule">FTC: FAQs—Complying With the Contact Lens Rule</a></li>
+            <li><a href="https://www.ecfr.gov/current/title-16/chapter-I/subchapter-C/part-315">Electronic Code of Federal Regulations: 16 CFR Part 315</a></li>
+            <li><a href="https://www.cdc.gov/contact-lenses/about/about-contact-lens-types.html">CDC: About Contact Lens Types</a></li>
+            <li><a href="https://www.cdc.gov/contact-lenses/prevention/index.html">CDC: Preventing Eye Infections When Wearing Contacts</a></li>
           </ul>
         ),
       },
