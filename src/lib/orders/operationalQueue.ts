@@ -33,9 +33,8 @@ export const ADMIN_WORK_QUEUE_SECTIONS: ReadonlyArray<{
 }> = [
   {
     key: "awaiting_verification",
-    title: "Awaiting Verification",
-    description:
-      "Authorized or paid orders still moving through prescription verification.",
+    title: "Needs Verification",
+    description: "Review and complete prescription verification.",
   },
   {
     key: "ready_to_order",
@@ -45,9 +44,9 @@ export const ADMIN_WORK_QUEUE_SECTIONS: ReadonlyArray<{
   },
   {
     key: "resolve_exception",
-    title: "Resolve Exception",
+    title: "Needs Attention",
     description:
-      "A specific payment, verification, supplier, or data issue needs founder action.",
+      "A specific payment, verification, supplier, or order issue needs founder action.",
   },
 ];
 
@@ -132,6 +131,22 @@ export type OperationalActivity = {
   at: string | null;
   reason: string;
 };
+
+const NON_OPERATIONAL_EVENT_MARKERS = [
+  /projection/i,
+  /queue_recalculat/i,
+  /reconcil/i,
+];
+
+export function isMeaningfulOperationalActivityEvent(
+  event?: OperationalActivityEvent | null,
+): boolean {
+  const eventType = event?.event_type?.trim() ?? "";
+  return Boolean(
+    eventType &&
+      !NON_OPERATIONAL_EVENT_MARKERS.some((marker) => marker.test(eventType)),
+  );
+}
 
 const CUSTOMER_BLOCKED_NEXT_ACTION_LABELS = new Set([
   "Await checkout",
@@ -312,7 +327,9 @@ export function getLastOperationalActivity(
     },
     { at: order.archived_at, reason: "Order archived" },
     {
-      at: latestEvent?.created_at,
+      at: isMeaningfulOperationalActivityEvent(latestEvent)
+        ? latestEvent?.created_at
+        : null,
       reason: latestEvent?.event_type
         ? activityReasonForEvent(latestEvent.event_type)
         : "Order event recorded",
@@ -423,10 +440,10 @@ function classify(
   if (bucket === "resolve_exception" && explicitReasons.length === 0) {
     integrityIssues.push({
       code: "ACTION_REQUIRED_WITHOUT_REASON",
-      message: "Resolve Exception has no operator-facing reason.",
+      message: "Needs Attention has no operator-facing reason.",
     });
     explicitReasons.push(
-      "Workflow integrity failed to provide an exception reason; inspect the order state before continuing.",
+      "Order processing did not provide an issue reason; inspect the order state before continuing.",
     );
   }
 

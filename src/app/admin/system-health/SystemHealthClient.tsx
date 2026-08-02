@@ -13,13 +13,17 @@ type Metrics = Record<
 >;
 
 const LABELS: Record<keyof Metrics, string> = {
-  orphaned_orders: "Orphaned orders",
-  impossible_states: "Impossible states",
-  stripe_database_mismatches: "Stripe/database mismatches",
-  missing_action_required_reasons: "Missing Resolve Exception reasons",
-  webhook_failures: "Webhook failures",
-  reconciliation_failures: "Reconciliation failures",
+  orphaned_orders: "Orders missing from work queues",
+  impossible_states: "Orders with conflicting status",
+  stripe_database_mismatches: "Payment records needing review",
+  missing_action_required_reasons: "Needs Attention orders missing a reason",
+  webhook_failures: "Webhook processing failures",
+  reconciliation_failures: "Payment reconciliation failures",
 };
+
+function OperationalHealthy() {
+  return <p role="status">No operational issues detected.</p>;
+}
 
 export default function SystemHealthClient() {
   const [state, setState] = useState<
@@ -58,18 +62,14 @@ export default function SystemHealthClient() {
     };
   }, []);
 
-  if (state.kind === "loading") return <p>Loading system health…</p>;
-  if (state.kind === "disabled") {
-    return (
-      <p>
-        Commerce v2 is staged but disabled. Apply the reviewed migration before
-        setting <code>COMMERCE_V2_ENABLED=true</code>.
-      </p>
-    );
-  }
+  if (state.kind === "loading") return <p>Checking operational health…</p>;
+  if (state.kind === "disabled") return <OperationalHealthy />;
   if (state.kind === "error") {
-    return <p role="alert">{state.message}</p>;
+    return <p role="alert">Operational health is unavailable.</p>;
   }
+
+  const issues = Object.entries(state.metrics).filter(([, count]) => count > 0);
+  if (issues.length === 0) return <OperationalHealthy />;
 
   return (
     <div
@@ -79,7 +79,7 @@ export default function SystemHealthClient() {
         gap: 12,
       }}
     >
-      {Object.entries(state.metrics).map(([metric, count]) => (
+      {issues.map(([metric, count]) => (
         <article
           key={metric}
           style={{

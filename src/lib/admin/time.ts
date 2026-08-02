@@ -41,6 +41,33 @@ export function formatAdminDateTimeParts(
   };
 }
 
+export function formatAdminActivity(
+  value?: string | Date | null,
+  now: Date = new Date(),
+): { date: string; detail: string } {
+  const date = parseTimestamp(value);
+  if (!date) return { date: "-", detail: "-" };
+
+  const elapsedMs = Math.max(0, now.getTime() - date.getTime());
+  if (elapsedMs < 24 * 60 * 60 * 1000) {
+    const elapsedMinutes = Math.floor(elapsedMs / 60_000);
+    let detail = "just now";
+    if (elapsedMinutes >= 60) {
+      const hours = Math.floor(elapsedMinutes / 60);
+      detail = `${hours} hour${hours === 1 ? "" : "s"} ago`;
+    } else if (elapsedMinutes >= 1) {
+      detail = `${elapsedMinutes} minute${elapsedMinutes === 1 ? "" : "s"} ago`;
+    }
+    return {
+      date: formatAdminDateTimeParts(date).date,
+      detail,
+    };
+  }
+
+  const dateTime = formatAdminDateTimeParts(date);
+  return { date: dateTime.date, detail: dateTime.time };
+}
+
 export function formatAdminDate(value?: string | Date | null): string {
   const date = parseTimestamp(value);
   if (!date) return "-";

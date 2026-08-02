@@ -14,6 +14,25 @@ const styles = readFileSync(
   join(process.cwd(), "src", "styles", "globals.css"),
   "utf8",
 );
+const adminOrdersRoute = readFileSync(
+  join(process.cwd(), "src", "app", "api", "admin", "orders", "route.ts"),
+  "utf8",
+);
+const systemHealthClient = readFileSync(
+  join(
+    process.cwd(),
+    "src",
+    "app",
+    "admin",
+    "system-health",
+    "SystemHealthClient.tsx",
+  ),
+  "utf8",
+);
+const systemHealthPage = readFileSync(
+  join(process.cwd(), "src", "app", "admin", "system-health", "page.tsx"),
+  "utf8",
+);
 
 const cardStart = source.indexOf("function ActiveOrderCard");
 const detailsStart = source.indexOf("function OrderDetailsModal");
@@ -118,17 +137,33 @@ for (const visibleQueueSignal of [
   "customerName",
   "lensDisplay",
   "formatMoney(order.total_amount_cents)",
-  "Queue Status",
-  "Next Action",
-  "Age",
-  "Process",
-  "Order Details",
+  "Activity",
+  "Details",
 ]) {
   assert.ok(
     activeCard.includes(visibleQueueSignal),
     `active card keeps ${visibleQueueSignal}`,
   );
 }
+
+for (const removedQueueSignal of [
+  "Queue Status",
+  "Next Action",
+  ">Age<",
+  ">Process<",
+  "sectionTitle",
+]) {
+  assert.equal(
+    activeCard.includes(removedQueueSignal),
+    false,
+    `${removedQueueSignal} is not repeated on active order rows`,
+  );
+}
+assert.ok(
+  activeCard.includes('data-testid="attention-reason"') &&
+    activeCard.includes("Issue: {classification.reasons[0]}"),
+  "Needs Attention rows keep their explicit operator-facing reason",
+);
 
 for (const routineProcessingField of [
   "shipping_first_name",
@@ -277,7 +312,7 @@ for (const detailsOnlyControl of [
   "Order Summary",
   "Customer / Shipping",
   "Payment Record",
-  "Workflow / Audit",
+  "Processing History",
   "Adjust Quantity",
   "Adjust Capture",
   "Notes",
@@ -292,7 +327,7 @@ for (const detailsOnlyControl of [
   assert.equal(
     detailsSurface.includes(detailsOnlyControl),
     true,
-    `${detailsOnlyControl} remains available behind Order Details`,
+    `${detailsOnlyControl} remains available behind Details`,
   );
 }
 
@@ -368,9 +403,18 @@ assert.equal(
   1,
   "active queue cards expose a stable measurement hook",
 );
-assert.ok(source.includes("System Health ({queueIntegrityIssues.length})"));
+assert.ok(source.includes("Operational Issues ({queueIntegrityIssues.length})"));
 assert.ok(source.includes('href="/admin/system-health"'));
 assert.equal(source.includes("Diagnostic details"), false);
+assert.ok(
+  adminOrdersRoute.includes("isMeaningfulOperationalActivityEvent(event)"),
+  "the orders API skips projection and reconciliation events for Activity",
+);
+assert.ok(systemHealthClient.includes("No operational issues detected."));
+assert.ok(systemHealthClient.includes("count > 0"));
+assert.equal(systemHealthClient.includes("Commerce v2"), false);
+assert.equal(systemHealthPage.includes("Commerce System Health"), false);
+assert.equal(systemHealthPage.includes("payment ledger"), false);
 assert.ok(historyStart >= 0 && abandonedStart > historyStart);
 assert.ok(historyRows.includes("setDetailsOrderId(o.id)"));
 for (const inlineRecordSignal of [

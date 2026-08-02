@@ -5,6 +5,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase-client";
 import { getLensDisplayName } from "@/lib/cart/display";
 import {
+  formatAdminActivity,
   formatAdminDateTime,
   formatAdminDateTimeParts,
 } from "@/lib/admin/time";
@@ -306,7 +307,6 @@ const FULFILLMENT_PROGRESS_FLOW: FulfillmentStatus[] = [
 ];
 
 const HIGHLIGHT_MS = 120_000;
-const MATERIAL_ACTIVITY_DIFF_MS = 5 * 60 * 1000;
 
 const CAPTURE_ADJUSTMENT_REASONS: CaptureAdjustmentReason[] = [
   "Quantity correction",
@@ -506,14 +506,9 @@ function getOrderCreatedTimestamp(order: Order): number {
   return getTimestamp(order.created_at);
 }
 
-function formatRelativeUnit(value: number, unit: string): string {
-  return `${value} ${unit}${value === 1 ? "" : "s"} ago`;
-}
-
 function getLastOperationalActivityTimestamp(order: Order): number {
   return (
     getTimestamp(order.lastOperationalActivityAt) ||
-    getTimestamp(order.updated_at) ||
     getOrderCreatedTimestamp(order)
   );
 }
@@ -522,46 +517,14 @@ function getOperationalSortTimestamp(order: Order): number {
   return getLastOperationalActivityTimestamp(order);
 }
 
-function formatRelativeAge(timestamp: number): string {
-  if (!timestamp) return "";
-
-  const elapsedMs = Math.max(0, Date.now() - timestamp);
-  const elapsedMinutes = Math.floor(elapsedMs / 60_000);
-
-  if (elapsedMinutes < 1) return "just now";
-  if (elapsedMinutes < 60) return formatRelativeUnit(elapsedMinutes, "minute");
-
-  const elapsedHours = Math.floor(elapsedMinutes / 60);
-  if (elapsedHours < 24) return formatRelativeUnit(elapsedHours, "hour");
-
-  const elapsedDays = Math.floor(elapsedHours / 24);
-  return formatRelativeUnit(elapsedDays, "day");
-}
-
 function formatOrderActivitySummary(order: Order): {
   date: string;
-  time: string;
-  relative: string;
-  reason: string;
-  isMaterial: boolean;
+  detail: string;
 } {
   const activityAt = getLastOperationalActivityTimestamp(order);
-  const createdAt = getOrderCreatedTimestamp(order);
-  const dateTime = formatAdminDateTimeParts(
+  return formatAdminActivity(
     activityAt ? new Date(activityAt).toISOString() : null,
   );
-  const reason = order.lastOperationalActivityReason ?? "Order updated";
-
-  return {
-    ...dateTime,
-    relative: formatRelativeAge(activityAt),
-    reason,
-    isMaterial: Boolean(
-      createdAt &&
-        activityAt &&
-        Math.abs(activityAt - createdAt) >= MATERIAL_ACTIVITY_DIFF_MS,
-    ),
-  };
 }
 
 function formatAge(hours?: number | null): string {
@@ -1482,7 +1445,6 @@ function PrescriberVerificationTracker({
 
 function ActiveOrderCard({
   order,
-  sectionTitle,
   isOpen,
   isHighlighted,
   savingOrderId,
@@ -1494,7 +1456,6 @@ function ActiveOrderCard({
   onAdvanceFulfillment,
 }: {
   order: Order;
-  sectionTitle: string;
   isOpen: boolean;
   isHighlighted: boolean;
   savingOrderId: string | null;
@@ -1544,7 +1505,7 @@ function ActiveOrderCard({
         style={{
           display: "grid",
           gridTemplateColumns:
-            "minmax(150px, 1.1fr) minmax(180px, 1.35fr) minmax(90px, 0.62fr) minmax(130px, 0.82fr) minmax(90px, 0.62fr) minmax(180px, 1.2fr) auto",
+            "minmax(150px, 1.1fr) minmax(180px, 1.35fr) minmax(90px, 0.62fr) minmax(110px, 0.7fr) auto",
           gap: 10,
           alignItems: "center",
           fontSize: 12,
@@ -1559,10 +1520,10 @@ function ActiveOrderCard({
           aria-controls={processingPanelId}
           aria-label={`${isOpen ? "Collapse" : "Expand"} processing for ${customerName}`}
           style={{
-            gridColumn: "1 / 7",
+            gridColumn: "1 / 5",
             display: "grid",
             gridTemplateColumns:
-              "minmax(150px, 1.1fr) minmax(180px, 1.35fr) minmax(90px, 0.62fr) minmax(130px, 0.82fr) minmax(90px, 0.62fr) minmax(180px, 1.2fr)",
+              "minmax(150px, 1.1fr) minmax(180px, 1.35fr) minmax(90px, 0.62fr) minmax(110px, 0.7fr)",
             gap: 10,
             alignItems: "center",
             width: "100%",
@@ -1595,38 +1556,28 @@ function ActiveOrderCard({
           </div>
 
           <div>
-            <div style={{ opacity: 0.56, fontSize: 10 }}>Queue Status</div>
-            <div style={{ fontWeight: 800 }}>{sectionTitle}</div>
+            <div style={{ opacity: 0.56, fontSize: 10 }}>Activity</div>
+            <div style={{ fontWeight: 800 }}>{activity.date}</div>
+            <div style={{ opacity: 0.68, fontSize: 10 }}>{activity.detail}</div>
           </div>
 
-          <div>
-            <div style={{ opacity: 0.56, fontSize: 10 }}>Age</div>
-            <div style={{ fontWeight: 800 }}>
-              {activity.relative || activity.date}
+          {classification.bucket === "resolve_exception" && (
+            <div
+              data-testid="attention-reason"
+              style={{
+                gridColumn: "1 / -1",
+                color: "#fde68a",
+                fontSize: 10,
+                lineHeight: 1.25,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+              title={classification.reasons.join("; ")}
+            >
+              Issue: {classification.reasons[0]}
             </div>
-          </div>
-
-          <div>
-            <div style={{ opacity: 0.56, fontSize: 10 }}>Next Action</div>
-            <div style={{ fontWeight: 850, color: "#bae6fd" }}>
-              {nextAction.label}
-            </div>
-            {classification.bucket === "resolve_exception" && (
-              <div
-                style={{
-                  color: "#fde68a",
-                  fontSize: 10,
-                  lineHeight: 1.2,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-                title={classification.reasons.join("; ")}
-              >
-                {classification.reasons[0]}
-              </div>
-            )}
-          </div>
+          )}
         </button>
 
         <div
@@ -1638,22 +1589,10 @@ function ActiveOrderCard({
         >
           <button
             type="button"
-            onClick={onToggleProcess}
-            aria-expanded={isOpen}
-            aria-controls={processingPanelId}
-            style={buttonStyle({
-              fontSize: 11,
-              background: "rgba(20,184,166,0.22)",
-            })}
-          >
-            {isOpen ? "Close" : "Process"}
-          </button>
-          <button
-            type="button"
             onClick={onOpenDetails}
             style={buttonStyle({ fontSize: 11, opacity: 0.8 })}
           >
-            Order Details
+            Details
           </button>
         </div>
       </div>
@@ -2097,7 +2036,7 @@ function OrderDetailsModal({
 
           <div style={mutedPanelStyle()}>
             <div style={{ fontWeight: 800, marginBottom: 5 }}>
-              Workflow / Audit
+              Processing History
             </div>
             <div>Verification: {verification.label}</div>
             <div>Fulfillment: {labelizeStatus(fulfillment)}</div>
@@ -3277,7 +3216,7 @@ export default function AdminOrdersPage() {
           }}
         >
           <span style={{ fontWeight: 750 }}>
-            System Health ({queueIntegrityIssues.length})
+            Operational Issues ({queueIntegrityIssues.length})
           </span>
           <a href="/admin/system-health" style={{ color: "#7dd3fc" }}>
             Review
@@ -3319,7 +3258,7 @@ export default function AdminOrdersPage() {
                   fontSize: 13,
                 }}
               >
-                No orders in this queue.
+                No orders in this section.
               </div>
             ) : (
               <div
@@ -3329,7 +3268,6 @@ export default function AdminOrdersPage() {
                   <ActiveOrderCard
                     key={o.id}
                     order={o}
-                    sectionTitle={section.title}
                     isOpen={expanded === o.id}
                     isHighlighted={highlightedOrderIds.has(o.id)}
                     savingOrderId={savingOrderId}
@@ -3486,7 +3424,7 @@ export default function AdminOrdersPage() {
                   <span>{formatMoney(o.total_amount_cents)}</span>
                   <span style={badgeStyle(status.tone)}>{status.label}</span>
                   <span style={{ textAlign: "right", color: "#7dd3fc" }}>
-                    Order Details
+                    Details
                   </span>
                 </button>
               );

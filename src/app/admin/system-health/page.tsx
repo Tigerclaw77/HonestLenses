@@ -11,10 +11,10 @@ export default function AdminSystemHealthPage() {
       }}
     >
       <section style={{ maxWidth: 980, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 28, marginBottom: 8 }}>Commerce System Health</h1>
+        <h1 style={{ fontSize: 28, marginBottom: 8 }}>Operational Health</h1>
         <p style={{ color: "#94a3b8", lineHeight: 1.6, marginBottom: 22 }}>
-          Operational integrity counts from the v2 payment ledger,
-          reconciliation runs, and exactly-one-queue projection.
+          Issues that may prevent orders, payments, webhooks, or connected
+          services from moving normally.
         </p>
         <SystemHealthClient />
       </section>

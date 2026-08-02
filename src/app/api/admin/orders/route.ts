@@ -16,6 +16,7 @@ import {
 import {
   getLastOperationalActivity,
   groupOperationalQueueOrders,
+  isMeaningfulOperationalActivityEvent,
   type ClassifiedOperationalOrder,
   type OperationalQueueIntegrityIssue,
 } from "@/lib/orders/operationalQueue";
@@ -322,6 +323,7 @@ export async function GET(req: Request) {
 
     const latestEventByOrder = new Map<string, OrderEventRow>();
     for (const event of (eventData ?? []) as OrderEventRow[]) {
+      if (!isMeaningfulOperationalActivityEvent(event)) continue;
       if (!latestEventByOrder.has(event.order_id)) {
         latestEventByOrder.set(event.order_id, event);
       }

@@ -4,6 +4,7 @@ import {
   classifyOperationalQueue,
   getLastOperationalActivity,
   groupOperationalQueueOrders,
+  isMeaningfulOperationalActivityEvent,
   type OperationalQueueOrder,
 } from "./operationalQueue";
 import { getNextAction } from "./getNextAction";
@@ -26,7 +27,7 @@ assert.deepEqual(
   [
     {
       key: "awaiting_verification",
-      title: "Awaiting Verification",
+      title: "Needs Verification",
     },
     {
       key: "ready_to_order",
@@ -34,7 +35,7 @@ assert.deepEqual(
     },
     {
       key: "resolve_exception",
-      title: "Resolve Exception",
+      title: "Needs Attention",
     },
   ],
   "the admin dashboard exposes exactly the three approved work-queue groups",
@@ -336,7 +337,7 @@ const rows = cases.map((matrixCase) => {
   if (classification.bucket === "resolve_exception") {
     assert.ok(
       classification.reasons.length > 0,
-      `${matrixCase.scenario} Resolve Exception reason`,
+      `${matrixCase.scenario} Needs Attention reason`,
     );
     assert.ok(
       classification.reasons.every(
@@ -349,7 +350,7 @@ const rows = cases.map((matrixCase) => {
             "fulfillment",
           ].includes(reason.trim().toLowerCase()),
       ),
-      `${matrixCase.scenario} Resolve Exception reasons are specific and human-readable`,
+      `${matrixCase.scenario} Needs Attention reasons are specific and human-readable`,
     );
   }
   assert.equal(
@@ -463,6 +464,37 @@ assert.deepEqual(
     reason: "Verification details submitted",
   },
   "the latest meaningful operational timestamp is displayed",
+);
+
+assert.equal(
+  isMeaningfulOperationalActivityEvent({
+    event_type: "payment_projection_applied",
+  }),
+  false,
+  "projection rebuilds are not operational activity",
+);
+assert.equal(
+  isMeaningfulOperationalActivityEvent({ event_type: "payment_reconciled" }),
+  false,
+  "background reconciliation is not operational activity",
+);
+assert.equal(
+  isMeaningfulOperationalActivityEvent({
+    event_type: "verification_phone_attempted",
+  }),
+  true,
+  "founder verification work is operational activity",
+);
+assert.deepEqual(
+  getLastOperationalActivity(
+    { created_at: "2025-01-01T12:00:00.000Z" },
+    {
+      event_type: "payment_projection_applied",
+      created_at: "2026-07-30T18:00:00.000Z",
+    },
+  ),
+  { at: "2025-01-01T12:00:00.000Z", reason: "Order created" },
+  "background-only events do not replace the last meaningful activity",
 );
 
 console.log("| Scenario | Bucket | Actionable | Next action |");
