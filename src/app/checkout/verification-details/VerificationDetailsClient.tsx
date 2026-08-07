@@ -658,7 +658,7 @@ export default function VerificationDetailsPage() {
                   fontSize: 20,
                   fontWeight: 900,
                   marginBottom: 6,
-                  color: "#0f172a",
+                  color: "#ffffff",
                 }}
               >
                 Your Eye Doctor
@@ -674,7 +674,7 @@ export default function VerificationDetailsPage() {
 
               <div className="hl-grid" style={{ marginBottom: 0 }}>
                 <div className="col" style={{ gridColumn: "span 6" }}>
-                  <label style={{ ...labelStyle(), color: "#1e293b" }}>
+                  <label style={labelStyle()}>
                     Doctor name
                   </label>
                   <input
@@ -698,7 +698,7 @@ export default function VerificationDetailsPage() {
                 </div>
 
                 <div className="col" style={{ gridColumn: "span 6" }}>
-                  <label style={{ ...labelStyle(), color: "#1e293b" }}>
+                  <label style={labelStyle()}>
                     Practice name (optional)
                   </label>
                   <input
@@ -722,7 +722,7 @@ export default function VerificationDetailsPage() {
                 </div>
 
                 <div className="col" style={{ gridColumn: "span 4" }}>
-                  <label style={{ ...labelStyle(), color: "#1e293b" }}>
+                  <label style={labelStyle()}>
                     Phone
                   </label>
                   <input
@@ -747,7 +747,7 @@ export default function VerificationDetailsPage() {
                 </div>
 
                 <div className="col" style={{ gridColumn: "span 4" }}>
-                  <label style={{ ...labelStyle(), color: "#1e293b" }}>
+                  <label style={labelStyle()}>
                     City (optional)
                   </label>
                   <input
@@ -771,7 +771,7 @@ export default function VerificationDetailsPage() {
                 </div>
 
                 <div className="col" style={{ gridColumn: "span 4" }}>
-                  <label style={{ ...labelStyle(), color: "#1e293b" }}>
+                  <label style={labelStyle()}>
                     State (optional)
                   </label>
                   <select
@@ -801,7 +801,7 @@ export default function VerificationDetailsPage() {
                 </div>
 
                 <div className="col" style={{ gridColumn: "span 12" }}>
-                  <label style={{ ...labelStyle(), color: "#1e293b" }}>
+                  <label style={labelStyle()}>
                     Email
                   </label>
                   <input
