@@ -791,96 +791,63 @@ main {
 
 .hero-image {
   width: 100%;
-  min-height: 560px;
-  height: clamp(560px, 65vh, 700px);
-  overflow: hidden;
+  min-height: 420px;
+  height: clamp(420px, 65vh, 600px);
 
-  background:
-    linear-gradient(115deg, #ffffff 0%, #ffffff 38%, #fbfdff 100%);
+  background-image: url("/cl-hero1.png");
+  background-size: cover;
+  background-position: center 37%;
+  background-repeat: no-repeat;
 
-  display: grid;
-  grid-template-columns: minmax(0, 42%) minmax(0, 58%);
+  background-color: #e9e9ee;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   align-items: center;
 
   position: relative;
 }
 
-.hero-copy {
-  position: relative;
-  z-index: 3;
-  padding-left: clamp(2rem, 7vw, 8rem);
-}
-
-.hero-message {
-  position: relative;
-  z-index: 2;
-
-  color: #17191f;
-  font-size: clamp(2.1rem, 3vw, 3rem);
-  font-weight: 400;
-  letter-spacing: 0.015em;
-  line-height: 1.2;
-  text-align: left;
-
-  margin: 0;
-}
-
-.hero-message span,
-.hero-message strong {
-  display: block;
-}
-
-.hero-message span {
-  color: rgba(23, 25, 31, 0.8);
-  font-weight: 400;
-}
-
-.hero-message strong {
-  color: #17191f;
-  font-weight: 600;
-}
-
-.hero-product-collection {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: min(100%, 72rem);
-  aspect-ratio: 4330 / 2335;
-  min-width: 0;
-  justify-self: center;
-  align-self: center;
-  isolation: isolate;
-}
-
-.hero-product-collection::before {
+/* Subtle vignette */
+.hero-image::after {
   content: "";
   position: absolute;
-  inset: -10% -4%;
-  z-index: 0;
+  inset: 0;
+
   background: radial-gradient(
-    ellipse at 50% 55%,
-    rgba(108, 142, 184, 0.024) 0%,
-    rgba(108, 142, 184, 0.013) 44%,
-    rgba(108, 142, 184, 0) 72%
+    ellipse at center,
+    rgba(0, 0, 0, 0.28) 0%,
+    rgba(0, 0, 0, 0.12) 40%,
+    rgba(0, 0, 0, 0) 70%
   );
+
   pointer-events: none;
 }
 
-.hero-product-artwork {
+.hero-image h1 {
   position: relative;
-  z-index: 1;
-  display: block;
-  width: 100%;
-  height: auto;
-  max-height: 100%;
-  object-fit: contain;
+  z-index: 2;
+
+  color: #ffffff;
+  font-size: 2.6rem;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  line-height: 1.25;
+  text-align: center;
+
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.25),
+    0 8px 24px rgba(0, 0, 0, 0.15);
+
+  margin: 0;
 }
 
 .hero-btn {
   position: relative;
   z-index: 2;
 
-  margin-top: 1.25rem;
+  margin-top: 2rem;
   padding: 0.9rem 2.4rem;
 
   font-size: 0.72rem;
@@ -931,36 +898,6 @@ main {
 .hero-btn:visited,
 .hero-btn:active {
   text-decoration: none;
-}
-
-@media (max-width: 900px) {
-  .hero-image {
-    min-height: 590px;
-    height: auto;
-    grid-template-columns: 1fr;
-    grid-template-rows: 260px 330px;
-  }
-
-  .hero-copy {
-    align-self: end;
-    padding: 3rem 1.5rem 1.5rem;
-    text-align: center;
-  }
-
-  .hero-message {
-    font-size: clamp(1.9rem, 8vw, 2.3rem);
-    text-align: center;
-  }
-
-  .hero-product-collection::before {
-    inset: -8% -2%;
-  }
-
-  .hero-product-collection {
-    width: min(96%, 32rem);
-    aspect-ratio: 1800 / 1600;
-    align-self: center;
-  }
 }
 
 /* ==================================================

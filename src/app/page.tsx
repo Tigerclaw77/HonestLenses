@@ -47,55 +47,21 @@ export default function HomePage() {
       ================================================== */}
       <section className="hero-wix">
         <div className="hero-image">
-          <div className="hero-copy">
-            <h1 className="hero-message">
-              <span>Honest Pricing.</span>
-              <span>Honest Sourcing.</span>
-              <strong>Honest Lenses.</strong>
-            </h1>
+          <h1 className="upper">
+            Contact Lenses
+            <br />
+            For Your Family
+          </h1>
 
-            <button
-              className="hero-btn"
-              onClick={() => {
-                recordRecentUserAction("homepage_shop_now_click");
-                setIsShopIntentOpen(true);
-              }}
-            >
-              Shop Now
-            </button>
-          </div>
-
-          <picture className="hero-product-collection">
-            <source
-              media="(max-width: 900px)"
-              type="image/avif"
-              srcSet="/hero-products-mobile.avif"
-            />
-            <source
-              media="(max-width: 900px)"
-              type="image/webp"
-              srcSet="/hero-products-mobile.webp"
-            />
-            <source
-              media="(min-width: 901px)"
-              type="image/avif"
-              srcSet="/hero-products-desktop.avif"
-            />
-            <source
-              media="(min-width: 901px)"
-              type="image/webp"
-              srcSet="/hero-products-desktop.webp"
-            />
-            <Image
-              className="hero-product-artwork"
-              src="/hero-products-desktop.png"
-              alt="ACUVUE OASYS MAX, DAILIES TOTAL1, ACUVUE VITA, TOTAL30, Bausch + Lomb ULTRA, and Biofinity Energys contact lenses"
-              width={4330}
-              height={2335}
-              priority
-              sizes="(max-width: 900px) 96vw, 58vw"
-            />
-          </picture>
+          <button
+            className="hero-btn"
+            onClick={() => {
+              recordRecentUserAction("homepage_shop_now_click");
+              setIsShopIntentOpen(true);
+            }}
+          >
+            Shop Now
+          </button>
         </div>
       </section>
 
