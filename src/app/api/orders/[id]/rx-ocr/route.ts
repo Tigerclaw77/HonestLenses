@@ -16,6 +16,7 @@ import {
   enforceRateLimit,
   rateLimitErrorResponse,
 } from "@/lib/security/rateLimit";
+import { sendFounderOperationalAlert } from "@/lib/founderAlerts";
 
 /* =========================
    TYPES
@@ -308,6 +309,21 @@ export async function POST(
     if (evidenceError) {
       await supabaseServer.storage.from("prescriptions").remove([storagePath]);
       return new Response("Failed to save Rx evidence", { status: 500 });
+    }
+
+    try {
+      await sendFounderOperationalAlert({
+        orderId,
+        type: "rx_uploaded_review",
+        headline: "Uploaded prescription needs review",
+        detail:
+          "The customer uploaded prescription evidence. Customer action is complete; review the image and complete verification.",
+        // A retry of the same persisted upload is one founder action, while a
+        // later replacement upload is intentionally a new review request.
+        dedupeSuffix: storagePath,
+      });
+    } catch (alertError) {
+      console.error("Founder uploaded-Rx alert failed:", alertError);
     }
 
     if (process.env.PRESCRIPTION_OCR_ENABLED !== "true") {

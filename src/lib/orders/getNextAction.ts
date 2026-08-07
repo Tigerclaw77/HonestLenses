@@ -467,6 +467,14 @@ export function getNextAction(order: Order): NextAction {
     return { label: "Resolve verification issue", severity: "warning" };
   }
 
+  if (
+    order.rx_upload_path &&
+    verification.status === "pending" &&
+    !verification.complete
+  ) {
+    return { label: "Review uploaded prescription", severity: "warning" };
+  }
+
   if (order.rx_status === "expired") {
     return { label: "Request valid prescription", severity: "warning" };
   }

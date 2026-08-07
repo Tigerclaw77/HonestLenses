@@ -61,6 +61,10 @@ export const ROUTE_AUTHORIZATION_POLICY: Record<string, RoutePolicy> = {
     access: "internal",
     guard: "signedRequest",
   },
+  "src/app/api/armory/operator-alert/route.ts": {
+    access: "internal",
+    guard: "bearerToken",
+  },
   "src/app/api/cart/has-items/route.ts": {
     access: "customer-owned",
     guard: "requireOrderAccess",

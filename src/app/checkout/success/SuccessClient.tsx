@@ -3,6 +3,17 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { POSTHOG_EVENTS, track } from "@/lib/posthog/client";
+import {
+  buildGoogleAdsPurchaseConversion,
+  hasRecordedGoogleAdsPurchase,
+  recordGoogleAdsPurchase,
+} from "@/lib/googleAds";
+
+declare global {
+  interface Window {
+    gtag?: (command: "event", eventName: string, parameters: object) => void;
+  }
+}
 
 type SuccessMode = "uploaded" | "passive" | "unknown";
 
@@ -49,9 +60,38 @@ export default function CheckoutSuccessPage() {
     fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
       cache: "no-store",
     })
-      .then((response) => {
+      .then(async (response) => {
         if (!cancelled) {
-          setOrderValidation(response.ok ? "valid" : "invalid");
+          if (!response.ok) {
+            setOrderValidation("invalid");
+            return;
+          }
+
+          const body = await response.json().catch(() => null);
+          if (cancelled) return;
+
+          const conversion = buildGoogleAdsPurchaseConversion(body?.order ?? {});
+
+          if (conversion && typeof window.gtag === "function") {
+            try {
+              const storage = window.localStorage;
+              if (
+                !hasRecordedGoogleAdsPurchase(
+                  storage,
+                  conversion.transaction_id,
+                )
+              ) {
+                window.gtag("event", "conversion", conversion);
+                recordGoogleAdsPurchase(storage, conversion.transaction_id);
+              }
+            } catch {
+              // Browser storage may be disabled. The transaction_id still lets
+              // Google Ads deduplicate a subsequent conversion request.
+              window.gtag("event", "conversion", conversion);
+            }
+          }
+
+          setOrderValidation("valid");
         }
       })
       .catch(() => {

@@ -400,6 +400,7 @@ export async function GET(req: Request) {
     const groupedOrders = groupOperationalQueueOrders(orders);
     const awaitingVerification: AdminOrderRow[] =
       groupedOrders.awaiting_verification;
+    const founderReview: AdminOrderRow[] = groupedOrders.founder_review;
     const readyToOrder: AdminOrderRow[] = groupedOrders.ready_to_order;
     const resolveException: AdminOrderRow[] =
       groupedOrders.resolve_exception;
@@ -438,6 +439,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       awaiting_verification: awaitingVerification,
+      founder_review: founderReview,
       ready_to_order: readyToOrder,
       resolve_exception: resolveException,
       archive: archivedOrders,

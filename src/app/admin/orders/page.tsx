@@ -288,6 +288,7 @@ type AdminApiPayload = {
   reauthorization_required?: boolean;
   order?: Order;
   awaiting_verification?: Order[];
+  founder_review?: Order[];
   ready_to_order?: Order[];
   resolve_exception?: Order[];
   archive?: Order[];
@@ -427,6 +428,32 @@ function formatOrderQuantitySummary(order: Order): string {
   return `Corrected quantity: ${formatAdjustedOrderQuantity(
     order,
   )} | Submitted quantity: ${formatSubmittedOrderQuantity(order)}`;
+}
+
+function getOperationalCardQuantity(order: Order): {
+  total: string;
+  right: string;
+  left: string;
+} {
+  if (hasAdjustedOrderQuantity(order)) {
+    return {
+      total: String(order.adjusted_total_box_count),
+      right: String(order.adjusted_right_box_count),
+      left: String(order.adjusted_left_box_count),
+    };
+  }
+
+  const right = finiteCount(order.right_box_count ?? order.od_box_count);
+  const left = finiteCount(order.left_box_count ?? order.os_box_count);
+  const storedTotal = finiteCount(order.total_box_count ?? order.box_count);
+  const total = storedTotal ??
+    (right !== null || left !== null ? (right ?? 0) + (left ?? 0) : null);
+
+  return {
+    total: total === null ? "—" : String(total),
+    right: right === null ? "—" : String(right),
+    left: left === null ? "—" : String(left),
+  };
 }
 
 function parseBoxCountInput(value: string): number | null {
@@ -1477,6 +1504,9 @@ function ActiveOrderCard({
   const previousFulfillment = previousFulfillmentStatus(fulfillment);
   const nextAction = getNextAction(order);
   const classification = getOrderOperationalClassification(order);
+  const quantity = getOperationalCardQuantity(order);
+  const totalBoxesLabel =
+    quantity.total === "—" ? "—" : formatBoxCount(Number(quantity.total));
   const processingPanelId = `order-processing-${order.id}`;
 
   return (
@@ -1559,6 +1589,28 @@ function ActiveOrderCard({
             <div style={{ opacity: 0.56, fontSize: 10 }}>Activity</div>
             <div style={{ fontWeight: 800 }}>{activity.date}</div>
             <div style={{ opacity: 0.68, fontSize: 10 }}>{activity.detail}</div>
+          </div>
+
+          <div
+            data-testid="operational-quantity"
+            style={{
+              gridColumn: "1 / -1",
+              display: "flex",
+              alignItems: "baseline",
+              flexWrap: "wrap",
+              gap: "5px 13px",
+              padding: "7px 9px",
+              borderRadius: 6,
+              background: "rgba(14, 165, 233, 0.12)",
+              color: "#e0f2fe",
+            }}
+          >
+            <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.76 }}>
+              TOTAL BOXES
+            </span>
+            <strong style={{ fontSize: 15 }}>{totalBoxesLabel}</strong>
+            <span style={{ fontSize: 12, fontWeight: 800 }}>OD: {quantity.right}</span>
+            <span style={{ fontSize: 12, fontWeight: 800 }}>OS: {quantity.left}</span>
           </div>
 
           {classification.bucket === "resolve_exception" && (
@@ -2205,6 +2257,7 @@ export default function AdminOrdersPage() {
 
     const activeOrders: Order[] = [
       ...(json.awaiting_verification ?? []),
+      ...(json.founder_review ?? []),
       ...(json.ready_to_order ?? []),
       ...(json.resolve_exception ?? []),
     ];
@@ -3082,6 +3135,9 @@ export default function AdminOrdersPage() {
   const awaitingVerificationOrders = orders.filter(
     (order) => getOrderOperationalBucket(order) === "awaiting_verification",
   );
+  const founderReviewOrders = orders.filter(
+    (order) => getOrderOperationalBucket(order) === "founder_review",
+  );
   const readyToOrderOrders = orders.filter(
     (order) => getOrderOperationalBucket(order) === "ready_to_order",
   );
@@ -3098,6 +3154,7 @@ export default function AdminOrdersPage() {
     });
   const activeOrdersByBucket = {
     awaiting_verification: awaitingVerificationOrders,
+    founder_review: founderReviewOrders,
     ready_to_order: readyToOrderOrders,
     resolve_exception: resolveExceptionOrders,
   };

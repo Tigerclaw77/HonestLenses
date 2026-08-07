@@ -5,6 +5,7 @@ import {
   cancelOrderPayment,
   captureAuthorizedOrderPayment,
 } from "@/lib/payments/legacyPaymentCommands";
+import { sendFounderOperationalAlert } from "@/lib/founderAlerts";
 
 export async function POST(req: Request) {
   if (!hasInternalScopeAuthorization(req, "verification:complete")) {
@@ -121,6 +122,24 @@ export async function POST(req: Request) {
     actor: "system",
     message: notes || null,
   });
+
+  try {
+    await sendFounderOperationalAlert({
+      orderId,
+      type: "verification_completed",
+      headline:
+        result === "verified"
+          ? "Verification completed — ready to order"
+          : "Verification rejected — founder action required",
+      detail:
+        result === "verified"
+          ? "Prescription verification is complete and the order is ready for the next fulfillment decision."
+          : "Prescription verification was rejected and the authorization was cancelled.",
+      dedupeSuffix: result,
+    });
+  } catch (alertError) {
+    console.error("Founder verification-completed alert failed:", alertError);
+  }
 
   return NextResponse.json({ success: true });
 }

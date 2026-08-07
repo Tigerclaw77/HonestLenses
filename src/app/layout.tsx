@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 
 import { HonestPostHogProvider } from "@/lib/posthog/PostHogProvider";
+import { GOOGLE_ADS_TAG_ID } from "@/lib/googleAds";
 
 const siteUrl = "https://honestlenses.com";
 const siteTitle = "Honest Lenses | Contact Lenses Online";
@@ -67,6 +68,7 @@ export default function RootLayout({
 }) {
   const gaMeasurementId = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
   const clarityProjectId = process.env.NEXT_PUBLIC_CLARITY_PROJECT_ID;
+  const googleTagLoaderId = gaMeasurementId ?? GOOGLE_ADS_TAG_ID;
 
   return (
     <html lang="en">
@@ -77,18 +79,19 @@ export default function RootLayout({
             __html: JSON.stringify([organizationSchema, websiteSchema]),
           }}
         />
-        {gaMeasurementId ? (
+        {googleTagLoaderId ? (
           <>
             <Script
-              src={`https://www.googletagmanager.com/gtag/js?id=${gaMeasurementId}`}
+              src={`https://www.googletagmanager.com/gtag/js?id=${googleTagLoaderId}`}
               strategy="afterInteractive"
             />
-            <Script id="ga4" strategy="afterInteractive">
+            <Script id="google-tag" strategy="afterInteractive">
               {`
                 window.dataLayer = window.dataLayer || [];
                 function gtag(){dataLayer.push(arguments);}
                 gtag('js', new Date());
-                gtag('config', ${JSON.stringify(gaMeasurementId)});
+                ${gaMeasurementId ? `gtag('config', ${JSON.stringify(gaMeasurementId)});` : ""}
+                gtag('config', ${JSON.stringify(GOOGLE_ADS_TAG_ID)});
               `}
             </Script>
           </>

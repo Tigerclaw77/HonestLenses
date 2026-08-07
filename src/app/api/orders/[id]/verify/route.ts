@@ -8,6 +8,7 @@ import {
   requireAdminUser,
 } from "@/lib/admin-auth";
 import { captureAuthorizedOrderPayment } from "@/lib/payments/legacyPaymentCommands";
+import { sendFounderOperationalAlert } from "@/lib/founderAlerts";
 
 type VerifyPayload = {
   revised_total_amount_cents?: number;
@@ -160,6 +161,22 @@ export async function POST(
       payment_intent_id: capturePaymentIntentId,
     },
   });
+
+  try {
+    await sendFounderOperationalAlert({
+      orderId,
+      type: "verification_completed",
+      headline: priceChanged
+        ? "Verification requires pricing review"
+        : "Verification completed — ready to order",
+      detail: priceChanged
+        ? "Prescription review changed the price; founder approval is required before capture."
+        : "Prescription verification is complete, payment is captured, and the order is ready for fulfillment.",
+      dedupeSuffix: priceChanged ? "price-altered" : "verified",
+    });
+  } catch (alertError) {
+    console.error("Founder admin-verification alert failed:", alertError);
+  }
 
   return NextResponse.json({
     ok: true,

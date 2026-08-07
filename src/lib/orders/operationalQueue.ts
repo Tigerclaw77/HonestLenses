@@ -14,6 +14,7 @@ import {
 
 export type OperationalQueueBucket =
   | "awaiting_verification"
+  | "founder_review"
   | "ready_to_order"
   | "resolve_exception"
   | "supplier_managed"
@@ -23,6 +24,7 @@ export type OperationalQueueBucket =
 
 export type AdminWorkQueueBucket =
   | "awaiting_verification"
+  | "founder_review"
   | "ready_to_order"
   | "resolve_exception";
 
@@ -34,7 +36,13 @@ export const ADMIN_WORK_QUEUE_SECTIONS: ReadonlyArray<{
   {
     key: "awaiting_verification",
     title: "Needs Verification",
-    description: "Review and complete prescription verification.",
+    description: "Waiting on customer information or prescriber verification.",
+  },
+  {
+    key: "founder_review",
+    title: "Needs Founder Review",
+    description:
+      "Customer uploaded a prescription. Review the evidence and complete verification.",
   },
   {
     key: "ready_to_order",
@@ -650,6 +658,21 @@ export function classifyOperationalQueue(
     );
   }
 
+  if (
+    order.rx_upload_path &&
+    verification.status === "pending" &&
+    !verification.complete
+  ) {
+    return classify(
+      "founder_review",
+      true,
+      [
+        "Customer uploaded prescription evidence; founder review is required before fulfillment.",
+      ],
+      order,
+    );
+  }
+
   if (order.rx_status === "ocr_failed") {
     return classify(
       "awaiting_verification",
@@ -732,6 +755,7 @@ export function groupOperationalQueueOrders<T extends OperationalQueueOrder>(
 ): OperationalQueueGroups<T> {
   const groups: OperationalQueueGroups<T> = {
     awaiting_verification: [],
+    founder_review: [],
     ready_to_order: [],
     resolve_exception: [],
     supplier_managed: [],

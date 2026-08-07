@@ -20,11 +20,11 @@ import {
   hasOrderAccessContext,
 } from "@/lib/order-access";
 import { buildCustomerOrderEmail } from "@/lib/orders/customerOrder";
+import { sendFounderOperationalAlert } from "@/lib/founderAlerts";
 import {
   checkoutAmountMatchesPaymentIntent,
   getCheckoutAmountCents,
 } from "@/lib/payments/checkoutAmount";
-import { escapeHtml } from "@/lib/email/html";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -300,84 +300,22 @@ export async function POST(req: Request) {
   const customerEmail = getCustomerEmail(orderRaw, access.userEmail);
 
   /* =========================
-     Email Admin
+     Founder operational alert
   ========================= */
 
   try {
-    const total =
-      typeof orderRaw.total_amount_cents === "number"
-        ? `$${(orderRaw.total_amount_cents / 100).toFixed(2)}`
-        : "Unknown";
-
-    const prescriber =
-      typeof orderRaw.prescriber_name === "string"
-        ? orderRaw.prescriber_name
-        : "Not provided";
-
-    const prescriberPhone =
-      typeof orderRaw.prescriber_phone === "string"
-        ? orderRaw.prescriber_phone
-        : "Not provided";
-
-    const rx = isRecord(orderRaw.rx) ? orderRaw.rx : null;
-
-    const left = isRecord(rx?.left) ? rx.left : null;
-    const right = isRecord(rx?.right) ? rx.right : null;
-    const adminAlertEmail = process.env.ADMIN_ALERT_EMAIL?.trim();
-    if (!adminAlertEmail) throw new Error("ADMIN_ALERT_EMAIL is required");
-
-    await sendEmail({
-      to: adminAlertEmail,
-      subject: `New Honest Lenses Order ${orderId}`,
-      html: `
-        <h2>New Order Authorized</h2>
-
-        <p><strong>Order ID:</strong> ${escapeHtml(orderId)}</p>
-        <p><strong>Customer:</strong> ${escapeHtml(access.userId ?? "Guest checkout")}</p>
-        <p><strong>Total:</strong> ${escapeHtml(total)}</p>
-
-        <hr/>
-
-        <h3>Prescription</h3>
-
-        <p><strong>Left:</strong>
-        ${escapeHtml(left?.sphere ?? "?")} /
-        BC ${escapeHtml(left?.base_curve ?? "?")}
-        (${escapeHtml(left?.coreId ?? "")})
-        </p>
-
-        <p><strong>Right:</strong>
-        ${escapeHtml(right?.sphere ?? "?")} /
-        BC ${escapeHtml(right?.base_curve ?? "?")}
-        (${escapeHtml(right?.coreId ?? "")})
-        </p>
-
-        <p><strong>Expires:</strong> ${escapeHtml(rx?.expires ?? "Unknown")}</p>
-
-        <hr/>
-
-        <h3>Doctor</h3>
-
-        <p><strong>Name:</strong> ${escapeHtml(prescriber)}</p>
-        <p><strong>Phone:</strong> ${escapeHtml(prescriberPhone)}</p>
-
-        <hr/>
-
-        <p><strong>Mode:</strong>
-        ${
-          isUploaded
-            ? "Upload received (review pending)"
-            : canEnterPendingVerification
-              ? "Passive (Verification Pending)"
-              : "Verification Information Needed"
-        }
-        </p>
-
-        <p><strong>Stripe Intent:</strong> ${escapeHtml(paymentIntentId)}</p>
-      `,
+    await sendFounderOperationalAlert({
+      orderId,
+      type: "order_authorized",
+      headline: "Order authorized",
+      detail: isUploaded
+        ? "Payment is authorized and an uploaded prescription needs founder review."
+        : canEnterPendingVerification
+          ? "Payment is authorized and prescription verification is pending."
+          : "Payment is authorized and customer prescription information is still required.",
     });
   } catch (err) {
-    console.error("Order alert email failed:", err);
+    console.error("Founder authorization alert failed:", err);
   }
 
   /* =========================

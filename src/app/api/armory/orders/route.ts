@@ -1,12 +1,13 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getArmoryOrderRouting } from "@/lib/orders/armoryRouting";
 import { getRxSourceState, getVerificationState } from "@/lib/orders/getNextAction";
 import { projectOrderCommerce } from "@/lib/orders/orderCommerce";
 import { projectPaymentState } from "@/lib/orders/paymentState";
+import { resolveOrderManufacturer } from "@/lib/orders/skuManufacturer";
 import { deriveTotalMonths } from "@/lib/shipping";
 import { supabaseServer } from "@/lib/supabase-server";
 import { hasValidSignedRequest } from "@/lib/security/signedRequest";
@@ -125,14 +126,15 @@ type OrderRow = {
 export async function GET(request: Request) {
   const requestId = randomUUID();
   const startedAt = Date.now();
+  const readToken = configuredReadToken();
   const signingSecret = process.env.ARMORY_SIGNING_SECRET;
 
-  if (!signingSecret || signingSecret.trim().length < 32) {
+  if (!readToken && (!signingSecret || signingSecret.trim().length < 32)) {
     logAccess({ requestId, outcome: "server_not_configured", startedAt });
     return json({ error: "Armory order bridge is not configured." }, 503);
   }
 
-  if (!hasValidSignedRequest(request, signingSecret)) {
+  if (!hasValidBearerToken(request, readToken) && !hasValidSignedRequest(request, signingSecret)) {
     logAccess({ requestId, outcome: "unauthorized", startedAt });
     return json({ error: "Unauthorized" }, 401);
   }
@@ -199,6 +201,29 @@ export async function GET(request: Request) {
   });
 }
 
+function configuredReadToken() {
+  const token = firstString(
+    process.env.ARMORY_READ_TOKEN,
+    process.env.HONEST_LENSES_LIVE_ORDERS_TOKEN,
+    process.env.ARMORY_LIVE_ORDERS_TOKEN,
+  );
+  return token && token.length >= 32 ? token : "";
+}
+
+function hasValidBearerToken(request: Request, expectedToken: string) {
+  if (!expectedToken) return false;
+  const supplied = request.headers.get("authorization")?.trim() || "";
+  const match = supplied.match(/^Bearer\s+(.+)$/i);
+  if (!match) return false;
+  return safeDigestEqual(match[1].trim(), expectedToken);
+}
+
+function safeDigestEqual(left: string, right: string) {
+  const leftDigest = createHash("sha256").update(left).digest();
+  const rightDigest = createHash("sha256").update(right).digest();
+  return timingSafeEqual(leftDigest, rightDigest);
+}
+
 function toArmoryOrder(row: OrderRow) {
   const rx = asObject(row.rx);
   const right = asObject(rx.right || rx.od || rx.OD);
@@ -223,13 +248,14 @@ function toArmoryOrder(row: OrderRow) {
     row.patient_name,
     joinName(row.patient_first_name, row.patient_middle_name, row.patient_last_name),
   );
+  const manufacturer = resolveOrderManufacturer(row.manufacturer, row.sku);
   const productName = firstString(
     row.rx_lens_brand,
     rx.lens_brand,
     rx.brand,
     asObject(rx.right).brand,
     asObject(rx.left).brand,
-    row.manufacturer,
+    manufacturer,
     row.sku,
   );
   const lifecycleOrder = {
@@ -242,6 +268,7 @@ function toArmoryOrder(row: OrderRow) {
   const rxSource = getRxSourceState(lifecycleOrder);
   const completeness = dataCompleteness({
     row,
+    manufacturer,
     productName,
     right,
     left,
@@ -298,11 +325,11 @@ function toArmoryOrder(row: OrderRow) {
       postalCode: row.shipping_zip || null,
       country: "US",
     },
-    manufacturer: row.manufacturer || null,
+    manufacturer,
     product: {
       name: productName || null,
       sku: row.sku || null,
-      manufacturer: row.manufacturer || null,
+      manufacturer,
     },
     parameters: {
       od: normalizeEye(right),
@@ -350,6 +377,7 @@ function toArmoryOrder(row: OrderRow) {
 
 function dataCompleteness({
   row,
+  manufacturer,
   productName,
   right,
   left,
@@ -358,6 +386,7 @@ function dataCompleteness({
   hasRxEvidence,
 }: {
   row: OrderRow;
+  manufacturer: string | null;
   productName: string | null;
   right: Record<string, unknown>;
   left: Record<string, unknown>;
@@ -379,7 +408,7 @@ function dataCompleteness({
   requireValue(row.shipping_city, "shippingAddress.city");
   requireValue(row.shipping_state, "shippingAddress.state");
   requireValue(row.shipping_zip, "shippingAddress.postalCode");
-  requireValue(row.manufacturer, "manufacturer");
+  requireValue(manufacturer, "manufacturer");
   requireValue(productName, "product.name");
   requireValue(row.sku, "product.sku");
   requireValue(totalBoxes, "supply.quantity");
