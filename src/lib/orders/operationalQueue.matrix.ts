@@ -30,6 +30,10 @@ assert.deepEqual(
       title: "Needs Verification",
     },
     {
+      key: "founder_review",
+      title: "Needs Founder Review",
+    },
+    {
       key: "ready_to_order",
       title: "Ready to Order",
     },
@@ -104,6 +108,21 @@ const cases: MatrixCase[] = [
     },
     expectedBucket: "awaiting_verification",
     expectedActionable: false,
+  },
+  {
+    scenario: "authorized customer upload needs founder review",
+    order: {
+      id: "matrix-upload-founder-review",
+      status: "authorized",
+      payment_intent_id: "pi_uploaded_founder_review",
+      stripe_payment_intent_status: "requires_capture",
+      verification_status: "pending",
+      rx_status: "uploaded_pending_review",
+      rx_upload_path: "rx/matrix-upload-founder-review/rx.png",
+    },
+    expectedBucket: "founder_review",
+    expectedActionable: true,
+    expectedNextAction: "Review uploaded prescription",
   },
   {
     scenario: "paid order waiting on customer verification information",
@@ -408,6 +427,7 @@ for (const order of assignments) {
     assert.ok(
       [
         "awaiting_verification",
+        "founder_review",
         "ready_to_order",
         "resolve_exception",
       ].includes(order.operational_queue.bucket),

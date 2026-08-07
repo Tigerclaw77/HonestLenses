@@ -14,6 +14,7 @@ const ARMORY_LIFECYCLE_STATUSES = new Set([
 
 type ActiveDashboardLane =
   | "awaiting_verification"
+  | "founder_review"
   | "ready_to_order"
   | "resolve_exception";
 
@@ -22,6 +23,7 @@ function activeDashboardLane(
 ): ActiveDashboardLane | null {
   if (
     bucket === "awaiting_verification" ||
+    bucket === "founder_review" ||
     bucket === "ready_to_order" ||
     bucket === "resolve_exception"
   ) {
@@ -39,6 +41,7 @@ export function getArmoryOrderRouting(order: OperationalQueueOrder) {
     ? "armory"
     : "honest_lenses";
   const founderActionRequired =
+    classification.bucket === "founder_review" ||
     classification.bucket === "resolve_exception";
 
   return {

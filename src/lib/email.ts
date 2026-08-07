@@ -25,6 +25,7 @@ type SendEmailParams = {
   html: string;
   text?: string;
   tracking?: TransactionalEmailTracking;
+  idempotencyKey?: string;
 };
 
 /* ======================================
@@ -37,21 +38,25 @@ export async function sendEmail({
   html,
   text,
   tracking,
+  idempotencyKey,
 }: SendEmailParams) {
-  const result = await resend.emails.send({
-    from: FROM_SUPPORT,
-    to,
-    subject: sanitizeEmailHeader(subject),
-    html,
-    text,
-    replyTo: REPLY_TO_SUPPORT,
-    tags: tracking
-      ? [
-          { name: "order_id", value: tracking.orderId },
-          { name: "email_type", value: tracking.emailType },
-        ]
-      : undefined,
-  });
+  const result = await resend.emails.send(
+    {
+      from: FROM_SUPPORT,
+      to,
+      subject: sanitizeEmailHeader(subject),
+      html,
+      text,
+      replyTo: REPLY_TO_SUPPORT,
+      tags: tracking
+        ? [
+            { name: "order_id", value: tracking.orderId },
+            { name: "email_type", value: tracking.emailType },
+          ]
+        : undefined,
+    },
+    idempotencyKey ? { idempotencyKey } : undefined,
+  );
 
   if (result.error) {
     console.error("Resend error:", result.error);
@@ -139,6 +144,10 @@ Honest Lenses`;
     subject,
     html,
     text,
+    tracking: {
+      orderId,
+      emailType: "order_confirmation",
+    },
   });
 }
 
@@ -155,9 +164,11 @@ export async function sendOrderAlert({
   total?: number;
   customerEmail?: string;
 }) {
-  const adminAlertEmail = process.env.ADMIN_ALERT_EMAIL?.trim();
+  const adminAlertEmail =
+    process.env.FOUNDER_ALERT_EMAIL?.trim() ||
+    process.env.ARMORY_OPERATOR_ALERT_RECIPIENT?.trim();
   if (!adminAlertEmail) {
-    throw new Error("ADMIN_ALERT_EMAIL is required");
+    throw new Error("Founder operational alert recipient is required");
   }
   const html = `
     <h2>New HonestLenses Order</h2>

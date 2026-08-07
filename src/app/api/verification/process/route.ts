@@ -7,6 +7,7 @@ import {
 } from "@/lib/orders/verificationReadiness";
 import { hasInternalScopeAuthorization } from "@/lib/internal-auth";
 import { captureAuthorizedOrderPayment } from "@/lib/payments/legacyPaymentCommands";
+import { sendFounderOperationalAlert } from "@/lib/founderAlerts";
 
 export async function POST(req: Request) {
   // ✅ 1. AUTH FIRST (before touching DB)
@@ -104,6 +105,18 @@ export async function POST(req: Request) {
         : "verification_passive_auto",
       actor: "system",
     });
+
+    try {
+      await sendFounderOperationalAlert({
+        orderId: order.id,
+        type: "passive_verification_completed",
+        headline: "Passive verification completed — ready to order",
+        detail:
+          "The passive verification window completed. Payment is captured and the order is ready for fulfillment.",
+      });
+    } catch (alertError) {
+      console.error("Founder passive-verification alert failed:", alertError);
+    }
   }
 
   return NextResponse.json({ success: true });
