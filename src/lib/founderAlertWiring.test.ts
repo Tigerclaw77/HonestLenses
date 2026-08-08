@@ -47,4 +47,11 @@ for (const check of checks) {
   );
 }
 
+const uploadedRxRoute = source("src/app/api/orders/[id]/rx-ocr/route.ts");
+assert.match(
+  uploadedRxRoute,
+  /if \(shouldSendUploadedRxFounderAlert\(order\)\)/,
+  "an uploaded Rx alerts the founder only after the order is actionable",
+);
+
 console.log("Founder operational alert wiring coverage passed.");
