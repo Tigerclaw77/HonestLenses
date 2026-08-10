@@ -264,7 +264,10 @@ export async function POST(
     const file = formData.get("file") as File | null;
 
     if (!file) {
-      return new Response("No file uploaded", { status: 400 });
+      return NextResponse.json(
+        { error: "No file uploaded", code: "invalid_upload" },
+        { status: 400 },
+      );
     }
 
     let validated: Awaited<ReturnType<typeof validatePrescriptionUpload>>;
@@ -277,6 +280,7 @@ export async function POST(
             error instanceof Error
               ? error.message
               : "Invalid prescription image.",
+          code: "invalid_upload",
         },
         { status: 400 },
       );
@@ -294,7 +298,10 @@ export async function POST(
 
     if (uploadError) {
       console.error("RX UPLOAD ERROR:", uploadError);
-      return new Response("Failed to upload Rx file", { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to upload Rx file", code: "storage_upload_failed" },
+        { status: 500 },
+      );
     }
 
     const { error: evidenceError } = await supabaseServer
@@ -309,7 +316,10 @@ export async function POST(
 
     if (evidenceError) {
       await supabaseServer.storage.from("prescriptions").remove([storagePath]);
-      return new Response("Failed to save Rx evidence", { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to save Rx evidence", code: "evidence_save_failed" },
+        { status: 500 },
+      );
     }
 
     if (shouldSendUploadedRxFounderAlert(order)) {
@@ -334,6 +344,7 @@ export async function POST(
         ok: true,
         usable: false,
         reviewRequired: true,
+        code: "ocr_unavailable",
       });
     }
 
@@ -376,7 +387,10 @@ export async function POST(
 
     if (updateError) {
       console.error("RX UPDATE ERROR:", updateError);
-      return new Response("Failed to save Rx", { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to save Rx", code: "rx_save_failed" },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({
@@ -395,6 +409,9 @@ export async function POST(
         reason: "rx_ocr_route_exception",
       },
     });
-    return new Response("Server error", { status: 500 });
+    return NextResponse.json(
+      { error: "Server error", code: "ocr_server_failed" },
+      { status: 500 },
+    );
   }
 }

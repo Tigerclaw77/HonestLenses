@@ -19,7 +19,6 @@ import { resolveSphereOptions } from "@/LensCore/helpers/resolveSphereOptions";
 import { resolveCylinderOptions } from "@/LensCore/helpers/resolveCylinderOptions";
 import {
   POSTHOG_EVENTS,
-  captureClientException,
   track,
 } from "@/lib/posthog/client";
 import { getLensAnalyticsPropertiesByCoreId } from "@/lib/posthog/lensMetadata";
@@ -1221,7 +1220,6 @@ export default function RxForm({
       router.push("/cart");
     } catch (err) {
       console.error("🔴 [RxForm] submitRx error:", err);
-      captureClientException(err, { source: "rx_form_submit" });
       void captureClientError(err, {
         source: "rx_form_submit",
         component: "RxForm",

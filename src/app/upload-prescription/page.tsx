@@ -8,7 +8,6 @@ import Header from "../../components/Header";
 import { Suspense } from "react";
 import {
   POSTHOG_EVENTS,
-  captureClientException,
   consumeStepDurationMs,
   markStepStart,
   track,
@@ -21,6 +20,11 @@ import {
   setCurrentUploadTelemetryState,
 } from "@/lib/telemetry/clientErrors";
 import { trackFunnelEvent } from "@/lib/telemetry/funnel";
+import {
+  classifyUploadHttpFailure,
+  uploadNeedsRecovery,
+  type UploadResponseBody,
+} from "@/lib/uploadFlow";
 
 const LS_ORDER_ID = "rx_upload_order_id";
 const SS_PENDING_UPLOAD_INTENT = "hl_pending_upload_intent_v1";
@@ -51,13 +55,6 @@ type CartResponse = {
 
 type CreateOrderResponse = {
   orderId?: string;
-  error?: string;
-};
-
-type OcrResponse = {
-  ok?: boolean;
-  usable?: boolean;
-  confidence?: number;
   error?: string;
 };
 
@@ -286,17 +283,11 @@ function UploadPrescriptionContent() {
       "image/jpeg",
       "image/jpg",
       "image/png",
-      "image/heic",
-      "image/heif",
-      "application/pdf",
     ];
     const allowedExtensions = new Set([
       "jpg",
       "jpeg",
       "png",
-      "heic",
-      "heif",
-      "pdf",
     ]);
 
     const extension = safeFileExtension(selected);
@@ -305,7 +296,7 @@ function UploadPrescriptionContent() {
       : Boolean(extension && allowedExtensions.has(extension));
 
     if (!isAllowedType) {
-      return "Please upload a JPG, PNG, HEIC, HEIF, or PDF file.";
+      return "Please upload a JPG or PNG file.";
     }
 
     if (selected.size > MAX_FILE_MB * 1024 * 1024) {
@@ -413,7 +404,6 @@ function UploadPrescriptionContent() {
     });
 
     let uploadAttemptStarted = false;
-    let uploadFailureTracked = false;
 
     try {
       const {
@@ -450,25 +440,62 @@ function UploadPrescriptionContent() {
         body: formData,
       });
 
-      const ocrBody: OcrResponse = await ocrRes.json().catch(() => ({}));
+      const ocrBody: UploadResponseBody = await ocrRes
+        .json()
+        .catch(() => ({}));
       const uploadDurationMs = consumeStepDurationMs("rx_upload");
 
       if (!ocrRes.ok) {
-        uploadFailureTracked = true;
-        track(POSTHOG_EVENTS.RX_UPLOAD_FAILED, {
-          ...selectedLensAnalytics("rx_upload_failed"),
-          ...safeFileTelemetry(file),
-          order_id: orderId,
-          reason: ocrBody.error ?? "Upload failed",
-          upload_duration_ms: uploadDurationMs,
-        });
+        const message = ocrBody.error ?? "Upload failed";
+        const failureClass = classifyUploadHttpFailure(ocrRes.status, ocrBody);
+
+        if (failureClass === "EXPECTED_VALIDATION") {
+          track(POSTHOG_EVENTS.VALIDATION_ERROR, {
+            step: "rx_upload_server_validation",
+            reason: message,
+            failure_code: ocrBody.code ?? null,
+            ...safeFileTelemetry(file),
+          });
+        } else {
+          track(POSTHOG_EVENTS.RX_UPLOAD_FAILED, {
+            ...selectedLensAnalytics("rx_upload_failed"),
+            ...safeFileTelemetry(file),
+            order_id: orderId,
+            reason: message,
+            failure_code: ocrBody.code ?? null,
+            failure_class: failureClass.toLowerCase(),
+            upload_duration_ms: uploadDurationMs,
+          });
+
+          if (
+            failureClass === "GENUINE_SERVER_FAILURE" ||
+            failureClass === "UNKNOWN"
+          ) {
+            void captureClientError(new Error(message), {
+              source: "rx_upload_response",
+              component: "UploadPrescriptionContent",
+              failure_code: ocrBody.code ?? null,
+              response_status: ocrRes.status,
+            });
+          }
+        }
+
+        setError(message);
+        return;
+      }
+
+      if (uploadNeedsRecovery(ocrBody)) {
         track(POSTHOG_EVENTS.OCR_FAILED, {
           ...selectedLensAnalytics("rx_ocr"),
           order_id: orderId,
-          reason: ocrBody.error ?? "Upload failed",
+          reason: ocrBody.code ?? "ocr_unavailable",
+          failure_class: "handled_recoverable",
           upload_duration_ms: uploadDurationMs,
         });
-        throw new Error(ocrBody.error ?? "Upload failed");
+        setError(
+          "Your image was saved, but we could not read the prescription details. Try a clearer JPG or PNG, or enter the details manually below.",
+        );
+        return;
       }
 
       if (ocrBody.usable === false) {
@@ -499,12 +526,11 @@ function UploadPrescriptionContent() {
 
       router.push(`/upload-prescription/confirm?${params.toString()}`);
     } catch (err: unknown) {
-      captureClientException(err, { source: "rx_upload_submit" });
       void captureClientError(err, {
         source: "rx_upload_submit",
         component: "UploadPrescriptionContent",
       });
-      if (uploadAttemptStarted && !uploadFailureTracked) {
+      if (uploadAttemptStarted) {
         track(POSTHOG_EVENTS.RX_UPLOAD_FAILED, {
           ...selectedLensAnalytics("rx_upload_failed"),
           ...safeFileTelemetry(file),
@@ -597,7 +623,7 @@ function UploadPrescriptionContent() {
               <h3>Upload or take a photo</h3>
 
               <p className="rx-upload-subtitle">
-                Upload a clear photo or PDF of the official prescription.
+                Upload a clear JPG or PNG photo of the official prescription.
               </p>
 
               <p className="rx-upload-hint">
@@ -674,7 +700,7 @@ function UploadPrescriptionContent() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,application/pdf"
+                accept="image/jpeg,image/png"
                 capture="environment"
                 onChange={(e) =>
                   handleFileSelected(e.target.files?.[0] ?? null)

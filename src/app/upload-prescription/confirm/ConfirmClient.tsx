@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import RxForm, { type RxDraft } from "@/components/RxForm";
 import { resolveBrand } from "@/lib/resolveBrand";
 import { lenses } from "@/LensCore";
 import { POSTHOG_EVENTS } from "@/lib/posthog/client";
 import { captureClientError } from "@/lib/telemetry/clientErrors";
 import { trackFunnelEvent } from "@/lib/telemetry/funnel";
+import { hasUploadedEvidenceWithoutPrescription } from "@/lib/uploadFlow";
 
 /* =========================
    TYPES
@@ -40,10 +42,24 @@ function toStringSafe(val: unknown): string {
 export default function ConfirmClient() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("orderId");
+  const rightLens = searchParams.get("right")?.trim() || null;
+  const leftLens = searchParams.get("left")?.trim() || null;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [initialDraft, setInitialDraft] = useState<RxDraft | null>(null);
+  const [recoveryRequired, setRecoveryRequired] = useState(false);
+
+  const recoveryParams = new URLSearchParams();
+  if (rightLens) recoveryParams.set("right", rightLens);
+  if (leftLens) recoveryParams.set("left", leftLens);
+  const recoveryQuery = recoveryParams.toString();
+  const uploadHref = recoveryQuery
+    ? `/upload-prescription?${recoveryQuery}`
+    : "/upload-prescription";
+  const manualHref = recoveryQuery
+    ? `/enter-prescription?${recoveryQuery}`
+    : "/enter-prescription";
 
   useEffect(() => {
     if (!orderId) {
@@ -66,6 +82,17 @@ export default function ConfirmClient() {
 
         const json = await res.json();
         const order = json.order;
+
+        if (hasUploadedEvidenceWithoutPrescription(order)) {
+          setRecoveryRequired(true);
+          setError(null);
+          void trackFunnelEvent(POSTHOG_EVENTS.UPLOAD_RESUME_AFTER_AUTH, {
+            resumed: false,
+            reason: "uploaded_evidence_without_structured_rx",
+            order_id: orderId,
+          });
+          return;
+        }
 
         if (!order?.rx) {
           throw new Error("No prescription data found for this order");
@@ -187,6 +214,23 @@ export default function ConfirmClient() {
 
   if (error) {
     return <div style={{ padding: 40, color: "red" }}>{error}</div>;
+  }
+
+  if (recoveryRequired) {
+    return (
+      <div style={{ padding: 40 }}>
+        <p>
+          Your prescription image was saved, but the details could not be read
+          automatically. Try a clearer JPG or PNG, or enter the details
+          manually to continue.
+        </p>
+        <p>
+          <Link href={uploadHref}>Try another image</Link>
+          {" · "}
+          <Link href={manualHref}>Enter prescription details</Link>
+        </p>
+      </div>
+    );
   }
 
   if (!initialDraft) {
