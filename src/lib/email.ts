@@ -4,6 +4,7 @@ import {
   type TransactionalEmailTracking,
 } from "@/lib/emailDeliveryServer";
 import { escapeHtml, sanitizeEmailHeader } from "@/lib/email/html";
+import { CUSTOMER_SUPPORT_EMAIL } from "@/lib/email/prescriptionSubmission";
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
 
@@ -12,8 +13,8 @@ Sender Addresses
 ====================================== */
 
 const FROM_ORDERS = "Honest Lenses <orders@honestlenses.com>";
-const FROM_SUPPORT = "Honest Lenses <support@honestlenses.com>";
-const REPLY_TO_SUPPORT = "support@honestlenses.com";
+const FROM_SUPPORT = `Honest Lenses <${CUSTOMER_SUPPORT_EMAIL}>`;
+const REPLY_TO_SUPPORT = CUSTOMER_SUPPORT_EMAIL;
 
 /* ======================================
 Types

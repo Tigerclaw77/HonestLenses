@@ -13,6 +13,7 @@ import {
   track,
 } from "@/lib/posthog/client";
 import { buildCheckoutSuccessPath } from "@/lib/orders/checkoutSuccess";
+import { buildPrescriptionSubmissionEmail } from "@/lib/email/prescriptionSubmission";
 
 type DetailsResponse = {
   ok?: boolean;
@@ -415,6 +416,16 @@ export default function VerificationDetailsPage() {
     );
   }
 
+  if (!order) {
+    return (
+      <main className="content-shell">
+        <p className="order-error">Order not found.</p>
+      </main>
+    );
+  }
+
+  const prescriptionEmail = buildPrescriptionSubmissionEmail(order.id);
+
   return (
     <main>
       <section className="content-shell">
@@ -439,6 +450,50 @@ export default function VerificationDetailsPage() {
               details to verify the prescription before fulfillment. If your
               prescriber does not respond within the applicable verification
               window, passive verification may apply under federal rules.
+            </div>
+
+            <div
+              style={{
+                marginBottom: 22,
+                padding: "18px 18px",
+                borderRadius: 14,
+                border: "1px solid rgba(96, 165, 250, 0.45)",
+                background: "rgba(37, 99, 235, 0.12)",
+              }}
+            >
+              <h2
+                style={{
+                  margin: "0 0 8px",
+                  color: "#ffffff",
+                  fontSize: 20,
+                  fontWeight: 900,
+                }}
+              >
+                Already have a copy of your prescription?
+              </h2>
+              <p style={{ margin: "0 0 14px", color: "#dbeafe", lineHeight: 1.5 }}>
+                You can email it to us instead of entering your doctor&apos;s
+                information. If you don&apos;t have a copy, continue with the
+                doctor information below.
+              </p>
+              <a
+                className="primary-btn"
+                href={prescriptionEmail.mailtoHref}
+                style={{ display: "inline-flex", width: "auto" }}
+              >
+                Email us your prescription
+              </a>
+              <p
+                style={{
+                  margin: "12px 0 0",
+                  color: "#bfdbfe",
+                  fontSize: 13,
+                  lineHeight: 1.45,
+                }}
+              >
+                Your order will remain awaiting prescription review until we
+                receive and process your email.
+              </p>
             </div>
 
             {/* Patient */}
