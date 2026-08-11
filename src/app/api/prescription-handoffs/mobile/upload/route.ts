@@ -8,8 +8,10 @@ import { enforceRateLimit, rateLimitErrorResponse } from "@/lib/security/rateLim
 import {
   claimPrescriptionHandoff,
   completePrescriptionHandoff,
+  getPrescriptionHandoffByToken,
   releasePrescriptionHandoffClaim,
 } from "@/lib/server/prescriptionHandoffStore";
+import { getPrescriptionHandoffStatus } from "@/lib/prescriptionHandoff";
 
 export async function POST(request: NextRequest) {
   const rateLimit = await enforceRateLimit(request, {
@@ -26,10 +28,46 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "A valid photo is required.", code: "invalid_upload" }, { status: 400 });
   }
 
-  const claim = await claimPrescriptionHandoff(token);
-  if (!claim) {
+  let claim: Awaited<ReturnType<typeof claimPrescriptionHandoff>>;
+  try {
+    claim = await claimPrescriptionHandoff(token);
+  } catch (error) {
+    console.error("MOBILE PRESCRIPTION HANDOFF CLAIM ERROR:", error);
     return NextResponse.json(
-      { error: "This mobile upload link has expired or was already used.", code: "handoff_unavailable" },
+      { error: "We couldn't start that upload. Please try again.", code: "handoff_claim_failed" },
+      { status: 500 },
+    );
+  }
+
+  if (!claim) {
+    const current = await getPrescriptionHandoffByToken(token);
+    if (!current) {
+      return NextResponse.json(
+        { error: "This mobile upload link is invalid.", code: "handoff_invalid" },
+        { status: 404 },
+      );
+    }
+
+    const status = getPrescriptionHandoffStatus(current);
+    if (status === "expired") {
+      return NextResponse.json(
+        { error: "This mobile upload link has expired.", code: "handoff_expired" },
+        { status: 409 },
+      );
+    }
+    if (status === "completed") {
+      return NextResponse.json(
+        { error: "This mobile upload link was already used.", code: "handoff_completed" },
+        { status: 409 },
+      );
+    }
+
+    console.warn("MOBILE PRESCRIPTION HANDOFF CLAIM CONFLICT:", {
+      handoffId: current.id,
+      status,
+    });
+    return NextResponse.json(
+      { error: "Another upload is processing. Wait a moment and try again.", code: "handoff_busy" },
       { status: 409 },
     );
   }

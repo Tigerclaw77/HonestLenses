@@ -70,7 +70,7 @@ export async function claimPrescriptionHandoff(token: unknown) {
   const now = new Date();
   const claimId = randomUUID();
   const claimExpiresAt = new Date(now.getTime() + PRESCRIPTION_HANDOFF_CLAIM_MS);
-  const { data, error } = await supabaseServer
+  const update = supabaseServer
     .from("prescription_mobile_handoffs")
     .update({
       upload_claim_id: claimId,
@@ -78,8 +78,18 @@ export async function claimPrescriptionHandoff(token: unknown) {
     })
     .eq("id", existing.id)
     .is("completed_at", null)
-    .gt("expires_at", now.toISOString())
-    .or(`upload_claim_id.is.null,upload_claim_expires_at.lt.${now.toISOString()}`)
+    .gt("expires_at", now.toISOString());
+
+  // Choose the atomic guard from the row we just read. PostgREST returned no
+  // row for the previous OR filter even when the fresh row had a null claim.
+  // Matching the exact observed state also prevents concurrent claim takeover.
+  const guardedUpdate = existing.upload_claim_id === null
+    ? update.is("upload_claim_id", null)
+    : update
+        .eq("upload_claim_id", existing.upload_claim_id)
+        .lt("upload_claim_expires_at", now.toISOString());
+
+  const { data, error } = await guardedUpdate
     .select(COLUMNS)
     .maybeSingle();
 
