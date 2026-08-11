@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { prepareMobilePrescriptionFile } from "@/lib/mobilePrescriptionImage";
+import { classifyMobileHandoffUploadResponse } from "@/lib/mobileHandoffUploadResponse";
 
 type State = "checking" | "ready" | "uploading" | "complete" | "expired" | "invalid";
 
@@ -58,9 +59,11 @@ export default function PhoneUploadClient() {
         method: "POST",
         body: form,
       });
-      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      const body = (await response.json().catch(() => ({}))) as { error?: string; code?: string };
       if (!response.ok) {
-        if (response.status === 409) setState("expired");
+        const outcome = classifyMobileHandoffUploadResponse(response.status, body.code);
+        if (outcome === "expired") setState("expired");
+        else if (outcome === "complete") setState("complete");
         else {
           setError(body.error ?? "We couldn't upload that photo. Please try again.");
           setState("ready");
