@@ -387,6 +387,290 @@ async function testCommerceReverse(client, connectionConfig) {
   };
 }
 
+async function testPrescriptionHandoffMigration(client, applied) {
+  await applySqlFile(
+    client,
+    path.join(
+      repositoryRoot,
+      "supabase",
+      "validation",
+      "0002_hosted_application_compatibility_fixture.sql",
+    ),
+  );
+  await client.query(`
+    alter table public.orders
+      add constraint orders_verification_status_check
+      check (
+        verification_status = any (
+          array[
+            'pending'::text,
+            'verified'::text,
+            'altered'::text,
+            'rejected'::text,
+            'auto_verified'::text,
+            'flagged'::text,
+            'requires_review'::text
+          ]
+        )
+      )
+  `);
+
+  const operationalMigrations = [
+    {
+      file: "20260730173243_add_orders_admin_notes.sql",
+      version: "20260730173243",
+      name: "add_orders_admin_notes",
+    },
+    {
+      file: "20260730183014_allow_orders_information_needed.sql",
+      version: "20260730183014",
+      name: "allow_orders_information_needed",
+    },
+    {
+      file: "20260731230830_handle_unmatched_resend_webhooks.sql",
+      version: "20260731230830",
+      name: "handle_unmatched_resend_webhooks",
+    },
+    {
+      file: "20260808191129_founder_alert_audit.sql",
+      version: "20260808191129",
+      name: "founder_alert_audit",
+    },
+    {
+      file: "20260811023838_prescription_mobile_handoffs.sql",
+      version: "20260811023838",
+      name: "prescription_mobile_handoffs",
+    },
+  ];
+
+  for (const migration of operationalMigrations) {
+    applied.push(
+      await applySqlFile(
+        client,
+        path.join(migrationDirectory, migration.file),
+        migration,
+      ),
+    );
+  }
+
+  const orderId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const unrelatedOrderId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const pendingId = "11111111-1111-4111-8111-111111111111";
+  const lifecycleId = "22222222-2222-4222-8222-222222222222";
+  const expiredId = "33333333-3333-4333-8333-333333333333";
+  const claimId = "44444444-4444-4444-8444-444444444444";
+  const rawPendingToken = "A".repeat(43);
+  const rawLifecycleToken = "B".repeat(43);
+  const rawExpiredToken = "C".repeat(43);
+  const hashToken = (token) =>
+    createHash("sha256").update(token, "utf8").digest("hex");
+
+  await client.query("begin");
+  try {
+    await setRole(client, "service_role");
+    await client.query(
+      `
+        insert into public.prescription_mobile_handoffs (
+          id, order_id, token_hash, expires_at
+        ) values
+          ($1, $2, $3, now() + interval '10 minutes'),
+          ($4, $2, $5, now() + interval '10 minutes')
+      `,
+      [
+        pendingId,
+        orderId,
+        hashToken(rawPendingToken),
+        lifecycleId,
+        hashToken(rawLifecycleToken),
+      ],
+    );
+    await client.query(
+      `
+        insert into public.prescription_mobile_handoffs (
+          id, order_id, token_hash, created_at, expires_at
+        ) values (
+          $1, $2, $3, now() - interval '20 minutes',
+          now() - interval '10 minutes'
+        )
+      `,
+      [expiredId, unrelatedOrderId, hashToken(rawExpiredToken)],
+    );
+
+    const pending = await client.query(
+      `
+        select id, order_id, token_hash, expires_at, completed_at,
+          upload_claim_id, upload_claim_expires_at, created_at
+        from public.prescription_mobile_handoffs
+        where token_hash = $1
+          and completed_at is null
+          and expires_at > now()
+      `,
+      [hashToken(rawPendingToken)],
+    );
+    assert(pending.rowCount === 1, "Handoff token-hash lookup failed");
+    assert(
+      pending.rows[0]?.token_hash !== rawPendingToken &&
+        !pending.rows[0]?.token_hash.includes(rawPendingToken),
+      "Raw handoff capability token was persisted",
+    );
+
+    const sameOrderPoll = await client.query(
+      `select id from public.prescription_mobile_handoffs
+       where id = $1 and order_id = $2`,
+      [pendingId, orderId],
+    );
+    const crossOrderPoll = await client.query(
+      `select id from public.prescription_mobile_handoffs
+       where id = $1 and order_id = $2`,
+      [pendingId, unrelatedOrderId],
+    );
+    assert(sameOrderPoll.rowCount === 1, "Same-order handoff poll failed");
+    assert(crossOrderPoll.rowCount === 0, "Cross-order handoff poll succeeded");
+
+    const claimed = await client.query(
+      `
+        update public.prescription_mobile_handoffs
+        set upload_claim_id = $2,
+            upload_claim_expires_at = now() + interval '2 minutes'
+        where id = $1
+          and completed_at is null
+          and expires_at > now()
+          and (
+            upload_claim_id is null
+            or upload_claim_expires_at < now()
+          )
+        returning id
+      `,
+      [lifecycleId, claimId],
+    );
+    assert(claimed.rowCount === 1, "Valid handoff claim failed");
+
+    const completed = await client.query(
+      `
+        update public.prescription_mobile_handoffs
+        set completed_at = now(),
+            upload_claim_id = null,
+            upload_claim_expires_at = null
+        where id = $1
+          and upload_claim_id = $2
+          and completed_at is null
+        returning id
+      `,
+      [lifecycleId, claimId],
+    );
+    assert(completed.rowCount === 1, "Handoff completion failed");
+
+    const replay = await client.query(
+      `
+        update public.prescription_mobile_handoffs
+        set upload_claim_id = gen_random_uuid(),
+            upload_claim_expires_at = now() + interval '2 minutes'
+        where id = $1
+          and completed_at is null
+          and expires_at > now()
+        returning id
+      `,
+      [lifecycleId],
+    );
+    assert(replay.rowCount === 0, "Completed handoff replay succeeded");
+
+    const expiredClaim = await client.query(
+      `
+        update public.prescription_mobile_handoffs
+        set upload_claim_id = gen_random_uuid(),
+            upload_claim_expires_at = now() + interval '2 minutes'
+        where id = $1
+          and completed_at is null
+          and expires_at > now()
+        returning id
+      `,
+      [expiredId],
+    );
+    assert(expiredClaim.rowCount === 0, "Expired handoff claim succeeded");
+
+    const invalidLookup = await client.query(
+      `select id from public.prescription_mobile_handoffs where token_hash = $1`,
+      [hashToken("malformed-invalid-capability")],
+    );
+    assert(invalidLookup.rowCount === 0, "Invalid handoff lookup succeeded");
+  } finally {
+    await client.query("rollback");
+  }
+
+  await expectDenied(
+    client,
+    "anon",
+    "select id from public.prescription_mobile_handoffs",
+  );
+  await expectDenied(
+    client,
+    "authenticated",
+    "select id from public.prescription_mobile_handoffs",
+  );
+  await expectDatabaseError(
+    client,
+    "service_role",
+    `
+      insert into public.prescription_mobile_handoffs (
+        order_id, token_hash, expires_at
+      ) values ($1, 'spoofed-heic-name', now() + interval '10 minutes')
+    `,
+    "23514",
+    [orderId],
+  );
+
+  const schema = await client.query(`
+    select
+      c.relrowsecurity as rls_enabled,
+      has_table_privilege('anon', c.oid, 'select,insert,update,delete') as anon_any,
+      has_table_privilege('authenticated', c.oid, 'select,insert,update,delete') as authenticated_any,
+      has_table_privilege('service_role', c.oid, 'select,insert,update,delete') as service_all,
+      (
+        select count(*)::integer
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'prescription_mobile_handoffs'
+          and column_name not in (
+            'id', 'order_id', 'token_hash', 'expires_at', 'completed_at',
+            'upload_claim_id', 'upload_claim_expires_at', 'created_at'
+          )
+      ) as unnecessary_columns
+    from pg_class c
+    where c.oid = 'public.prescription_mobile_handoffs'::regclass
+  `);
+  assert(schema.rows[0]?.rls_enabled, "Handoff table RLS is disabled");
+  assert(!schema.rows[0]?.anon_any, "anon retained handoff DML");
+  assert(
+    !schema.rows[0]?.authenticated_any,
+    "authenticated retained handoff DML",
+  );
+  assert(schema.rows[0]?.service_all, "service_role lacks handoff DML");
+  assert(
+    schema.rows[0]?.unnecessary_columns === 0,
+    "Handoff table contains unnecessary customer/payment columns",
+  );
+
+  return {
+    productionMigrationChainAppliedLocally: operationalMigrations.map(
+      (migration) => migration.version,
+    ),
+    createCapability: true,
+    tokenHashLookup: true,
+    pendingState: true,
+    validClaim: true,
+    completedState: true,
+    replayRejected: true,
+    expiredRejected: true,
+    invalidRejected: true,
+    sameOrderPoll: true,
+    crossOrderPollRejected: true,
+    rawTokenAbsent: true,
+    browserDirectAccessRejected: true,
+    serverRoleAccess: true,
+    unnecessaryCustomerPaymentColumns: 0,
+  };
+}
+
 async function runGate(client, connectionConfig) {
   const applied = [];
   await client.query(`
@@ -990,6 +1274,10 @@ async function runGate(client, connectionConfig) {
     client,
     connectionConfig,
   );
+  const prescriptionHandoff = await testPrescriptionHandoffMigration(
+    client,
+    applied,
+  );
 
   return {
     applied,
@@ -1031,6 +1319,7 @@ async function runGate(client, connectionConfig) {
       rollbackRecoveryExport: "valid",
       commerceRollback,
     },
+    prescriptionHandoff,
   };
 }
 

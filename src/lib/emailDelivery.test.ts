@@ -354,7 +354,7 @@ async function runAsyncTests() {
 
   const migration = readFileSync(
     new URL(
-      "../../supabase/migrations/20260731131804_handle_unmatched_resend_webhooks.sql",
+      "../../supabase/migrations/20260731230830_handle_unmatched_resend_webhooks.sql",
       import.meta.url,
     ),
     "utf8",
