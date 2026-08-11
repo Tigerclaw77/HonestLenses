@@ -260,6 +260,7 @@ export default function BrowsePage() {
         </section>
 
         <section
+          className="browse-layout"
           style={{
             display: "grid",
             gridTemplateColumns: "240px 1fr",
@@ -270,6 +271,7 @@ export default function BrowsePage() {
           }}
         >
           <aside
+            className="browse-filters"
             style={{
               borderRight: "1px solid rgba(255,255,255,0.08)",
               paddingRight: "1rem",
@@ -294,26 +296,28 @@ export default function BrowsePage() {
 
             <h3 className="upper">Manufacturer</h3>
 
-            {["all", "VISTAKON", "ALCON", "BAUSCH + LOMB", "COOPERVISION"].map(
-              (mfr) => (
-                <div key={mfr}>
-                  <label>
-                    <input
-                      type="radio"
-                      name="mfr"
-                      value={mfr}
-                      checked={manufacturerFilter === mfr}
-                      onChange={(e) => setManufacturerFilter(e.target.value)}
-                    />
-                    {mfr === "all"
-                      ? "All"
-                      : manufacturerLabels[
-                          mfr as keyof typeof manufacturerLabels
-                        ]}
-                  </label>
-                </div>
-              ),
-            )}
+            <div className="browse-manufacturer-options">
+              {["all", "VISTAKON", "ALCON", "BAUSCH + LOMB", "COOPERVISION"].map(
+                (mfr) => (
+                  <div key={mfr}>
+                    <label>
+                      <input
+                        type="radio"
+                        name="mfr"
+                        value={mfr}
+                        checked={manufacturerFilter === mfr}
+                        onChange={(e) => setManufacturerFilter(e.target.value)}
+                      />
+                      {mfr === "all"
+                        ? "All"
+                        : manufacturerLabels[
+                            mfr as keyof typeof manufacturerLabels
+                          ]}
+                    </label>
+                  </div>
+                ),
+              )}
+            </div>
           </aside>
 
           <div

@@ -3128,6 +3128,50 @@ body:has(.hl-overlay) {
   aside {
     display: none;
   }
+
+  .browse-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 1rem !important;
+    padding: 0 1rem 3rem !important;
+  }
+
+  .browse-filters {
+    display: block;
+    padding: 0.875rem !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-radius: 14px;
+    background: rgba(15, 23, 42, 0.78);
+  }
+
+  .browse-filters h3 {
+    margin: 0 0 0.5rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+  }
+
+  .browse-filters input[type="text"] {
+    margin-bottom: 0.875rem !important;
+    border-radius: 10px !important;
+  }
+
+  .browse-manufacturer-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .browse-manufacturer-options label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 38px;
+    padding: 0.4rem 0.65rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
 }
 
 @media (max-width: 768px) {
