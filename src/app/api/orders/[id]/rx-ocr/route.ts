@@ -27,6 +27,7 @@ type Eye = {
   sphere: number | null;
   cylinder: number | null;
   axis: number | null;
+  add: string | null;
   base_curve: number | null;
   diameter: number | null;
   brand_raw: string | null;
@@ -43,6 +44,7 @@ type Interpretation = {
     sphere?: number | null;
     cylinder?: number | null;
     axis?: number | null;
+    add?: string | null;
     baseCurve?: number | null;
     diameter?: number | null;
     brand_raw?: string | null;
@@ -51,6 +53,7 @@ type Interpretation = {
     sphere?: number | null;
     cylinder?: number | null;
     axis?: number | null;
+    add?: string | null;
     baseCurve?: number | null;
     diameter?: number | null;
     brand_raw?: string | null;
@@ -76,6 +79,7 @@ function mapInterpretationToRx(interp: Interpretation): Rx {
           sphere: interp.right.sphere ?? null,
           cylinder: interp.right.cylinder ?? null,
           axis: interp.right.axis ?? null,
+          add: interp.right.add ?? null,
           base_curve: interp.right.baseCurve ?? null,
           diameter: interp.right.diameter ?? null,
           brand_raw: interp.right?.brand_raw ?? interp.brand_raw ?? null,
@@ -87,6 +91,7 @@ function mapInterpretationToRx(interp: Interpretation): Rx {
           sphere: interp.left.sphere ?? null,
           cylinder: interp.left.cylinder ?? null,
           axis: interp.left.axis ?? null,
+          add: interp.left.add ?? null,
           base_curve: interp.left.baseCurve ?? null,
           diameter: interp.left.diameter ?? null,
           brand_raw: interp.left?.brand_raw ?? interp.brand_raw ?? null,
@@ -129,6 +134,8 @@ Rules:
 - Do NOT guess values not present
 - Axis must be 1–180
 - BC and DIA are decimal values
+- Return expirationDate in YYYY-MM-DD format only
+- Return multifocal add exactly as printed (for example LOW, MID, HIGH)
 - Prefer correct interpretation over returning null
 - If ambiguous, choose most standard interpretation and note in "notes"
 
@@ -158,6 +165,7 @@ Return STRICT JSON:
     "sphere": number | null,
     "cylinder": number | null,
     "axis": number | null,
+    "add": string | null,
     "baseCurve": number | null,
     "diameter": number | null,
     "brand_raw": string | null
@@ -166,6 +174,7 @@ Return STRICT JSON:
     "sphere": number | null,
     "cylinder": number | null,
     "axis": number | null,
+    "add": string | null,
     "baseCurve": number | null,
     "diameter": number | null,
     "brand_raw": string | null
@@ -339,7 +348,10 @@ export async function POST(
       }
     }
 
-    if (process.env.PRESCRIPTION_OCR_ENABLED !== "true") {
+    if (
+      process.env.PRESCRIPTION_OCR_ENABLED === "false" ||
+      !process.env.OPENAI_API_KEY?.trim()
+    ) {
       return NextResponse.json({
         ok: true,
         usable: false,
@@ -348,10 +360,43 @@ export async function POST(
       });
     }
 
-    const interpretation = await runPrescriptionInterpretation(
-      validated.buffer.toString("base64"),
-      validated.mimeType,
-    );
+    let interpretation: Interpretation;
+    try {
+      interpretation = await runPrescriptionInterpretation(
+        validated.buffer.toString("base64"),
+        validated.mimeType,
+      );
+    } catch (interpretationError) {
+      await supabaseServer
+        .from("orders")
+        .update({
+          rx_status: "automation_review_ocr_evidence_missing",
+          verification_status: "pending",
+        })
+        .eq("id", orderId);
+      await supabaseServer.from("order_events").insert({
+        order_id: orderId,
+        event_type: "verification_uploaded_exception",
+        actor: "system",
+        message: "ocr_evidence_missing",
+        after: { reason: "ocr_evidence_missing", stage: "ocr_interpretation" },
+      });
+      await captureServerException({
+        event: POSTHOG_EVENTS.OCR_FAILED,
+        error: interpretationError,
+        request: req,
+        properties: {
+          order_id: orderId,
+          reason: "ocr_interpretation_failed",
+        },
+      });
+      return NextResponse.json({
+        ok: true,
+        usable: false,
+        reviewRequired: true,
+        code: "ocr_server_failed",
+      });
+    }
 
     const rx = mapInterpretationToRx(interpretation);
     const usable = hasUsableRx(rx);
@@ -379,7 +424,13 @@ export async function POST(
       .from("orders")
       .update({
         rx,
-        rx_status: usable ? "ocr_review_required" : "ocr_failed",
+        rx_status: !usable
+          ? "automation_review_ocr_missing_required_fields"
+          : !isLikelyRx
+            ? interpretation.looks_like_contact_lens_rx === true
+              ? "automation_review_ocr_low_confidence"
+              : "automation_review_ocr_not_contact_lens_prescription"
+            : "ocr_customer_confirmation_required",
         verification_status: "pending",
         rx_ocr_raw: interpretation,
       })
@@ -397,6 +448,7 @@ export async function POST(
       ok: true,
       usable,
       confidence: interpretation.confidence ?? 0,
+      reviewRequired: !usable,
     });
   } catch (err) {
     console.error("RX OCR ROUTE ERROR:", err);

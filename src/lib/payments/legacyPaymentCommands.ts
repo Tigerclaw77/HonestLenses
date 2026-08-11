@@ -19,7 +19,8 @@ type PaymentCommandOrder = {
 export type CaptureReason =
   | "active-verification"
   | "passive-verification"
-  | "admin-verification";
+  | "admin-verification"
+  | "uploaded-rx-automation";
 
 export type CancelReason =
   | "customer-cancel"

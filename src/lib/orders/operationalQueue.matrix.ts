@@ -31,7 +31,7 @@ assert.deepEqual(
     },
     {
       key: "founder_review",
-      title: "Needs Founder Review",
+      title: "AUTHORIZED — RX REVIEW REQUIRED",
     },
     {
       key: "ready_to_order",

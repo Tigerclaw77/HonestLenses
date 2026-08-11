@@ -40,9 +40,9 @@ export const ADMIN_WORK_QUEUE_SECTIONS: ReadonlyArray<{
   },
   {
     key: "founder_review",
-    title: "Needs Founder Review",
+    title: "AUTHORIZED — RX REVIEW REQUIRED",
     description:
-      "Customer uploaded a prescription. Review the evidence and complete verification.",
+      "Stripe payment is authorized. Review the uploaded prescription before the capture deadline.",
   },
   {
     key: "ready_to_order",

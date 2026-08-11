@@ -42,6 +42,26 @@ assert.equal(
   "warnings do not change admin completion authority",
 );
 
+const uploadedReview = assessAdminFulfillmentTransition(
+  {
+    ...riskyOrder,
+    rx_upload_path: "rx/order/prescription.jpg",
+    rx_status: "uploaded_pending_review",
+  },
+  "ready_to_order",
+);
+assert.equal(
+  uploadedReview.allowed,
+  false,
+  "an uploaded prescription cannot bypass verification via fulfillment",
+);
+assert.ok(
+  uploadedReview.warnings.some((warning) =>
+    warning.includes("Verify prescription"),
+  ),
+  "the hard gate directs the founder to the verify-and-capture action",
+);
+
 const invalid = assessAdminFulfillmentTransition(
   riskyOrder,
   "not_a_real_state",

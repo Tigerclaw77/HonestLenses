@@ -25,6 +25,12 @@ import {
   checkoutAmountMatchesPaymentIntent,
   getCheckoutAmountCents,
 } from "@/lib/payments/checkoutAmount";
+import { captureAuthorizedOrderPayment } from "@/lib/payments/legacyPaymentCommands";
+import {
+  runUploadedRxAutomation,
+  uploadedRxReviewStatus,
+  type UploadedRxAutomationDecision,
+} from "@/lib/orders/uploadedRxAutomation";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -84,7 +90,7 @@ export async function POST(req: Request) {
   const baseQuery = supabaseServer
     .from("orders")
     .select("*")
-    .in("status", ["draft", "authorized"]);
+    .in("status", ["draft", "authorized", "captured"]);
 
   const { data: orderRaw, error } = requestedOrderId
     ? await baseQuery.eq("id", requestedOrderId).maybeSingle()
@@ -156,7 +162,7 @@ export async function POST(req: Request) {
     );
   }
 
-  if (intent.status !== "requires_capture") {
+  if (intent.status !== "requires_capture" && intent.status !== "succeeded") {
     return NextResponse.json(
       { error: `Payment not authorized (status: ${intent.status})` },
       { status: 400 },
@@ -202,21 +208,88 @@ export async function POST(req: Request) {
     );
   }
 
+  if (
+    orderStatus === "captured" &&
+    verificationStatus === "auto_verified" &&
+    getString(orderRaw, "rx_status") === "auto_verified" &&
+    intent.status === "succeeded"
+  ) {
+    return NextResponse.json({
+      ok: true,
+      orderId,
+      next: "success",
+      mode: "uploaded_auto_verified",
+      idempotent: true,
+    });
+  }
+
   /* =========================
      4️⃣ Determine Upload Truth (FIXED)
   ========================= */
 
   const isUploaded = !!orderRaw.rx_upload_path;
+  let uploadedAutomation: UploadedRxAutomationDecision | null = null;
+  let uploadedCapture: {
+    paymentIntentId: string;
+    alreadyCaptured: boolean;
+  } | null = null;
+
+  if (isUploaded) {
+    const automationRun = await runUploadedRxAutomation(
+      orderRaw,
+      intent.status,
+      () =>
+        captureAuthorizedOrderPayment(
+          {
+            id: orderId,
+            payment_intent_id: paymentIntentId,
+            total_amount_cents:
+              typeof orderRaw.total_amount_cents === "number"
+                ? orderRaw.total_amount_cents
+                : null,
+            capture_amount_cents:
+              typeof orderRaw.capture_amount_cents === "number"
+                ? orderRaw.capture_amount_cents
+                : null,
+            feedback_credit_cents:
+              typeof orderRaw.feedback_credit_cents === "number"
+                ? orderRaw.feedback_credit_cents
+                : null,
+            authorization_expires_at: orderRaw.authorization_expires_at as
+              | string
+              | number
+              | Date
+              | null
+              | undefined,
+          },
+          "uploaded-rx-automation",
+        ),
+    );
+    uploadedAutomation = automationRun.decision;
+    uploadedCapture = automationRun.capture;
+  }
+
+  const uploadedAutoVerified = Boolean(
+    uploadedAutomation?.autoVerify && uploadedCapture,
+  );
+  const uploadedReviewReason =
+    uploadedAutomation && !uploadedAutomation.autoVerify
+      ? uploadedAutomation.reason
+      : null;
   const verificationReadiness = getVerificationReadiness(orderRaw);
   const canEnterPendingVerification =
     verificationReadiness.canEnterPendingVerification;
   const nextVerificationStatus = isUploaded
-    ? "pending"
+    ? uploadedAutoVerified
+      ? "auto_verified"
+      : "pending"
     : canEnterPendingVerification
       ? "pending"
       : VERIFICATION_INFORMATION_NEEDED_STATUS;
   const verificationMode = isUploaded
-    ? "uploaded"
+    ? uploadedAutoVerified
+      ? "uploaded_auto_verified"
+      : "uploaded_review"
     : canEnterPendingVerification
       ? "passive"
       : "information_needed";
@@ -229,16 +302,27 @@ export async function POST(req: Request) {
   ========================= */
 
   const updatePayload: Record<string, unknown> = {
-    status: "authorized",
+    status: uploadedAutoVerified ? "captured" : "authorized",
     verification_status: nextVerificationStatus,
   };
+  if (isUploaded && uploadedAutomation) {
+    updatePayload.rx_status = uploadedAutoVerified
+      ? "auto_verified"
+      : uploadedRxReviewStatus(
+          uploadedReviewReason ?? "automation_state_update_failed",
+        );
+    updatePayload.verification_passed = uploadedAutoVerified;
+    updatePayload.verification_completed_at = uploadedAutoVerified
+      ? new Date().toISOString()
+      : null;
+  }
 
   const { data: updatedRows, error: updateError } = await supabaseServer
     .from("orders")
     .update(updatePayload)
     .eq("id", orderId)
     .eq("payment_intent_id", paymentIntentId)
-    .in("status", ["draft", "authorized"])
+    .in("status", ["draft", "authorized", "captured"])
     .select("id");
 
   if (updateError) {
@@ -252,6 +336,39 @@ export async function POST(req: Request) {
     );
   }
 
+  if (isUploaded && uploadedAutomation) {
+    const { error: automationEventError } = await supabaseServer
+      .from("order_events")
+      .insert({
+        order_id: orderId,
+        event_type: uploadedAutoVerified
+          ? "verification_uploaded_auto"
+          : "verification_uploaded_exception",
+        actor: "system",
+        message: uploadedAutomation.reason,
+        before: {
+          status: orderStatus,
+          verification_status: verificationStatus,
+        },
+        after: {
+          status: uploadedAutoVerified ? "captured" : "authorized",
+          verification_status: nextVerificationStatus,
+          reason: uploadedAutomation.reason,
+          evidence: uploadedAutomation.evidence,
+          stripe_status: intent.status,
+          stripe_capture_already_completed:
+            uploadedCapture?.alreadyCaptured ?? false,
+        },
+      });
+    if (automationEventError) {
+      console.error("Uploaded-Rx automation audit event failed", {
+        orderId,
+        reason: uploadedAutomation.reason,
+        error: automationEventError.message,
+      });
+    }
+  }
+
   /* =========================
      7️⃣ Email Admin
   ========================= */
@@ -263,7 +380,7 @@ export async function POST(req: Request) {
     properties: {
       order_id: orderId,
       order_status_before: orderStatus,
-      order_status_after: "authorized",
+      order_status_after: uploadedAutoVerified ? "captured" : "authorized",
       verification_mode: verificationMode,
       order_value_cents:
         typeof orderRaw.total_amount_cents === "number"
@@ -272,7 +389,7 @@ export async function POST(req: Request) {
       has_uploaded_rx: isUploaded,
       has_payment_intent: true,
       stripe_intent_status: intent.status,
-      captured_immediately: false,
+      captured_immediately: uploadedAutoVerified,
       next_step: isUploaded ? "success" : "verification-details",
     },
   });
@@ -284,7 +401,7 @@ export async function POST(req: Request) {
     properties: {
       order_id: orderId,
       order_status_before: orderStatus,
-      order_status_after: "authorized",
+      order_status_after: uploadedAutoVerified ? "captured" : "authorized",
       verification_mode: verificationMode,
       order_value_cents:
         typeof orderRaw.total_amount_cents === "number"
@@ -297,6 +414,25 @@ export async function POST(req: Request) {
     },
   });
 
+  if (uploadedAutoVerified) {
+    await captureServerEvent({
+      event: POSTHOG_EVENTS.ORDER_CAPTURED,
+      distinctId: access.distinctId,
+      request: req,
+      properties: {
+        order_id: orderId,
+        verification_mode: verificationMode,
+        order_value_cents:
+          typeof orderRaw.total_amount_cents === "number"
+            ? orderRaw.total_amount_cents
+            : null,
+        has_uploaded_rx: true,
+        has_payment_intent: true,
+        capture_reason: "uploaded_rx_evidence_gate_passed",
+      },
+    });
+  }
+
   const customerEmail = getCustomerEmail(orderRaw, access.userEmail);
 
   /* =========================
@@ -307,9 +443,13 @@ export async function POST(req: Request) {
     await sendFounderOperationalAlert({
       orderId,
       type: "order_authorized",
-      headline: "Order authorized",
+      headline: uploadedAutoVerified
+        ? "Uploaded prescription auto-verified"
+        : "Order authorized",
       detail: isUploaded
-        ? "Payment is authorized and an uploaded prescription needs founder review."
+        ? uploadedAutoVerified
+          ? "Automated evidence checks passed, payment was captured, and the order is ready for fulfillment."
+          : `Payment is authorized and the uploaded prescription needs founder review (${uploadedAutomation?.reason ?? "unknown_exception"}).`
         : canEnterPendingVerification
           ? "Payment is authorized and prescription verification is pending."
           : "Payment is authorized and customer prescription information is still required.",
@@ -336,7 +476,11 @@ export async function POST(req: Request) {
           actor: "system",
         });
       } else {
-        const confirmation = buildCustomerOrderEmail({ orderId, isUploaded });
+        const confirmation = buildCustomerOrderEmail({
+          orderId,
+          isUploaded,
+          uploadedVerificationComplete: uploadedAutoVerified,
+        });
 
         await sendEmail({
           to: customerEmail,
@@ -363,5 +507,11 @@ export async function POST(req: Request) {
     orderId,
     next: isUploaded ? "success" : "verification-details",
     mode: verificationMode,
+    uploadedRxAutomation: uploadedAutomation
+      ? {
+          autoVerified: uploadedAutoVerified,
+          reason: uploadedAutomation.reason,
+        }
+      : null,
   });
 }

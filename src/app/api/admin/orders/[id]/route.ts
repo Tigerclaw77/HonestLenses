@@ -90,12 +90,20 @@ export async function PATCH(
         )
       : null;
 
-  // Every valid admin target is an override. Warnings are returned and logged,
-  // but they never block the update.
-  if (transition && (!transition.valid || !transition.allowed)) {
+  if (transition && !transition.valid) {
     return NextResponse.json(
       { error: "Invalid fulfillment transition" },
       { status: 400 },
+    );
+  }
+
+  if (transition && !transition.allowed) {
+    return NextResponse.json(
+      {
+        error: transition.warnings[0] ?? "Verification is required.",
+        code: "RX_VERIFICATION_REQUIRED",
+      },
+      { status: 409 },
     );
   }
 

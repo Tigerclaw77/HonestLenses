@@ -86,6 +86,8 @@ type OrderRow = {
   payment_intent_id?: string | null;
   payment_status?: PaymentStatus | null;
   stripe_payment_intent_status?: string | null;
+  stripe_authorized_at?: string | null;
+  stripe_capture_before?: string | null;
   payment_status_source?:
     | "stripe"
     | "order_fallback"
@@ -183,6 +185,8 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       ...order,
       payment_status: projection.status,
       stripe_payment_intent_status: null,
+      stripe_authorized_at: null,
+      stripe_capture_before: null,
       payment_status_source: "missing_intent",
     };
   }
@@ -196,6 +200,8 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       ...order,
       payment_status: projection.status,
       stripe_payment_intent_status: null,
+      stripe_authorized_at: null,
+      stripe_capture_before: null,
       payment_status_source: "order_fallback",
     };
   }
@@ -214,6 +220,8 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       ...order,
       payment_status: projection.status,
       stripe_payment_intent_status: null,
+      stripe_authorized_at: null,
+      stripe_capture_before: null,
       payment_status_source: "order_fallback",
     };
   }
@@ -227,11 +235,31 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       stripeIntent: intent,
       fallback: "intent_authorized",
     });
+    const latestCharge =
+      intent.latest_charge && typeof intent.latest_charge !== "string"
+        ? intent.latest_charge
+        : null;
+    const authorizedAtSeconds =
+      intent.status === "requires_capture"
+        ? latestCharge?.created ?? intent.created
+        : null;
+    const captureBeforeSeconds =
+      intent.status === "requires_capture"
+        ? latestCharge?.payment_method_details?.card?.capture_before ?? null
+        : null;
 
     return {
       ...order,
       payment_status: projection.status,
       stripe_payment_intent_status: projection.stripePaymentIntentStatus,
+      stripe_authorized_at:
+        authorizedAtSeconds === null
+          ? null
+          : new Date(authorizedAtSeconds * 1000).toISOString(),
+      stripe_capture_before:
+        captureBeforeSeconds === null
+          ? null
+          : new Date(captureBeforeSeconds * 1000).toISOString(),
       payment_status_source: "stripe",
     };
   } catch (err) {
@@ -249,6 +277,8 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       ...order,
       payment_status: projection.status,
       stripe_payment_intent_status: null,
+      stripe_authorized_at: null,
+      stripe_capture_before: null,
       payment_status_source: "stripe_lookup_failed",
     };
   }

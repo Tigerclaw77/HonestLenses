@@ -32,6 +32,11 @@ import {
   getAdminExceptionBadges,
   type AdminExceptionBadge,
 } from "@/lib/orders/adminPresentation";
+import {
+  authorizationRiskPriority,
+  getAuthorizationRisk,
+  type AuthorizationRisk,
+} from "@/lib/orders/authorizationRisk";
 import type { ManualVerificationAttemptMethod } from "@/lib/orders/verificationAttempts";
 import { isOrderRowControlTarget } from "@/lib/admin/orderRowInteraction";
 
@@ -93,6 +98,8 @@ type Order = {
   fulfillment_status?: string | null;
   payment_status?: PaymentStatus | null;
   stripe_payment_intent_status?: string | null;
+  stripe_authorized_at?: string | null;
+  stripe_capture_before?: string | null;
   payment_status_source?: string | null;
   operational_queue: OperationalQueueClassification;
   email_delivery_status?: string | null;
@@ -285,6 +292,9 @@ type OptimisticOrdersSnapshot = {
 type AdminApiPayload = {
   error?: string;
   code?: string;
+  payment_captured?: boolean;
+  payment_status?: string;
+  retryable?: boolean;
   reauthorization_required?: boolean;
   order?: Order;
   awaiting_verification?: Order[];
@@ -560,6 +570,27 @@ function formatAge(hours?: number | null): string {
   return `${Math.round(hours / 24)}d`;
 }
 
+function formatDuration(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms)) return "unknown";
+  const absoluteMs = Math.abs(ms);
+  const totalMinutes = Math.max(1, Math.ceil(absoluteMs / 60_000));
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const totalHours = Math.ceil(totalMinutes / 60);
+  if (totalHours < 48) return `${totalHours}h`;
+  return `${Math.ceil(totalHours / 24)}d`;
+}
+
+function authorizationRisk(order: Order, now = new Date()): AuthorizationRisk {
+  return getAuthorizationRisk(
+    {
+      stripePaymentIntentStatus: order.stripe_payment_intent_status,
+      authorizedAt: order.stripe_authorized_at,
+      captureBefore: order.stripe_capture_before,
+    },
+    now,
+  );
+}
+
 function compactName(
   ...parts: Array<string | null | undefined>
 ): string {
@@ -654,6 +685,18 @@ function normalizedPaymentStatus(order: Order): PaymentStatus {
 }
 
 function compareOperationalPriority(a: Order, b: Order): number {
+  const aRisk = authorizationRisk(a);
+  const bRisk = authorizationRisk(b);
+  const riskDifference =
+    authorizationRiskPriority(aRisk.level) -
+    authorizationRiskPriority(bRisk.level);
+  if (riskDifference !== 0) return riskDifference;
+
+  if (aRisk.remainingMs !== null && bRisk.remainingMs !== null) {
+    const deadlineDifference = aRisk.remainingMs - bRisk.remainingMs;
+    if (deadlineDifference !== 0) return deadlineDifference;
+  }
+
   return getOperationalSortTimestamp(b) - getOperationalSortTimestamp(a);
 }
 
@@ -1468,6 +1511,60 @@ function PrescriberVerificationTracker({
   );
 }
 
+function AuthorizationReviewBanner({ order }: { order: Order }) {
+  const risk = authorizationRisk(order);
+  const automationReason = order.rx_status?.startsWith("automation_review_")
+    ? order.rx_status
+        .slice("automation_review_".length)
+        .replaceAll("_", " ")
+    : null;
+  const urgent =
+    risk.level === "urgent" || risk.level === "expired";
+  const warning = urgent || risk.level === "warning";
+  const ageLabel =
+    risk.ageMs === null ? "unknown" : formatDuration(risk.ageMs);
+  const deadlineLabel =
+    risk.captureBefore === null
+      ? "Stripe did not provide a capture deadline"
+      : risk.level === "expired"
+        ? `Stripe deadline passed ${formatDuration(risk.remainingMs)} ago`
+        : `${formatDuration(risk.remainingMs)} remaining · ${formatAdminDateTime(
+            risk.captureBefore,
+          )}`;
+
+  return (
+    <div
+      data-testid="authorized-rx-review-banner"
+      role={warning ? "alert" : "status"}
+      style={{
+        border: `1px solid ${urgent ? "rgba(248,113,113,0.75)" : warning ? "rgba(251,191,36,0.68)" : "rgba(56,189,248,0.56)"}`,
+        borderRadius: 7,
+        background: urgent
+          ? "rgba(127,29,29,0.3)"
+          : warning
+            ? "rgba(120,53,15,0.25)"
+            : "rgba(12,74,110,0.24)",
+        color: urgent ? "#fecaca" : warning ? "#fde68a" : "#bae6fd",
+        padding: "8px 10px",
+        marginBottom: 9,
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 12,
+        alignItems: "center",
+        flexWrap: "wrap",
+      }}
+    >
+      <strong style={{ fontSize: 12, letterSpacing: "0.02em" }}>
+        AUTHORIZED — RX REVIEW REQUIRED
+      </strong>
+      <span style={{ fontSize: 11, fontWeight: warning ? 850 : 700 }}>
+        {automationReason ? `Exception: ${automationReason} · ` : ""}
+        Authorized {ageLabel} ago · {deadlineLabel}
+      </span>
+    </div>
+  );
+}
+
 
 
 function ActiveOrderCard({
@@ -1481,6 +1578,8 @@ function ActiveOrderCard({
   onOpenRxImage,
   onRecordVerificationAttempt,
   onAdvanceFulfillment,
+  onVerifyPrescription,
+  verificationFailure,
 }: {
   order: Order;
   isOpen: boolean;
@@ -1494,6 +1593,8 @@ function ActiveOrderCard({
     method: ManualVerificationAttemptMethod,
   ) => void;
   onAdvanceFulfillment: (status: FulfillmentStatus) => void;
+  onVerifyPrescription: () => void;
+  verificationFailure?: string | null;
 }) {
   const customerName = getCustomerName(order);
   const lensDisplay = getOrderLensDisplayName(order);
@@ -1505,6 +1606,7 @@ function ActiveOrderCard({
   const nextAction = getNextAction(order);
   const classification = getOrderOperationalClassification(order);
   const quantity = getOperationalCardQuantity(order);
+  const isFounderReview = classification.bucket === "founder_review";
   const totalBoxesLabel =
     quantity.total === "—" ? "—" : formatBoxCount(Number(quantity.total));
   const processingPanelId = `order-processing-${order.id}`;
@@ -1531,6 +1633,7 @@ function ActiveOrderCard({
         cursor: isOpen ? "default" : "pointer",
       }}
     >
+      {isFounderReview && <AuthorizationReviewBanner order={order} />}
       <div
         style={{
           display: "grid",
@@ -1732,7 +1835,46 @@ function ActiveOrderCard({
               </div>
 
               <div style={{ display: "grid", gap: 7 }}>
-                {nextFulfillment && (
+                {isFounderReview && (
+                  <button
+                    type="button"
+                    disabled={savingOrderId === order.id}
+                    onClick={onVerifyPrescription}
+                    style={buttonStyle({
+                      width: "100%",
+                      padding: "10px 11px",
+                      fontSize: 13,
+                      fontWeight: 900,
+                      background: "rgba(20,184,166,0.34)",
+                      border: "1px solid rgba(94,234,212,0.72)",
+                    })}
+                  >
+                    {savingOrderId === order.id
+                      ? "Verifying and capturing..."
+                      : "Verify prescription & capture payment"}
+                  </button>
+                )}
+
+                {verificationFailure && (
+                  <div
+                    role="alert"
+                    data-testid="verification-capture-failure"
+                    style={{
+                      border: "1px solid rgba(248,113,113,0.72)",
+                      borderRadius: 6,
+                      background: "rgba(127,29,29,0.32)",
+                      color: "#fecaca",
+                      padding: "8px 9px",
+                      fontSize: 11,
+                      fontWeight: 800,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    CAPTURE/VERIFICATION NOT COMPLETE: {verificationFailure}
+                  </div>
+                )}
+
+                {!isFounderReview && nextFulfillment && (
                   <button
                     type="button"
                     disabled={savingOrderId === order.id}
@@ -2174,6 +2316,9 @@ export default function AdminOrdersPage() {
   );
   const [adminError, setAdminError] = useState<string | null>(null);
   const [adminNotice, setAdminNotice] = useState<AdminNotice | null>(null);
+  const [verificationFailures, setVerificationFailures] = useState<
+    Record<string, string>
+  >({});
   const [queueIntegrityIssues, setQueueIntegrityIssues] = useState<
     AdminQueueIntegrityIssue[]
   >([]);
@@ -2426,6 +2571,18 @@ export default function AdminOrdersPage() {
     order: Order,
     newStatus: FulfillmentStatus,
   ) {
+    if (
+      getOrderOperationalBucket(order) === "founder_review" &&
+      newStatus !== "review" &&
+      newStatus !== "hold" &&
+      newStatus !== "cancelled"
+    ) {
+      setAdminError(
+        "Review the uploaded prescription and use Verify prescription & capture payment before advancing fulfillment.",
+      );
+      return;
+    }
+
     const transition = assessAdminFulfillmentTransition(order, newStatus);
     if (!transition.valid || !transition.allowed) {
       setAdminError("Invalid fulfillment status.");
@@ -2448,6 +2605,93 @@ export default function AdminOrdersPage() {
     }
 
     await updateAdminOrder(order.id, { fulfillment_status: newStatus });
+  }
+
+  async function verifyUploadedPrescription(order: Order) {
+    if (getOrderOperationalBucket(order) !== "founder_review") {
+      setAdminError("This order is not awaiting uploaded-prescription review.");
+      return;
+    }
+
+    const captureAmount = formatMoney(effectiveCaptureAmountCents(order));
+    if (
+      !window.confirm(
+        [
+          "Confirm prescription review?",
+          "",
+          "This confirms that you reviewed the uploaded prescription and found it valid for this order.",
+          `Stripe will capture ${captureAmount} immediately.`,
+        ].join("\n"),
+      )
+    ) {
+      return;
+    }
+
+    setSavingOrderId(order.id);
+    setExpanded(order.id);
+    setAdminError(null);
+    setVerificationFailures((current) => {
+      const next = { ...current };
+      delete next[order.id];
+      return next;
+    });
+
+    try {
+      const response = await fetch(`/api/orders/${order.id}/verify`, {
+        method: "POST",
+        headers: await authHeaders(),
+        credentials: "same-origin",
+        body: JSON.stringify({}),
+      });
+      const payload = await readAdminApiPayload(response);
+
+      if (!response.ok) {
+        const message = adminApiErrorMessage(
+          payload,
+          "Verification and capture did not complete. Refresh Stripe status and retry.",
+        );
+        setVerificationFailures((current) => ({
+          ...current,
+          [order.id]: message,
+        }));
+        setAdminError(
+          payload.payment_captured
+            ? `Payment may already be captured for ${order.id}, but local verification did not complete. Retry the same Verify action to reconcile it.`
+            : `Verification/capture failed for ${order.id}. The order remains blocked; review Stripe status and retry.`,
+        );
+        await fetchData();
+        return;
+      }
+
+      await fetchData();
+      setVerificationFailures((current) => {
+        const next = { ...current };
+        delete next[order.id];
+        return next;
+      });
+      setAdminNotice({
+        tone: payload.event_logged === false ? "info" : "success",
+        message:
+          payload.event_logged === false
+            ? "Prescription verified and payment captured, but the audit event was not recorded."
+            : "Prescription verified and payment captured. The order is ready to place.",
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "The verification request could not be completed.";
+      setVerificationFailures((current) => ({
+        ...current,
+        [order.id]: `${message} Refresh payment status and retry; the order remains blocked until confirmed.`,
+      }));
+      setAdminError(
+        `Verification/capture could not be confirmed for ${order.id}. Review Stripe status and retry.`,
+      );
+      await fetchData();
+    } finally {
+      setSavingOrderId(null);
+    }
   }
 
   function openNotes(order: Order, patientName: string) {
@@ -3341,6 +3585,10 @@ export default function AdminOrdersPage() {
                     onAdvanceFulfillment={(status) =>
                       updateFulfillmentStatus(o, status)
                     }
+                    onVerifyPrescription={() =>
+                      verifyUploadedPrescription(o)
+                    }
+                    verificationFailure={verificationFailures[o.id]}
                   />
                 ))}
               </div>
