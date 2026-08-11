@@ -133,6 +133,22 @@ export const ROUTE_AUTHORIZATION_POLICY: Record<string, RoutePolicy> = {
     access: "public",
     guard: "rateLimitedGuestCreate",
   },
+  "src/app/api/prescription-handoffs/route.ts": {
+    access: "customer-owned",
+    guard: "requireOrderAccess",
+  },
+  "src/app/api/prescription-handoffs/[id]/route.ts": {
+    access: "customer-owned",
+    guard: "requireOrderAccess",
+  },
+  "src/app/api/prescription-handoffs/mobile/status/route.ts": {
+    access: "capability",
+    guard: "expiringPrescriptionHandoffToken",
+  },
+  "src/app/api/prescription-handoffs/mobile/upload/route.ts": {
+    access: "capability",
+    guard: "singleUsePrescriptionHandoffToken",
+  },
   "src/app/api/resolve-lens/route.ts": {
     access: "public",
     guard: "rateLimit",

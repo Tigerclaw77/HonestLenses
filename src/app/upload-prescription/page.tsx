@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase-client";
 import Link from "next/link";
 import Header from "../../components/Header";
+import PrescriptionPhoneHandoffModal from "../../components/PrescriptionPhoneHandoffModal";
 import { Suspense } from "react";
 import {
   POSTHOG_EVENTS,
@@ -113,6 +114,11 @@ function UploadPrescriptionContent() {
   const [error, setError] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>("checking");
   const [resumePromptVisible, setResumePromptVisible] = useState(false);
+  const [phoneModalOpen, setPhoneModalOpen] = useState(false);
+  const [phoneOrderId, setPhoneOrderId] = useState<string | null>(null);
+  const [phoneAccessToken, setPhoneAccessToken] = useState<string | null>(null);
+  const [phoneLaunchLoading, setPhoneLaunchLoading] = useState(false);
+  const [mobileUploadCompleted, setMobileUploadCompleted] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -326,6 +332,7 @@ function UploadPrescriptionContent() {
     }
 
     setError(null);
+    setMobileUploadCompleted(false);
     setResumePromptVisible(false);
     setFile(selected);
     setCurrentUploadTelemetryState({
@@ -342,6 +349,7 @@ function UploadPrescriptionContent() {
 
   function clearFile() {
     setFile(null);
+    setMobileUploadCompleted(false);
     setCurrentUploadTelemetryState({
       stage: "file_cleared",
       has_file: false,
@@ -384,6 +392,46 @@ function UploadPrescriptionContent() {
     }
 
     return body.orderId;
+  }
+
+  function continueToConfirmation(orderId: string) {
+    const params = new URLSearchParams({ orderId });
+    if (rightLens) params.set("right", rightLens);
+    if (leftLens) params.set("left", leftLens);
+    router.push(`/upload-prescription/confirm?${params.toString()}`);
+  }
+
+  async function openPhoneHandoff() {
+    if (phoneLaunchLoading) return;
+    setPhoneLaunchLoading(true);
+    setError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token ?? null;
+      const orderId = await getOrCreateDraftOrder(accessToken);
+      localStorage.setItem(LS_ORDER_ID, orderId);
+      setPhoneOrderId(orderId);
+      setPhoneAccessToken(accessToken);
+      setPhoneModalOpen(true);
+    } catch (launchError) {
+      setError(launchError instanceof Error ? launchError.message : "Unable to start mobile upload.");
+    } finally {
+      setPhoneLaunchLoading(false);
+    }
+  }
+
+  function handleMobileUploadComplete(orderId: string) {
+    localStorage.setItem(LS_ORDER_ID, orderId);
+    setFile(null);
+    setMobileUploadCompleted(true);
+    setPhoneModalOpen(false);
+    setError(null);
+    setCurrentUploadTelemetryState({
+      stage: "mobile_upload_completed",
+      has_file: true,
+      order_id: orderId,
+      verification_mode: "upload",
+    });
   }
 
   async function submitUpload() {
@@ -550,7 +598,7 @@ function UploadPrescriptionContent() {
 
   const uploadButtonLabel = loading
     ? "Uploading..."
-    : file
+    : file || mobileUploadCompleted
       ? "Continue to cart"
       : resumePromptVisible
         ? "Continue upload"
@@ -597,7 +645,7 @@ function UploadPrescriptionContent() {
             {/* Upload Card */}
 
             <div
-              className={`rx-choice-card rx-dropzone ${file ? "has-file" : ""}`}
+              className={`rx-choice-card rx-dropzone ${file || mobileUploadCompleted ? "has-file" : ""}`}
               onClick={() => {
                 recordRecentUserAction("rx_upload_dropzone_click", {
                   has_file: Boolean(file),
@@ -653,7 +701,7 @@ function UploadPrescriptionContent() {
                 </div>
               )}
 
-              {file && (
+              {(file || mobileUploadCompleted) && (
                 <div
                   style={{
                     marginTop: 20,
@@ -713,9 +761,13 @@ function UploadPrescriptionContent() {
                 onClick={(e) => {
                   e.stopPropagation();
                   recordRecentUserAction("rx_upload_cta_click", {
-                    has_file: Boolean(file),
+                    has_file: Boolean(file) || mobileUploadCompleted,
                     loading,
                   });
+                  if (mobileUploadCompleted && phoneOrderId) {
+                    continueToConfirmation(phoneOrderId);
+                    return;
+                  }
                   if (!file) {
                     void trackFunnelEvent(
                       POSTHOG_EVENTS.RX_UPLOAD_CTA_CLICKED_WITHOUT_FILE,
@@ -736,6 +788,18 @@ function UploadPrescriptionContent() {
                 }}
               >
                 {uploadButtonLabel}
+              </button>
+
+              <button
+                type="button"
+                className="phone-upload-action"
+                disabled={phoneLaunchLoading || loading}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void openPhoneHandoff();
+                }}
+              >
+                {phoneLaunchLoading ? "Preparing secure code…" : "Upload from your phone"}
               </button>
 
               {error && <p className="order-error">{error}</p>}
@@ -786,6 +850,13 @@ function UploadPrescriptionContent() {
           </p>
         </section>
       </main>
+      <PrescriptionPhoneHandoffModal
+        isOpen={phoneModalOpen}
+        orderId={phoneOrderId}
+        accessToken={phoneAccessToken}
+        onClose={() => setPhoneModalOpen(false)}
+        onComplete={handleMobileUploadComplete}
+      />
     </>
   );
 }

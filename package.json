@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "test": "tsx src/lib/auth/securityRegression.test.ts && tsx src/lib/security/writeDrain.test.ts && tsx src/lib/security/uploadValidation.test.ts && tsx src/lib/uploadFlow.test.ts && tsx src/lib/cart/resolveQuantities.test.ts && tsx src/lib/shipping/annualSupply.test.ts && tsx src/lib/emailDelivery.test.ts && tsx src/lib/founderAlerts.test.ts && tsx src/lib/founderAlertWiring.test.ts && tsx src/lib/internal-auth.test.ts && tsx src/lib/admin/time.test.ts && tsx src/lib/orders/adminWorkflow.test.ts && tsx src/lib/orders/adminPresentation.test.ts && tsx src/lib/orders/adminQueueLayout.test.ts && tsx src/lib/orders/verificationAttempts.test.ts && tsx src/lib/orders/checkoutSuccess.test.ts && tsx src/lib/orders/operationalQueue.matrix.ts && tsx src/lib/orders/armoryRouting.test.ts && tsx src/lib/orders/customerOrder.test.ts && tsx src/lib/orders/productionIntegrity.test.ts && tsx src/lib/display/getLensImage.test.ts && tsx src/lib/commerce-v2/commerceV2.test.ts && tsx src/lib/commerce-v2/schemaContract.test.ts",
+    "test": "tsx src/lib/auth/securityRegression.test.ts && tsx src/lib/security/writeDrain.test.ts && tsx src/lib/security/uploadValidation.test.ts && tsx src/lib/prescriptionHandoff.test.ts && tsx src/lib/mobilePrescriptionImage.test.ts && tsx src/lib/uploadFlow.test.ts && tsx src/lib/cart/resolveQuantities.test.ts && tsx src/lib/shipping/annualSupply.test.ts && tsx src/lib/emailDelivery.test.ts && tsx src/lib/founderAlerts.test.ts && tsx src/lib/founderAlertWiring.test.ts && tsx src/lib/internal-auth.test.ts && tsx src/lib/admin/time.test.ts && tsx src/lib/orders/adminWorkflow.test.ts && tsx src/lib/orders/adminPresentation.test.ts && tsx src/lib/orders/adminQueueLayout.test.ts && tsx src/lib/orders/verificationAttempts.test.ts && tsx src/lib/orders/checkoutSuccess.test.ts && tsx src/lib/orders/operationalQueue.matrix.ts && tsx src/lib/orders/armoryRouting.test.ts && tsx src/lib/orders/customerOrder.test.ts && tsx src/lib/orders/productionIntegrity.test.ts && tsx src/lib/display/getLensImage.test.ts && tsx src/lib/commerce-v2/commerceV2.test.ts && tsx src/lib/commerce-v2/schemaContract.test.ts",
     "test:security:database": "node scripts/security/run-database-gate.mjs",
     "test:security:hosted-supabase": "node scripts/security/run-hosted-supabase-gate.mjs",
     "test:security:stripe": "tsx scripts/security/run-stripe-test-gate.ts",
@@ -26,6 +26,7 @@
     "next": "^16.1.6",
     "openai": "^6.34.0",
     "posthog-js": "^1.373.4",
+    "qrcode": "^1.5.4",
     "react": "19.2.3",
     "react-day-picker": "^9.13.2",
     "react-dom": "19.2.3",
@@ -33,12 +34,15 @@
     "stripe": "^20.3.0"
   },
   "devDependencies": {
+    "@embedded-postgres/windows-x64": "17.6.0-beta.15",
     "@types/node": "^20",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "pg": "8.22.0",
     "tsx": "^4.21.0",
     "typescript": "^5"
   }
