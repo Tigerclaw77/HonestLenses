@@ -845,8 +845,8 @@ function UploadPrescriptionContent() {
           </div>
 
           <p className="order-fineprint">
-            Prescription information is used to verify and fill your order.
-            Payment and fulfillment only proceed after the required review.
+            You can complete payment now. Lenses ship only after prescription
+            verification is complete.
           </p>
         </section>
       </main>
