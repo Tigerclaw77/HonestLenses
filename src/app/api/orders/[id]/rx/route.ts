@@ -273,6 +273,10 @@ export async function POST(
       rx: sanitizedRx,
       sku,
       verification_status: nextVerificationStatus,
+      rx_source: order.rx_upload_path ? "ocr" : order.rx_source ?? "manual",
+      rx_status: order.rx_upload_path
+        ? "uploaded_customer_confirmed"
+        : order.rx_source ?? "manual",
       patient_name: patient_name || null,
       prescriber_name: prescriber_name || null,
       prescriber_phone: prescriber_phone || null,

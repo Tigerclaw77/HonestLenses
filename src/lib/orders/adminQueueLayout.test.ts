@@ -348,6 +348,19 @@ for (const removedQueueRecordSignal of [
 
 assert.ok(activeCard.includes("PrescriberVerificationTracker"));
 assert.ok(
+  source.includes("AUTHORIZED — RX REVIEW REQUIRED") &&
+    activeCard.includes("AuthorizationReviewBanner"),
+  "authorized uploaded orders carry a prominent review-required banner",
+);
+assert.ok(
+  activeCard.includes("Verify prescription & capture payment"),
+  "uploaded-Rx review has a dedicated verify-and-capture action",
+);
+assert.ok(
+  activeCard.includes("verification-capture-failure"),
+  "capture failures remain attached to the affected order",
+);
+assert.ok(
   source.includes('"minmax(125px, 0.65fr) repeat(3, minmax(0, 1fr))"'),
   "verification attempts render as one compact tracker row",
 );

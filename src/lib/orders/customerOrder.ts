@@ -148,15 +148,19 @@ export function getCustomerOrderUrl(orderId: string, siteUrl?: string): string {
 export function buildCustomerOrderEmail({
   orderId,
   isUploaded,
+  uploadedVerificationComplete = false,
   siteUrl,
 }: {
   orderId: string;
   isUploaded: boolean;
+  uploadedVerificationComplete?: boolean;
   siteUrl?: string;
 }): { subject: string; html: string; text: string; orderUrl: string } {
   const orderUrl = getCustomerOrderUrl(orderId, siteUrl);
-  const verificationMessage = isUploaded
-    ? "Your prescription has been received and is awaiting required review."
+  const verificationMessage = uploadedVerificationComplete
+    ? "Your uploaded prescription was verified and your payment was completed."
+    : isUploaded
+      ? "Your prescription has been received and is awaiting required review."
     : "We will contact your doctor to verify your prescription before shipping.";
 
   return {

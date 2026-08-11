@@ -104,9 +104,12 @@ export async function POST(
 
   let capturePaymentIntentId: string | null = null;
   if (!priceChanged) {
-    if (order.status !== "authorized") {
+    if (order.status !== "authorized" && order.status !== "captured") {
       return NextResponse.json(
-        { error: "Only an authorized order can be verified and captured." },
+        {
+          error:
+            "Only an authorized or already-captured order can be verified and reconciled.",
+        },
         { status: 409 },
       );
     }
@@ -118,14 +121,19 @@ export async function POST(
       capturePaymentIntentId = capture.paymentIntentId;
     } catch {
       return NextResponse.json(
-        { error: "The authorized payment could not be captured." },
+        {
+          error:
+            "Stripe capture was not confirmed. The order remains unverified; refresh its payment status and retry.",
+          code: "CAPTURE_NOT_CONFIRMED",
+          retryable: true,
+        },
         { status: 409 },
       );
     }
   }
 
   // 5️⃣ Apply verification outcome
-  const { error: updateError } = await supabaseServer
+  let updateQuery = supabaseServer
     .from("orders")
     .update({
       verification_status: priceChanged ? "altered" : "verified",
@@ -139,17 +147,38 @@ export async function POST(
       verified_lens: body.verified_lens ?? null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", orderId)
-    .eq("status", order.status);
+    .eq("id", orderId);
 
-  if (updateError) {
+  updateQuery = priceChanged
+    ? updateQuery.eq("status", order.status)
+    : updateQuery.in("status", ["authorized", "captured"]);
+
+  if (order.payment_intent_id) {
+    updateQuery = updateQuery.eq("payment_intent_id", order.payment_intent_id);
+  }
+
+  const { data: updatedOrder, error: updateError } = await updateQuery
+    .select("id, status, verification_status")
+    .maybeSingle();
+
+  if (updateError || !updatedOrder) {
     return NextResponse.json(
-      { error: "Unable to save the verification override." },
+      {
+        error:
+          capturePaymentIntentId
+            ? "Payment is captured, but the verified order state was not saved. Do not fulfill from this screen; retry verification to reconcile the local state."
+            : "Unable to save the verification override.",
+        code: capturePaymentIntentId
+          ? "CAPTURED_STATE_UPDATE_FAILED"
+          : "VERIFICATION_STATE_UPDATE_FAILED",
+        payment_captured: Boolean(capturePaymentIntentId),
+        retryable: true,
+      },
       { status: 500 }
     );
   }
 
-  await supabaseServer.from("order_events").insert({
+  const { error: eventError } = await supabaseServer.from("order_events").insert({
     order_id: orderId,
     event_type: "admin_verification_override",
     actor: auth.user.email ?? auth.user.id,
@@ -181,7 +210,9 @@ export async function POST(
   return NextResponse.json({
     ok: true,
     verification_status: priceChanged ? "altered" : "verified",
+    payment_status: priceChanged ? "authorized" : "captured",
     total_amount_cents: originalCents,
     revised_total_amount_cents: priceChanged ? revisedCents : null,
+    event_logged: !eventError,
   });
 }

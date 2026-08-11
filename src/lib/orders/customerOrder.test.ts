@@ -57,6 +57,17 @@ assert.match(confirmation.html, /View Your Order/);
 assert.match(confirmation.html, new RegExp(`/order/${ORDER_ID}`));
 assert.match(confirmation.text, new RegExp(`/order/${ORDER_ID}`));
 
+const automatedUploadConfirmation = buildCustomerOrderEmail({
+  orderId: ORDER_ID,
+  isUploaded: true,
+  uploadedVerificationComplete: true,
+});
+assert.match(
+  automatedUploadConfirmation.text,
+  /uploaded prescription was verified and your payment was completed/i,
+);
+assert.doesNotMatch(automatedUploadConfirmation.text, /awaiting required review/i);
+
 const receipt = buildCustomerReceiptHtml({
   ...order,
   sku: "<script>alert('no')</script>",

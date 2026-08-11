@@ -10,6 +10,7 @@ import { POSTHOG_EVENTS } from "@/lib/posthog/client";
 import { captureClientError } from "@/lib/telemetry/clientErrors";
 import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 import { hasUploadedEvidenceWithoutPrescription } from "@/lib/uploadFlow";
+import type { OcrExtract } from "@/types/ocr";
 
 /* =========================
    TYPES
@@ -48,6 +49,7 @@ export default function ConfirmClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [initialDraft, setInitialDraft] = useState<RxDraft | null>(null);
+  const [ocrExtract, setOcrExtract] = useState<OcrExtract | null>(null);
   const [recoveryRequired, setRecoveryRequired] = useState(false);
 
   const recoveryParams = new URLSearchParams();
@@ -103,6 +105,7 @@ export default function ConfirmClient() {
           right?: Eye;
           expires?: string;
         };
+        const rawOcr = order.rx_ocr_raw as Record<string, unknown> | null;
 
         const mapEye = (eye?: Eye): RxDraft["left"] => {
           const rawString = (eye?.brand_raw ?? "").trim();
@@ -171,6 +174,38 @@ export default function ConfirmClient() {
         };
 
         setInitialDraft(draft);
+        const firstEye =
+          rx.right && Object.keys(rx.right).length ? rx.right : rx.left;
+        const rawBrand = String(firstEye?.brand_raw ?? "").trim();
+        const resolved = rawBrand
+          ? resolveBrand(
+              {
+                rawString: rawBrand,
+                hasCyl: firstEye?.cylinder != null,
+                hasAdd: Boolean(firstEye?.add),
+                bc: firstEye?.base_curve ? Number(firstEye.base_curve) : null,
+                dia: firstEye?.diameter ? Number(firstEye.diameter) : null,
+              },
+              lenses,
+            )
+          : null;
+        setOcrExtract({
+          patientName:
+            typeof rawOcr?.patient_name === "string"
+              ? rawOcr.patient_name
+              : undefined,
+          doctorName:
+            typeof rawOcr?.doctor_name === "string"
+              ? rawOcr.doctor_name
+              : undefined,
+          doctorPhone:
+            typeof rawOcr?.prescriber_phone === "string"
+              ? rawOcr.prescriber_phone
+              : undefined,
+          expires: rx.expires,
+          proposedLensId: resolved?.lensId ?? null,
+          proposalConfidence: resolved?.confidence ?? null,
+        });
         setError(null);
         void trackFunnelEvent(POSTHOG_EVENTS.UPLOAD_RESUME_AFTER_AUTH, {
           resumed: true,
@@ -239,7 +274,7 @@ export default function ConfirmClient() {
 
   return (
     <div style={{ padding: 40 }}>
-      <RxForm initialDraft={initialDraft} />
+      <RxForm mode="ocr" initialDraft={initialDraft} ocrExtract={ocrExtract ?? undefined} />
     </div>
   );
 }
