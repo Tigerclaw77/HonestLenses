@@ -357,15 +357,17 @@ export default function ExpirationDatePicker({
               pos.mode === "sheet"
                 ? {
                     position: "fixed",
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
+                    left: 12,
+                    right: 12,
+                    bottom: "max(12px, env(safe-area-inset-bottom))",
                     zIndex: 9999,
-                    padding: 18,
+                    maxHeight: "calc(100dvh - 24px)",
+                    overflowY: "auto",
+                    padding: 12,
                     background:
                       "linear-gradient(180deg, rgba(12,18,32,0.98), rgba(7,10,18,0.98))",
-                    borderTopLeftRadius: 18,
-                    borderTopRightRadius: 18,
+                    border: "1px solid rgba(255,255,255,0.10)",
+                    borderRadius: 18,
                     boxShadow: "0 -18px 60px rgba(0,0,0,0.75)",
                   }
                 : {
@@ -389,8 +391,8 @@ export default function ExpirationDatePicker({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                gap: 12,
-                marginBottom: 12,
+                gap: pos.mode === "sheet" ? 8 : 12,
+                marginBottom: pos.mode === "sheet" ? 8 : 12,
               }}
             >
               <button
@@ -398,13 +400,15 @@ export default function ExpirationDatePicker({
                 onClick={() => setMonth((m) => subMonths(m, 1))}
                 aria-label="Previous month"
                 style={{
-                  width: 42,
-                  height: 42,
+                  width: pos.mode === "sheet" ? 44 : 42,
+                  height: pos.mode === "sheet" ? 44 : 42,
+                  flex: "0 0 auto",
                   borderRadius: 12,
                   border: "1px solid rgba(255,255,255,0.12)",
                   background: "rgba(255,255,255,0.06)",
                   color: "rgba(255,255,255,0.92)",
                   cursor: "pointer",
+                  touchAction: "manipulation",
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -431,10 +435,12 @@ export default function ExpirationDatePicker({
               <div
                 style={{
                   flex: 1,
+                  minWidth: 0,
                   textAlign: "center",
-                  fontSize: 20,
+                  fontSize: pos.mode === "sheet" ? 18 : 20,
                   fontWeight: 700,
                   letterSpacing: "0.02em",
+                  whiteSpace: "nowrap",
                   color: "rgba(255,255,255,0.96)",
                 }}
               >
@@ -446,13 +452,15 @@ export default function ExpirationDatePicker({
                 onClick={() => setMonth((m) => addMonths(m, 1))}
                 aria-label="Next month"
                 style={{
-                  width: 42,
-                  height: 42,
+                  width: pos.mode === "sheet" ? 44 : 42,
+                  height: pos.mode === "sheet" ? 44 : 42,
+                  flex: "0 0 auto",
                   borderRadius: 12,
                   border: "1px solid rgba(255,255,255,0.12)",
                   background: "rgba(255,255,255,0.06)",
                   color: "rgba(255,255,255,0.92)",
                   cursor: "pointer",
+                  touchAction: "manipulation",
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -481,8 +489,9 @@ export default function ExpirationDatePicker({
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(7, 1fr)",
-                gap: 8,
-                padding: "4px 2px 10px",
+                gap: pos.mode === "sheet" ? 4 : 8,
+                padding:
+                  pos.mode === "sheet" ? "2px 0 6px" : "4px 2px 10px",
               }}
             >
               {weekdayLabels.map((w) => (
@@ -506,8 +515,8 @@ export default function ExpirationDatePicker({
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(7, 1fr)",
-                gap: 8,
-                paddingBottom: pos.mode === "sheet" ? 8 : 0,
+                gap: pos.mode === "sheet" ? 4 : 8,
+                paddingBottom: pos.mode === "sheet" ? 4 : 0,
               }}
             >
               {days.map((d, i) => {
@@ -568,7 +577,7 @@ export default function ExpirationDatePicker({
             {pos.mode === "sheet" && (
               <div
                 style={{
-                  marginTop: 14,
+                  marginTop: 10,
                   display: "flex",
                   justifyContent: "center",
                 }}
@@ -579,7 +588,7 @@ export default function ExpirationDatePicker({
                   style={{
                     width: "100%",
                     maxWidth: 520,
-                    height: 46,
+                    height: 44,
                     borderRadius: 14,
                     border: "1px solid rgba(255,255,255,0.12)",
                     background: "rgba(255,255,255,0.06)",
