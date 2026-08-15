@@ -9,6 +9,7 @@ import {
 } from "@/lib/order-access";
 import { getSkuBoxDurationMonths } from "../../../../lib/pricing/skuDefaults";
 import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
+import { isSkuAvailableForCoreId } from "@/lib/pricing/packSizeOptions";
 import {
   hasResolvedCartQuantity,
   resolveCartEyeBoxCounts,
@@ -79,6 +80,7 @@ type RxData = {
 
 type ResolveBody = {
   order_id?: string;
+  sku?: string;
   right_box_count?: number | null;
   left_box_count?: number | null;
   shipping_method?: string;
@@ -119,6 +121,13 @@ function isResolveBody(value: unknown): value is ResolveBody {
     value.order_id !== undefined &&
     value.order_id !== null &&
     typeof value.order_id !== "string"
+  )
+    return false;
+
+  if (
+    value.sku !== undefined &&
+    value.sku !== null &&
+    typeof value.sku !== "string"
   )
     return false;
 
@@ -324,7 +333,10 @@ export async function POST(req: Request) {
     );
   }
 
-  const coreId = rx.right?.coreId ?? rx.left?.coreId ?? null;
+  const coreIds = [rx.right?.coreId, rx.left?.coreId].filter(
+    (value): value is string => Boolean(value),
+  );
+  const coreId = coreIds[0] ?? null;
 
   if (!coreId) {
     return NextResponse.json({ error: "Missing coreId." }, { status: 400 });
@@ -363,7 +375,28 @@ export async function POST(req: Request) {
     remainingDays,
   });
 
-  const resolvedSku = resolveDefaultSku(coreId, targetMonths);
+  const requestedSku = body?.sku?.trim() || null;
+  if (
+    requestedSku &&
+    !coreIds.every((eyeCoreId) =>
+      isSkuAvailableForCoreId(eyeCoreId, requestedSku),
+    )
+  ) {
+    return NextResponse.json(
+      { error: "Requested pack size is not available for this lens." },
+      { status: 400 },
+    );
+  }
+
+  const storedSku =
+    typeof order.sku === "string" &&
+    coreIds.every((eyeCoreId) =>
+      isSkuAvailableForCoreId(eyeCoreId, order.sku as string),
+    )
+      ? order.sku
+      : null;
+  const resolvedSku =
+    requestedSku ?? storedSku ?? resolveDefaultSku(coreId, targetMonths);
   if (!resolvedSku) {
     return NextResponse.json({ error: "No SKU found." }, { status: 400 });
   }
@@ -375,8 +408,12 @@ export async function POST(req: Request) {
   const storedEyeQuantityPresence = getStoredEyeQuantityPresence(order);
   const hasRequestedQuantity =
     hasOwn(body, "right_box_count") || hasOwn(body, "left_box_count");
+  const hasRequestedPackSize = hasOwn(body, "sku");
 
-  if (storedQuantity.adjusted && hasRequestedQuantity) {
+  if (
+    storedQuantity.adjusted &&
+    (hasRequestedQuantity || hasRequestedPackSize)
+  ) {
     return NextResponse.json(
       {
         error:

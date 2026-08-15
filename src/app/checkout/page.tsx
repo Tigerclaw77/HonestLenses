@@ -27,6 +27,7 @@ import {
   getFeedbackAmountDueCents,
   normalizeFeedbackCreditCents,
 } from "@/lib/abandonmentFeedback";
+import styles from "./checkout.module.css";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!,
@@ -348,14 +349,8 @@ function CheckoutForm({
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div
-        style={{
-          background: "#ffffff",
-          padding: 24,
-          borderRadius: 12,
-        }}
-      >
+    <form className={styles.paymentForm} onSubmit={handleSubmit}>
+      <div className={styles.paymentSurface}>
         <PaymentElement options={paymentElementOptions} />
         <div
           aria-label="Payments powered by Stripe"
@@ -661,54 +656,30 @@ function CheckoutInner() {
   const amountDueCents = order.amount_due_cents;
 
   return (
-    <main>
-      <section className="content-shell">
+    <main className={styles.page}>
+      <section className={styles.shell}>
         <h1 className="upper content-title">Secure Checkout</h1>
 
-        <p
-          style={{
-            color: "#cbd5e1",
-            maxWidth: 720,
-            lineHeight: 1.6,
-            marginTop: -6,
-            marginBottom: 18,
-          }}
-        >
+        <p className={styles.intro}>
           Contact lenses require a valid prescription before fulfillment. Your
           card is handled through Stripe; authorization and capture follow the
           verification status of your order.
         </p>
 
-        <div
-          className="order-card"
-          style={{
-            background: "#0f172a",
-            padding: 36,
-            borderRadius: 16,
-            boxShadow: "0 10px 50px rgba(0,0,0,0.5)",
-          }}
-        >
-          <div
-            style={{
-              background: "linear-gradient(180deg,#ffffff,#f8fafc)",
-              color: "#0f172a",
-              padding: 20,
-              borderRadius: 12,
-              marginBottom: 20,
-            }}
-          >
+        <div className={styles.card}>
+          <div className={styles.summary}>
             <h2 style={{ marginBottom: 10, fontSize: 22 }}>
               Order Summary
             </h2>
 
             <div style={{ display: "grid", gap: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <div className={styles.summaryRow}>
                 <div style={{ fontWeight: 700 }}>Subtotal</div>
                 <div style={{ fontWeight: 800 }}>
                   ${(subtotalCents / 100).toFixed(2)}
                 </div>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <div className={styles.summaryRow}>
                 <div style={{ fontWeight: 700 }}>
                   {shippingMethod === "express"
                     ? "Express Shipping"
@@ -722,12 +693,8 @@ function CheckoutInner() {
               </div>
               {feedbackCreditCents > 0 && (
                 <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 10,
-                    color: "#5b21b6",
-                  }}
+                  className={styles.summaryRow}
+                  style={{ color: "#5b21b6" }}
                 >
                   <div style={{ fontWeight: 800 }}>Feedback credit</div>
                   <div style={{ fontWeight: 900 }}>
@@ -735,7 +702,7 @@ function CheckoutInner() {
                   </div>
                 </div>
               )}
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <div className={styles.summaryRow}>
                 <div style={{ fontWeight: 800 }}>Total</div>
                 <div style={{ fontWeight: 900 }}>
                   ${(amountDueCents / 100).toFixed(2)}

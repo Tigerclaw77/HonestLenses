@@ -31,6 +31,13 @@ import { getCartLensAnalyticsProperties } from "@/lib/posthog/lensMetadata";
 import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 import { normalizeFeedbackCreditCents } from "@/lib/abandonmentFeedback";
 import { SAVE_CART_EXIT_INTENT_SESSION_KEY } from "@/lib/saveCartExitIntent";
+import {
+  convertEquivalentPackQuantity,
+  getNextLargerPackSizeOption,
+  getNextSmallerPackSizeOption,
+  getPackSizeOptionsForCoreId,
+  type PackSizeOption,
+} from "@/lib/pricing/packSizeOptions";
 
 const DEV_MODE =
   process.env.NODE_ENV === "development" && process.env.VERCEL !== "1";
@@ -85,6 +92,23 @@ export default function CartPage() {
   const defaultPerEye = quantityConfig?.defaultPerEye ?? 1;
   const quantityOptions = quantityConfig?.options ?? [1, 2, 3, 4, 6, 8];
   const durationLabel = quantityConfig?.durationLabel ?? "box";
+
+  const packCoreId = useMemo(() => {
+    const rightCoreId = cart?.rx?.right?.coreId ?? null;
+    const leftCoreId = cart?.rx?.left?.coreId ?? null;
+    if (rightCoreId && leftCoreId && rightCoreId !== leftCoreId) return null;
+    return rightCoreId ?? leftCoreId;
+  }, [cart?.rx?.left?.coreId, cart?.rx?.right?.coreId]);
+
+  const packOptions = useMemo(
+    () => (packCoreId ? getPackSizeOptionsForCoreId(packCoreId) : []),
+    [packCoreId],
+  );
+
+  const currentPackOption = useMemo(
+    () => packOptions.find((option) => option.sku === sku) ?? null,
+    [packOptions, sku],
+  );
 
   /* ---------- Qty change ---------- */
 
@@ -392,6 +416,64 @@ export default function CartPage() {
 
   const canCheckout = !syncingQty && totalBoxes > 0 && previewAmountDue > 0;
 
+  const buildEquivalentPackChoice = (
+    target: PackSizeOption | null,
+  ): { option: PackSizeOption; right: number; left: number } | null => {
+    if (!target || !currentPackOption) return null;
+    const convertedRight = rightEye
+      ? convertEquivalentPackQuantity(
+          effectiveRight,
+          currentPackOption,
+          target,
+        )
+      : 0;
+    const convertedLeft = leftEye
+      ? convertEquivalentPackQuantity(
+          effectiveLeft,
+          currentPackOption,
+          target,
+        )
+      : 0;
+
+    if (convertedRight === null || convertedLeft === null) return null;
+    return { option: target, right: convertedRight, left: convertedLeft };
+  };
+
+  const smallerPackChoice = buildEquivalentPackChoice(
+    packCoreId ? getNextSmallerPackSizeOption(packCoreId, sku) : null,
+  );
+  const largerPackChoice = buildEquivalentPackChoice(
+    packCoreId ? getNextLargerPackSizeOption(packCoreId, sku) : null,
+  );
+  const equivalentPackChoice = smallerPackChoice ?? largerPackChoice;
+
+  async function handlePackSizeChange(
+    choice: NonNullable<typeof equivalentPackChoice>,
+  ) {
+    if (syncingQty || !cart) return;
+    const token = accessToken ?? (DEV_MODE ? DEV_ACCESS_TOKEN : null);
+
+    setSyncingQty(true);
+    setError(null);
+    try {
+      const updated = await resolveCart(token, {
+        sku: choice.option.sku,
+        right_box_count: rightEye ? choice.right : undefined,
+        left_box_count: leftEye ? choice.left : undefined,
+        shipping_method: shippingMethod,
+      });
+      setCart(updated);
+      setRightQtyOverride(null);
+      setLeftQtyOverride(null);
+    } catch (e) {
+      console.error("[CartPage] pack size update failed", e);
+      captureClientException(e, { source: "cart_pack_size_change" });
+      setError(e instanceof Error ? e.message : "Failed to update pack size.");
+    } finally {
+      setSyncingQty(false);
+    }
+  }
+
   /* ---------- Render ---------- */
 
   const cartUI = (
@@ -443,6 +525,32 @@ export default function CartPage() {
                 disabled={syncingQty}
               />
             </>
+          )}
+
+          {equivalentPackChoice && currentPackOption && (
+            <div className="hl-pack-choice">
+              <div>
+                <strong>
+                  {smallerPackChoice
+                    ? "Prefer smaller boxes?"
+                    : "Prefer fewer, larger boxes?"}
+                </strong>
+                <p>
+                  Switch {totalBoxes} × {currentPackOption.label} to{" "}
+                  {equivalentPackChoice.right + equivalentPackChoice.left} ×{" "}
+                  {equivalentPackChoice.option.label}. Same prescribed lenses
+                  and total lens quantity; your price updates for the selected
+                  box configuration.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={syncingQty}
+                onClick={() => void handlePackSizeChange(equivalentPackChoice)}
+              >
+                Use {equivalentPackChoice.option.label}s
+              </button>
+            </div>
           )}
 
           <hr className="hl-divider" />
