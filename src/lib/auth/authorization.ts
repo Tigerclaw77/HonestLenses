@@ -273,11 +273,13 @@ export async function getOrderAccess(request: Request): Promise<OrderAccess> {
   // while the browser also has an authenticated account session. Preserve both
   // principals: cart routes intentionally prefer the scoped guest cart, while
   // canAccessOrder still validates either principal against the requested row.
-  // An explicit Authorization header remains authoritative and never falls
-  // back to a guest capability.
-  const guestOrderId = request.headers.has("authorization")
-    ? null
-    : readGuestOrderIdFromCookieHeader(request.headers.get("cookie"));
+  // An invalid explicit Authorization header remains authoritative and never
+  // falls back to a guest capability; a valid bearer session can coexist with
+  // the signed guest capability established by the recovery link.
+  const guestOrderId =
+    !request.headers.has("authorization") || identity
+      ? readGuestOrderIdFromCookieHeader(request.headers.get("cookie"))
+      : null;
 
   if (identity) {
     return {
