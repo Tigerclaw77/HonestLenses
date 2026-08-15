@@ -4,6 +4,10 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../lib/supabase-server";
 import { getOrderAccess, setGuestOrderCookie } from "@/lib/order-access";
 import {
+  ACTIVE_CART_ORDER_STATUS,
+  isCartOrderRecent,
+} from "@/lib/cart/lifecycle";
+import {
   enforceRateLimit,
   rateLimitErrorResponse,
 } from "@/lib/security/rateLimit";
@@ -23,18 +27,15 @@ export async function POST(req: Request) {
     const access = await getOrderAccess(req);
     const user = access.user;
 
-    const TWO_HOURS_MS = 1000 * 60 * 60 * 2;
-
     /* =========================
        2️⃣ Find RECENT reusable draft
-       (no Stripe intent attached)
+       (checkout initialization does not consume it)
     ========================= */
 
     let draftsQuery = supabaseServer
       .from("orders")
-      .select("id, created_at")
-      .eq("status", "draft")
-      .is("payment_intent_id", null);
+      .select("id, created_at, updated_at")
+      .eq("status", ACTIVE_CART_ORDER_STATUS);
 
     if (access.guestOrderId) {
       draftsQuery = draftsQuery.eq("id", access.guestOrderId);
@@ -56,12 +57,15 @@ export async function POST(req: Request) {
       );
     }
 
-    const now = Date.now();
-
     const recentDraft = drafts?.find((d) => {
-      if (!d?.created_at) return false;
-      const age = now - new Date(d.created_at).getTime();
-      return age <= TWO_HOURS_MS;
+      if (!d) return false;
+      return isCartOrderRecent({
+        createdAt: d.created_at,
+        updatedAt: d.updated_at,
+        scopedGuestOrder: Boolean(
+          access.guestOrderId && d.id === access.guestOrderId,
+        ),
+      });
     });
 
     if (recentDraft?.id) {

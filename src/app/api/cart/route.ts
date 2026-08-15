@@ -3,6 +3,10 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 import { getOrderAccess, hasOrderAccessContext } from "@/lib/order-access";
+import {
+  ACTIVE_CART_ORDER_STATUS,
+  isCartOrderRecent,
+} from "@/lib/cart/lifecycle";
 
 /* =========================
    Types
@@ -52,8 +56,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ hasCart: false, order: null });
   }
 
-  const TWO_HOURS_MS = 1000 * 60 * 60 * 2;
-
   let query = supabaseServer
     .from("orders")
     .select(
@@ -79,8 +81,7 @@ export async function GET(req: Request) {
   payment_intent_id
 `,
     )
-    .eq("status", "draft")
-    .is("payment_intent_id", null)
+    .eq("status", ACTIVE_CART_ORDER_STATUS)
     .order("created_at", { ascending: false });
 
   if (access.guestOrderId) {
@@ -104,16 +105,17 @@ export async function GET(req: Request) {
      Filter to RECENT drafts
   ========================= */
 
-  const now = Date.now();
-
-  const recentOrders = orders.filter((o) => {
-    if (!o?.created_at) return false;
-    if (access.guestOrderId && o.id === access.guestOrderId) return true;
-
-    const timestamp = o.updated_at ?? o.created_at;
-    const age = now - new Date(timestamp).getTime();
-    return age <= TWO_HOURS_MS;
-  });
+  const recentOrders = orders.filter(
+    (o) =>
+      o &&
+      isCartOrderRecent({
+        createdAt: o.created_at,
+        updatedAt: o.updated_at,
+        scopedGuestOrder: Boolean(
+          access.guestOrderId && o.id === access.guestOrderId,
+        ),
+      }),
+  );
 
   if (recentOrders.length === 0) {
     return NextResponse.json({
