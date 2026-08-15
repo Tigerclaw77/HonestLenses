@@ -9,10 +9,7 @@ import { notFound } from "next/navigation";
 import { lenses } from "@/LensCore/data/lenses";
 import type { LensCore } from "@/LensCore/types";
 import ProductTelemetry from "@/components/analytics/ProductTelemetry";
-import {
-  HonestPriceComparison,
-  HonestPricePromise,
-} from "@/components/conversion/HonestPrice";
+import { HonestPricePromise } from "@/components/conversion/HonestPrice";
 import PurchaseTrust from "@/components/conversion/PurchaseTrust";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
@@ -274,7 +271,6 @@ export default async function LensPage({ params }: Props) {
             </section>
 
             <HonestPricePromise />
-            <HonestPriceComparison product={{ coreId: lens.coreId }} />
             <PurchaseTrust />
           </div>
 

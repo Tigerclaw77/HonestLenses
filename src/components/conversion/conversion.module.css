@@ -93,14 +93,30 @@
   padding: 1rem;
 }
 
+.saveCartRescue {
+  padding: 0;
+}
+
 .saveCartForm {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.55rem;
   margin-top: 0.8rem;
 }
 
-.saveCartForm input {
+.saveCartLabel {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.saveCartControls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: stretch;
+}
+
+.saveCartControls input {
   min-width: 0;
   min-height: 44px;
   border: 1px solid rgba(226, 232, 240, 0.25);
@@ -110,7 +126,7 @@
   padding: 0.6rem 0.75rem;
 }
 
-.saveCartForm button {
+.saveCartControls button {
   min-height: 44px;
   border: 1px solid rgba(221, 214, 254, 0.45);
   border-radius: 8px;
@@ -132,6 +148,73 @@
 
 .error {
   color: #fca5a5 !important;
+}
+
+.saveCartDialog {
+  position: fixed;
+  inset: auto 1rem 2rem auto;
+  width: min(31rem, calc(100vw - 2rem));
+  margin: 0;
+  padding: 1.1rem;
+  border: 1px solid rgba(221, 214, 254, 0.32);
+  border-radius: 14px;
+  background: #171327;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38);
+  color: #ffffff;
+}
+
+.saveCartDialog::backdrop {
+  background: rgba(2, 6, 23, 0.18);
+}
+
+.saveCartDialogClose {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.5rem;
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.saveCartDialogClose:hover,
+.saveCartDialogClose:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.saveCartSaved {
+  padding-right: 1.8rem;
+}
+
+.saveCartSaved h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.saveCartSaved p {
+  margin: 0.55rem 0 0;
+  color: rgba(255, 255, 255, 0.74);
+  line-height: 1.5;
+}
+
+.saveCartSaved button {
+  min-height: 40px;
+  margin-top: 0.8rem;
+  border: 1px solid rgba(221, 214, 254, 0.45);
+  border-radius: 8px;
+  background: rgba(109, 40, 217, 0.72);
+  color: #ffffff;
+  cursor: pointer;
+  font-weight: 750;
+  padding: 0.5rem 0.8rem;
 }
 
 .trust {
@@ -160,12 +243,16 @@
 }
 
 @media (max-width: 420px) {
-  .saveCartForm {
+  .saveCartControls {
     grid-template-columns: 1fr;
   }
 
-  .saveCartForm button {
+  .saveCartControls button {
     width: 100%;
+  }
+
+  .saveCartDialog {
+    display: none;
   }
 
   .trust span,

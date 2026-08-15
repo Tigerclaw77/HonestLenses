@@ -10,6 +10,7 @@ import styles from "./conversion.module.css";
 type ProductReference = {
   coreId: string;
   sku?: string | null;
+  normalizedBoxCount?: number | null;
 };
 
 function formatCurrency(cents: number) {

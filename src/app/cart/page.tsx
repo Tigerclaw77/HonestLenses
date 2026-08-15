@@ -11,7 +11,7 @@ import {
   HonestPricePromise,
 } from "@/components/conversion/HonestPrice";
 import PurchaseTrust from "@/components/conversion/PurchaseTrust";
-import SaveCartForm from "@/components/conversion/SaveCartForm";
+import ExitIntentSaveCart from "@/components/conversion/ExitIntentSaveCart";
 import EyeRow from "../../components/cart/EyeRow";
 
 import { fmtPrice } from "../../lib/cart/formatters";
@@ -30,6 +30,7 @@ import {
 import { getCartLensAnalyticsProperties } from "@/lib/posthog/lensMetadata";
 import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 import { normalizeFeedbackCreditCents } from "@/lib/abandonmentFeedback";
+import { SAVE_CART_EXIT_INTENT_SESSION_KEY } from "@/lib/saveCartExitIntent";
 
 const DEV_MODE =
   process.env.NODE_ENV === "development" && process.env.VERCEL !== "1";
@@ -57,6 +58,7 @@ export default function CartPage() {
   const [loading, setLoading] = useState(true);
   const [syncingQty, setSyncingQty] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkoutStarted, setCheckoutStarted] = useState(false);
   const [cart, setCart] = useState<CartOrder | null>(null);
 
   const [rightQtyOverride, setRightQtyOverride] = useState<number | null>(null);
@@ -553,6 +555,8 @@ export default function CartPage() {
             className="primary-btn hl-checkout-cta"
             onClick={() => {
               if (syncingQty) return;
+              setCheckoutStarted(true);
+              sessionStorage.setItem(SAVE_CART_EXIT_INTENT_SESSION_KEY, "1");
               markStepStart(`checkout_duration:${cart.id}`);
               void trackFunnelEvent(POSTHOG_EVENTS.CHECKOUT_STARTED, {
                 ...getCartLensAnalyticsProperties(cart),
@@ -577,11 +581,19 @@ export default function CartPage() {
           <div className="hl-conversion-stack">
             <HonestPricePromise />
             <HonestPriceComparison
-              product={{ coreId: cart.coreId ?? "", sku: cart.sku }}
+              product={{
+                coreId: cart.coreId ?? "",
+                sku: cart.sku,
+                normalizedBoxCount: totalBoxes,
+              }}
             />
-            <SaveCartForm cartId={cart.id} />
             <PurchaseTrust />
           </div>
+          <ExitIntentSaveCart
+            cartId={cart.id}
+            cartHasItems={totalBoxes > 0}
+            checkoutStarted={checkoutStarted}
+          />
         </div>
       </section>
     </main>

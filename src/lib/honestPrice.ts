@@ -8,6 +8,7 @@ export const HONEST_PRICE_MAX_AGE_DAYS = 31;
 export type HonestPriceLookup = {
   coreId: string;
   sku?: string | null;
+  normalizedBoxCount?: number | null;
 };
 
 function isPositiveInteger(value: number) {
@@ -40,18 +41,36 @@ export function isValidHonestPriceComparison(
   );
 }
 
-export function getHonestPriceComparison({
+export function findHonestPriceComparison(
+  comparisons: readonly HonestPriceComparison[],
+  {
   coreId,
   sku,
-}: HonestPriceLookup): HonestPriceComparison | null {
-  if (!coreId.trim()) return null;
+  normalizedBoxCount,
+}: HonestPriceLookup,
+  now = new Date(),
+): HonestPriceComparison | null {
+  if (
+    !coreId.trim() ||
+    !sku?.trim() ||
+    !isPositiveInteger(normalizedBoxCount ?? 0)
+  ) {
+    return null;
+  }
 
   return (
-    HONEST_PRICE_COMPARISONS.find(
+    comparisons.find(
       (comparison) =>
         comparison.coreId === coreId &&
-        (!sku?.trim() || comparison.sku === sku) &&
-        isValidHonestPriceComparison(comparison),
+        comparison.sku === sku &&
+        comparison.normalizedBoxCount === normalizedBoxCount &&
+        isValidHonestPriceComparison(comparison, now),
     ) ?? null
   );
+}
+
+export function getHonestPriceComparison(
+  lookup: HonestPriceLookup,
+): HonestPriceComparison | null {
+  return findHonestPriceComparison(HONEST_PRICE_COMPARISONS, lookup);
 }
