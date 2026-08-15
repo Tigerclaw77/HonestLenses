@@ -214,8 +214,8 @@ const authorizationSource = readFileSync(
 );
 assert.match(
   authorizationSource,
-  /const guestOrderId = request\.headers\.has\("authorization"\)[\s\S]*?readGuestOrderIdFromCookieHeader/,
-  "guest capabilities must be resolved independently of an account session",
+  /!request\.headers\.has\("authorization"\) \|\| identity[\s\S]*?readGuestOrderIdFromCookieHeader/,
+  "a valid bearer session may retain a signed guest recovery capability",
 );
 assert.match(
   authorizationSource,
