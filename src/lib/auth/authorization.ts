@@ -269,12 +269,22 @@ export async function getOrderAccess(request: Request): Promise<OrderAccess> {
   const originValid =
     identity?.source === "bearer" || hasTrustedMutationOrigin(request);
 
+  // A signed guest-cart capability may be established by a cart recovery link
+  // while the browser also has an authenticated account session. Preserve both
+  // principals: cart routes intentionally prefer the scoped guest cart, while
+  // canAccessOrder still validates either principal against the requested row.
+  // An explicit Authorization header remains authoritative and never falls
+  // back to a guest capability.
+  const guestOrderId = request.headers.has("authorization")
+    ? null
+    : readGuestOrderIdFromCookieHeader(request.headers.get("cookie"));
+
   if (identity) {
     return {
       user: identity.user,
       userId: identity.user.id,
       userEmail: identity.user.email ?? null,
-      guestOrderId: null,
+      guestOrderId,
       distinctId: identity.user.id,
       source: identity.source,
       originValid,
@@ -283,10 +293,6 @@ export async function getOrderAccess(request: Request): Promise<OrderAccess> {
 
   // An explicit Authorization header is authoritative. Never fall back to a
   // guest cookie when a supplied bearer credential is invalid.
-  const guestOrderId = request.headers.has("authorization")
-    ? null
-    : readGuestOrderIdFromCookieHeader(request.headers.get("cookie"));
-
   return {
     user: null,
     userId: null,

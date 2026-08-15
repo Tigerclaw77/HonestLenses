@@ -102,6 +102,17 @@ assert.equal(
   ),
   false,
 );
+assert.equal(
+  canAccessOrder(
+    {
+      ...ownerAccess,
+      guestOrderId: orderId,
+    },
+    { id: orderId, user_id: "different-user" },
+  ),
+  true,
+  "a valid guest capability remains usable alongside an authenticated session",
+);
 
 
 assert.equal(
@@ -197,6 +208,20 @@ function routeFiles(directory: string): string[] {
 }
 
 const workspaceRoot = process.cwd();
+const authorizationSource = readFileSync(
+  join(workspaceRoot, "src", "lib", "auth", "authorization.ts"),
+  "utf8",
+);
+assert.match(
+  authorizationSource,
+  /const guestOrderId = request\.headers\.has\("authorization"\)[\s\S]*?readGuestOrderIdFromCookieHeader/,
+  "guest capabilities must be resolved independently of an account session",
+);
+assert.match(
+  authorizationSource,
+  /if \(identity\) \{[\s\S]*?guestOrderId,/,
+  "authenticated access must retain a valid guest recovery capability",
+);
 const actualRoutes = routeFiles(join(workspaceRoot, "src", "app"))
   .map((path) => relative(workspaceRoot, path).split(sep).join("/"))
   .sort();
