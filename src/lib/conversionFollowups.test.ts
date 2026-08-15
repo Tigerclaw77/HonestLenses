@@ -9,6 +9,9 @@ function source(path: string): string {
 const browsePage = source("src/app/browse/page.tsx");
 const globalStyles = source("src/styles/globals.css");
 const uploadPage = source("src/app/upload-prescription/page.tsx");
+const checkoutPage = source("src/app/checkout/page.tsx");
+const checkoutStyles = source("src/app/checkout/checkout.module.css");
+const purchaseTrust = source("src/components/conversion/PurchaseTrust.tsx");
 
 assert.match(browsePage, /className="browse-layout"/);
 assert.match(browsePage, /className="browse-filters"/);
@@ -33,5 +36,18 @@ assert.doesNotMatch(
   uploadPage,
   /Payment and fulfillment only proceed after the required review/,
 );
+
+assert.doesNotMatch(globalStyles, /body\s*\{[^}]*overflow-x:\s*hidden/);
+assert.match(checkoutPage, /className=\{styles\.paymentSurface\}/);
+assert.match(
+  checkoutStyles,
+  /@media \(max-width: 600px\)[\s\S]*?\.shell\s*\{[\s\S]*?padding:\s*3\.75rem 16px 3rem/,
+);
+assert.match(
+  checkoutStyles,
+  /@media \(max-width: 600px\)[\s\S]*?\.card\s*\{[\s\S]*?padding:\s*0/,
+);
+assert.match(purchaseTrust, /href="\/contact">Questions\? Contact us/);
+assert.doesNotMatch(purchaseTrust, /Accessible support|mailto:/);
 
 console.log("Conversion audit follow-up regression tests passed");
