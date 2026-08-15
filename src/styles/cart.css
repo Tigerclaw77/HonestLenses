@@ -173,6 +173,12 @@
   letter-spacing: 0;
 }
 
+.hl-conversion-stack {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
 .hl-rx-color {
   margin-top: 6px;
   font-size: 0.9rem;

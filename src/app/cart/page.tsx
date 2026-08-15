@@ -6,6 +6,12 @@ import { supabase } from "../../lib/supabase-client";
 
 import Header from "../../components/Header";
 import AbandonmentFeedbackExperiment from "@/components/AbandonmentFeedbackExperiment";
+import {
+  HonestPriceComparison,
+  HonestPricePromise,
+} from "@/components/conversion/HonestPrice";
+import PurchaseTrust from "@/components/conversion/PurchaseTrust";
+import SaveCartForm from "@/components/conversion/SaveCartForm";
 import EyeRow from "../../components/cart/EyeRow";
 
 import { fmtPrice } from "../../lib/cart/formatters";
@@ -567,6 +573,15 @@ export default function CartPage() {
           >
             Continue to checkout
           </button>
+
+          <div className="hl-conversion-stack">
+            <HonestPricePromise />
+            <HonestPriceComparison
+              product={{ coreId: cart.coreId ?? "", sku: cart.sku }}
+            />
+            <SaveCartForm cartId={cart.id} />
+            <PurchaseTrust />
+          </div>
         </div>
       </section>
     </main>

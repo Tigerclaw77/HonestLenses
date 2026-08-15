@@ -45,6 +45,10 @@ export default function PrivacyPage() {
             <li>To process and fulfill contact lens orders</li>
             <li>To verify prescriptions as required by law</li>
             <li>To communicate order status and support requests</li>
+            <li>
+              To send a one-time cart-recovery link when a shopper explicitly
+              requests one
+            </li>
             <li>To comply with legal and regulatory requirements</li>
           </ul>
 
@@ -54,6 +58,11 @@ export default function PrivacyPage() {
             Prescription information is collected solely for order fulfillment
             and verification in accordance with the FTC Contact Lens Rule.
             We do not sell or use prescription data for marketing purposes.
+          </p>
+
+          <p>
+            Cart-save links are transactional, expire after a limited period,
+            and do not enroll shoppers in marketing communications.
           </p>
 
           <h3 style={{ marginTop: 32 }}>Data Security</h3>
