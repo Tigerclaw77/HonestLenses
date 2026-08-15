@@ -8,7 +8,7 @@ const migration = readFileSync(
     workspaceRoot,
     "supabase",
     "migrations",
-    "20260815000357_add_cart_save_recovery_tokens.sql",
+    "20260815003525_add_cart_save_recovery_tokens.sql",
   ),
   "utf8",
 );

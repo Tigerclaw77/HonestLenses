@@ -44,7 +44,7 @@ export default function SaveCartForm({ cartId }: { cartId: string }) {
         source: "cart",
         order_id: cartId,
       });
-      setMessage("Check your email for a secure one-time link to return to your cart.");
+      setMessage("Check your email for a secure link to return to your cart.");
       setEmail("");
     } catch {
       setError("Unable to save your cart right now.");
