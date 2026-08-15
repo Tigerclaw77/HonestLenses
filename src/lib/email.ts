@@ -16,6 +16,10 @@ const FROM_ORDERS = "Honest Lenses <orders@honestlenses.com>";
 const FROM_SUPPORT = `Honest Lenses <${CUSTOMER_SUPPORT_EMAIL}>`;
 const REPLY_TO_SUPPORT = CUSTOMER_SUPPORT_EMAIL;
 
+export function isTransactionalEmailConfigured(): boolean {
+  return Boolean(process.env.RESEND_API_KEY?.trim());
+}
+
 /* ======================================
 Types
 ====================================== */

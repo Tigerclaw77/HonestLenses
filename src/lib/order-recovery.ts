@@ -3,6 +3,9 @@ import { createHmac, randomBytes } from "crypto";
 export const ORDER_RESUME_TOKEN_TTL_MINUTES = 60;
 export const ORDER_RESUME_TOKEN_TTL_MS =
   ORDER_RESUME_TOKEN_TTL_MINUTES * 60 * 1000;
+export const CART_SAVE_TOKEN_TTL_DAYS = 7;
+export const CART_SAVE_TOKEN_TTL_MS =
+  CART_SAVE_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
 
 type JsonObject = Record<string, unknown>;
 
@@ -60,6 +63,10 @@ export function hashOrderResumeToken(token: string): string {
 
 export function getOrderResumeExpiry(): string {
   return new Date(Date.now() + ORDER_RESUME_TOKEN_TTL_MS).toISOString();
+}
+
+export function getCartSaveExpiry(): string {
+  return new Date(Date.now() + CART_SAVE_TOKEN_TTL_MS).toISOString();
 }
 
 export function hasRecoverableRx(order: RecoverableOrder): boolean {
