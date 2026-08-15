@@ -12,6 +12,9 @@ const uploadPage = source("src/app/upload-prescription/page.tsx");
 const checkoutPage = source("src/app/checkout/page.tsx");
 const checkoutStyles = source("src/app/checkout/checkout.module.css");
 const purchaseTrust = source("src/components/conversion/PurchaseTrust.tsx");
+const expirationDatePicker = source(
+  "src/components/ExpirationDatePicker.tsx",
+);
 
 assert.match(browsePage, /className="browse-layout"/);
 assert.match(browsePage, /className="browse-filters"/);
@@ -49,5 +52,24 @@ assert.match(
 );
 assert.match(purchaseTrust, /href="\/contact">Questions\? Contact us/);
 assert.doesNotMatch(purchaseTrust, /Accessible support|mailto:/);
+assert.match(purchaseTrust, /Fast prescription processing/);
+assert.doesNotMatch(
+  purchaseTrust,
+  /Normal prescription verification|Clear fulfillment updates|instant verification/i,
+);
+
+assert.match(expirationDatePicker, /left: 12,[\s\S]*?right: 12/);
+assert.match(
+  expirationDatePicker,
+  /bottom: "max\(12px, env\(safe-area-inset-bottom\)\)"/,
+);
+assert.equal(
+  (expirationDatePicker.match(/touchAction: "manipulation"/g) ?? []).length,
+  2,
+);
+assert.doesNotMatch(
+  `${source("src/app/layout.tsx")}\n${globalStyles}`,
+  /user-scalable\s*=\s*no|maximum-scale\s*=\s*1/i,
+);
 
 console.log("Conversion audit follow-up regression tests passed");
