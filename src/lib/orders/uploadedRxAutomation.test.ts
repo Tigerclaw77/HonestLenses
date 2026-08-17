@@ -161,6 +161,31 @@ assert.equal(
 );
 
 assert.equal(
+  evaluateUploadedRxAutomation(
+    (() => {
+      const order = structuredClone(validOrder()) as UploadedRxAutomationOrder;
+      const confirmed = order.rx as Record<string, unknown>;
+      const ocr = order.rx_ocr_raw as Record<string, unknown>;
+      ocr.notes =
+        "Contact-lens prescription identified; unrelated spectacle values ignored.";
+      confirmed.left = null;
+      ocr.left = null;
+      order.patient_name = null;
+      order.prescriber_name = null;
+      order.prescriber_phone = null;
+      ocr.patient_name = null;
+      ocr.doctor_name = null;
+      ocr.prescriber_phone = null;
+      return order;
+    })(),
+    "requires_capture",
+    NOW,
+  ).autoVerify,
+  true,
+  "a clear customer-confirmed one-eye prescription is not blocked by explanatory notes or absent corroborating names",
+);
+
+assert.equal(
   evaluateUploadedRxAutomation(validOrder(), "requires_action", NOW).reason,
   "payment_not_capturable",
   "a non-capturable PaymentIntent never passes the gate",

@@ -46,9 +46,9 @@ export const ADMIN_WORK_QUEUE_SECTIONS: ReadonlyArray<{
   },
   {
     key: "ready_to_order",
-    title: "Ready to Order",
+    title: "Ready to Place",
     description:
-      "Verification is complete. Capture payment if needed, then place the supplier order.",
+      "Prescription verification and payment are complete. Place with the manufacturer or distributor.",
   },
   {
     key: "resolve_exception",
@@ -629,6 +629,16 @@ export function classifyOperationalQueue(
   }
 
   if (SUPPLIER_MANAGED_FULFILLMENT_STATUSES.has(fulfillment)) {
+    if (!verification.complete) {
+      return classify(
+        "resolve_exception",
+        true,
+        [
+          "Manufacturer placement was recorded before prescription verification completed; resolve verification before treating the order as placed.",
+        ],
+        order,
+      );
+    }
     return classify(
       "supplier_managed",
       false,

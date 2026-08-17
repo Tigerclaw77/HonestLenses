@@ -123,22 +123,18 @@ export async function POST(req: Request) {
     message: notes || null,
   });
 
-  try {
+  if (result === "verified") {
+    try {
     await sendFounderOperationalAlert({
       orderId,
-      type: "verification_completed",
-      headline:
-        result === "verified"
-          ? "Verification completed — ready to order"
-          : "Verification rejected — founder action required",
+      type: "ready_to_place",
+      headline: "Order ready to place with manufacturer",
       detail:
-        result === "verified"
-          ? "Prescription verification is complete and the order is ready for the next fulfillment decision."
-          : "Prescription verification was rejected and the authorization was cancelled.",
-      dedupeSuffix: result,
+        "Prescription verification is complete and payment is captured. Record the manufacturer/distributor order when placed.",
     });
-  } catch (alertError) {
-    console.error("Founder verification-completed alert failed:", alertError);
+    } catch (alertError) {
+      console.error("Founder ready-to-place alert failed:", alertError);
+    }
   }
 
   return NextResponse.json({ success: true });

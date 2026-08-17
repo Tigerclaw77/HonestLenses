@@ -6,35 +6,35 @@ function source(path: string): string {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
-const checks = [
+const actionRequiredChecks = [
   {
-    scenario: "authorization",
+    scenario: "safe OCR exception",
     path: "src/app/api/checkout/authorized/route.ts",
-    alertType: 'type: "order_authorized"',
+    alertType: '"rx_review_required"',
   },
   {
-    scenario: "uploaded Rx",
-    path: "src/app/api/orders/[id]/rx-ocr/route.ts",
-    alertType: 'type: "rx_uploaded_review"',
+    scenario: "prescriber mismatch",
+    path: "src/app/api/checkout/authorized/route.ts",
+    alertType: '"prescriber_verification_required"',
   },
   {
-    scenario: "verification completed",
+    scenario: "automated ready-to-place order",
+    path: "src/app/api/checkout/authorized/route.ts",
+    alertType: 'type: "ready_to_place"',
+  },
+  {
+    scenario: "prescriber-verified order",
     path: "src/app/api/verification/complete/route.ts",
-    alertType: 'type: "verification_completed"',
+    alertType: 'type: "ready_to_place"',
   },
   {
-    scenario: "passive verification",
+    scenario: "passive verified order",
     path: "src/app/api/verification/process/route.ts",
-    alertType: 'type: "passive_verification_completed"',
-  },
-  {
-    scenario: "ready to order",
-    path: "src/app/api/admin/orders/[id]/route.ts",
-    alertType: 'type: "ready_to_order"',
+    alertType: 'type: "ready_to_place"',
   },
 ];
 
-for (const check of checks) {
+for (const check of actionRequiredChecks) {
   const route = source(check.path);
   assert.match(
     route,
@@ -48,10 +48,20 @@ for (const check of checks) {
 }
 
 const uploadedRxRoute = source("src/app/api/orders/[id]/rx-ocr/route.ts");
-assert.match(
+assert.doesNotMatch(
   uploadedRxRoute,
-  /if \(shouldSendUploadedRxFounderAlert\(order\)\)/,
-  "an uploaded Rx alerts the founder only after the order is actionable",
+  /sendFounderOperationalAlert/,
+  "an upload alone is not founder work until automation classifies the evidence",
+);
+assert.doesNotMatch(
+  source("src/app/api/orders/[id]/verify/route.ts"),
+  /sendFounderOperationalAlert/,
+  "manual work never generates a redundant founder email",
+);
+assert.doesNotMatch(
+  source("src/app/api/admin/orders/[id]/route.ts"),
+  /sendFounderOperationalAlert/,
+  "recording an internal placement transition never generates a redundant founder email",
 );
 
 console.log("Founder operational alert wiring coverage passed.");
