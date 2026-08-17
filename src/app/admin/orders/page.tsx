@@ -315,10 +315,7 @@ type AdminApiPayload = {
 
 const FULFILLMENT_PROGRESS_FLOW: FulfillmentStatus[] = [
   "review",
-  "ready_to_order",
   "ordered",
-  "shipped",
-  "completed",
 ];
 
 const HIGHLIGHT_MS = 120_000;
@@ -758,8 +755,7 @@ function verificationSummary(order: Order): { label: string; tone: BadgeTone } {
 }
 
 function fulfillmentTone(status: FulfillmentStatus): BadgeTone {
-  if (status === "completed" || status === "shipped") return "good";
-  if (status === "ordered" || status === "ready_to_order") return "info";
+  if (status === "ordered") return "good";
   if (status === "hold") return "warning";
   if (status === "cancelled") return "blocked";
   return "neutral";
@@ -791,17 +787,8 @@ function workflowActionLabel(
   current: FulfillmentStatus,
   next: FulfillmentStatus,
 ): string {
-  if (current === "review" && next === "ready_to_order") {
-    return "Approve / Ready to Order";
-  }
-  if (current === "ready_to_order" && next === "ordered") {
-    return "Place Vendor Order";
-  }
-  if (current === "ordered" && next === "shipped") {
-    return "Mark Shipped";
-  }
-  if (current === "shipped" && next === "completed") {
-    return "Complete Order";
+  if (current === "review" && next === "ordered") {
+    return "Record manufacturer/distributor order placed";
   }
   return `Advance to ${labelizeStatus(next)}`;
 }
@@ -847,8 +834,6 @@ function archiveOrderStatus(order: Order): { label: string; tone: BadgeTone } {
     return { label: "DELIVERED", tone: "good" };
   }
   if (fulfillment === "cancelled") return { label: "CANCELLED", tone: "blocked" };
-  if (fulfillment === "completed") return { label: "COMPLETED", tone: "good" };
-  if (fulfillment === "shipped") return { label: "SHIPPED", tone: "good" };
   return { label: labelizeStatus(fulfillment), tone: fulfillmentTone(fulfillment) };
 }
 

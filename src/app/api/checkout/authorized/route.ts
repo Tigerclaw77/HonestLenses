@@ -58,6 +58,23 @@ function getCustomerEmail(
   return shippingEmail && shippingEmail.trim() ? shippingEmail : fallback;
 }
 
+function needsCustomerPrescriptionInformation(
+  reason: string | null,
+): boolean {
+  return [
+    "missing_upload_evidence",
+    "customer_confirmation_missing",
+    "patient_identity_missing",
+    "prescriber_missing",
+    "ocr_missing_required_fields",
+    "prescription_expired",
+  ].includes(reason ?? "");
+}
+
+function needsPrescriberVerification(reason: string | null): boolean {
+  return reason === "prescriber_mismatch";
+}
+
 async function safeJson(req: Request): Promise<unknown> {
   try {
     return await req.json();
@@ -281,13 +298,21 @@ export async function POST(req: Request) {
     uploadedAutomation && !uploadedAutomation.autoVerify
       ? uploadedAutomation.reason
       : null;
+  const uploadedNeedsCustomerInformation =
+    isUploaded &&
+    !uploadedAutoVerified &&
+    needsCustomerPrescriptionInformation(uploadedReviewReason);
+  const uploadedNeedsFounderReview =
+    isUploaded && !uploadedAutoVerified && !uploadedNeedsCustomerInformation;
   const verificationReadiness = getVerificationReadiness(orderRaw);
   const canEnterPendingVerification =
     verificationReadiness.canEnterPendingVerification;
   const nextVerificationStatus = isUploaded
     ? uploadedAutoVerified
       ? "auto_verified"
-      : "pending"
+      : uploadedNeedsCustomerInformation
+        ? VERIFICATION_INFORMATION_NEEDED_STATUS
+        : "requires_review"
     : canEnterPendingVerification
       ? "pending"
       : VERIFICATION_INFORMATION_NEEDED_STATUS;
@@ -445,22 +470,34 @@ export async function POST(req: Request) {
   ========================= */
 
   try {
-    await sendFounderOperationalAlert({
-      orderId,
-      type: "order_authorized",
-      headline: uploadedAutoVerified
-        ? "Uploaded prescription auto-verified"
-        : "Order authorized",
-      detail: isUploaded
-        ? uploadedAutoVerified
-          ? "Automated evidence checks passed, payment was captured, and the order is ready for fulfillment."
-          : `Payment is authorized and the uploaded prescription needs founder review (${uploadedAutomation?.reason ?? "unknown_exception"}).`
-        : canEnterPendingVerification
-          ? "Payment is authorized and prescription verification is pending."
-          : "Payment is authorized and customer prescription information is still required.",
-    });
+    if (uploadedAutoVerified) {
+      await sendFounderOperationalAlert({
+        orderId,
+        type: "ready_to_place",
+        headline: "Order ready to place with manufacturer",
+        detail:
+          "Prescription evidence was auto-verified and payment is captured. Record the manufacturer/distributor order when placed.",
+      });
+    } else if (uploadedNeedsFounderReview) {
+      const prescriberVerification = needsPrescriberVerification(
+        uploadedReviewReason,
+      );
+      await sendFounderOperationalAlert({
+        orderId,
+        type: prescriberVerification
+          ? "prescriber_verification_required"
+          : "rx_review_required",
+        headline: prescriberVerification
+          ? "Prescriber verification required"
+          : "Prescription needs founder review",
+        detail: prescriberVerification
+          ? "The uploaded prescription conflicts with the supplied prescriber information. Verify with the prescriber before placing the order."
+          : `OCR could not safely resolve the uploaded prescription (${uploadedReviewReason ?? "unknown_exception"}).`,
+        dedupeSuffix: uploadedReviewReason ?? undefined,
+      });
+    }
   } catch (err) {
-    console.error("Founder authorization alert failed:", err);
+    console.error("Founder action-required alert failed:", err);
   }
 
   /* =========================

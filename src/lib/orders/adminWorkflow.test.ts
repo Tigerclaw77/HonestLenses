@@ -18,29 +18,23 @@ for (const target of ADMIN_FULFILLMENT_STATUSES) {
   assert.equal(transition.valid, true, `${target} is a known target`);
   assert.equal(
     transition.allowed,
-    !["ready_to_order", "ordered", "shipped", "completed"].includes(target),
+    target !== "ordered",
     `uncaptured payment cannot enter ${target}`,
   );
 }
 
-const completion = assessAdminFulfillmentTransition(
+const placement = assessAdminFulfillmentTransition(
   riskyOrder,
-  "completed",
+  "ordered",
 );
 assert.ok(
-  completion.warnings.some((warning) => warning.includes("not captured")),
-  "risky completion warns about uncaptured payment",
-);
-assert.ok(
-  completion.warnings.some((warning) =>
-    warning.includes("verification is pending"),
-  ),
-  "risky completion warns about pending verification",
+  placement.warnings.some((warning) => warning.includes("not captured")),
+  "risky placement warns about uncaptured payment",
 );
 assert.equal(
-  completion.allowed,
+  placement.allowed,
   false,
-  "uncaptured payment cannot be marked fulfilled",
+  "uncaptured payment cannot be marked placed",
 );
 
 const uploadedReview = assessAdminFulfillmentTransition(
@@ -49,7 +43,7 @@ const uploadedReview = assessAdminFulfillmentTransition(
     rx_upload_path: "rx/order/prescription.jpg",
     rx_status: "uploaded_pending_review",
   },
-  "ready_to_order",
+  "ordered",
 );
 
 const missingIntent = assessAdminFulfillmentTransition(
@@ -59,7 +53,7 @@ const missingIntent = assessAdminFulfillmentTransition(
     verification_status: "verified",
     fulfillment_status: "review",
   },
-  "ready_to_order",
+  "ordered",
 );
 assert.equal(
   missingIntent.allowed,
@@ -95,7 +89,7 @@ const regression = assessAdminFulfillmentTransition(
     status: "captured",
     stripe_payment_intent_status: "succeeded",
     verification_status: "verified",
-    fulfillment_status: "shipped",
+    fulfillment_status: "ordered",
   },
   "review",
 );

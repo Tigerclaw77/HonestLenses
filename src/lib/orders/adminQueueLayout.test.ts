@@ -373,10 +373,9 @@ assert.ok(
   activeCard.includes("Undo to {labelizeStatus(previousFulfillment)}"),
   "the previous routine workflow action is a visible button",
 );
-assert.ok(source.includes("Approve / Ready to Order"));
-assert.ok(source.includes("Place Vendor Order"));
-assert.ok(source.includes("Mark Shipped"));
-assert.ok(source.includes("Complete Order"));
+assert.ok(source.includes("Record manufacturer/distributor order placed"));
+assert.equal(source.includes("Mark Shipped"), false);
+assert.equal(source.includes("Complete Order"), false);
 assert.ok(activeCard.includes("Return to Review"));
 
 const administrativeSelectStart = activeCard.indexOf(

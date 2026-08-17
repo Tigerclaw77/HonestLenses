@@ -161,16 +161,6 @@ function normalizeFulfillmentStatus(order: Order): FulfillmentStatus {
   return "review";
 }
 
-function hasDownstreamVerificationEvidence(order: Order): boolean {
-  const fulfillment = normalizeFulfillmentStatus(order);
-
-  return (
-    fulfillment === "ordered" ||
-    fulfillment === "shipped" ||
-    fulfillment === "completed"
-  );
-}
-
 export function getPaymentState(order: Order): PaymentState {
   const status = projectPaymentState(order, { fallback: "strict" }).status;
 
@@ -296,18 +286,6 @@ export function getVerificationState(order: Order): VerificationState {
       severity: "warning",
       complete: false,
       blocked: true,
-      requiresReview: false,
-      rawStatus,
-    };
-  }
-
-  if (hasDownstreamVerificationEvidence(order)) {
-    return {
-      status: "verified",
-      label: "Verified",
-      severity: "success",
-      complete: true,
-      blocked: false,
       requiresReview: false,
       rawStatus,
     };
@@ -510,14 +488,14 @@ export function getNextAction(order: Order): NextAction {
   }
 
   if (fulfillment === "ordered") {
-    return { label: "Await shipment", severity: "info" };
+    return { label: "Manufacturer order placed", severity: "success" };
   }
 
   if (fulfillment === "shipped") {
-    return { label: "Confirm delivery", severity: "info" };
+    return { label: "Manufacturer order placed", severity: "success" };
   }
 
-  return { label: "Place vendor order", severity: "warning" };
+  return { label: "Place with manufacturer/distributor", severity: "warning" };
 }
 
 const EMAIL_ATTENTION_STATUSES = new Set([

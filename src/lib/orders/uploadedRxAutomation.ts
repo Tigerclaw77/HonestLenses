@@ -123,6 +123,21 @@ function futureDate(value: string, now: Date): boolean {
   return endOfDay >= now.getTime();
 }
 
+/**
+ * OCR providers attach useful explanatory notes (for example, that a
+ * spectacle prescription was ignored) to otherwise clean extractions.  Only
+ * a note that names an unreadable or uncertain prescription field is an
+ * automation blocker.
+ */
+function hasMaterialOcrAmbiguity(value: unknown): boolean {
+  const note = text(value);
+  if (!note) return false;
+
+  return /\b(?:ambiguous|uncertain|illegible|unreadable|cannot determine|unable to determine)\b/i.test(
+    note,
+  );
+}
+
 function emptyEvidence(): UploadedRxAutomationEvidence {
   return {
     ocrConfidence: null,
@@ -330,7 +345,7 @@ export function evaluateUploadedRxAutomation(
       evidence,
     );
   }
-  if (text(ocr.notes)) {
+  if (hasMaterialOcrAmbiguity(ocr.notes)) {
     return review(
       "ocr_ambiguous",
       "OCR reported ambiguity or interpretive notes.",
@@ -361,15 +376,14 @@ export function evaluateUploadedRxAutomation(
 
   const confirmedPatient = normalizeName(order.patient_name);
   const ocrPatient = normalizeName(ocr.patient_name);
-  if (!confirmedPatient || !ocrPatient) {
-    return review(
-      "patient_identity_missing",
-      "Patient identity is missing from OCR or customer confirmation.",
-      evidence,
-    );
-  }
-  evidence.patientMatched = confirmedPatient === ocrPatient;
-  if (!evidence.patientMatched) {
+  // Identity is corroborating evidence, not an OCR field that every valid
+  // prescription contains. A real conflict must stop automation; an absent
+  // field must not turn an otherwise exact, customer-confirmed one-eye Rx
+  // into a founder review.
+  evidence.patientMatched = Boolean(
+    confirmedPatient && ocrPatient && confirmedPatient === ocrPatient,
+  );
+  if (confirmedPatient && ocrPatient && !evidence.patientMatched) {
     return review(
       "patient_mismatch",
       "Confirmed patient identity does not match the upload.",
@@ -379,18 +393,15 @@ export function evaluateUploadedRxAutomation(
 
   const confirmedPrescriber = normalizePrescriberName(order.prescriber_name);
   const ocrPrescriber = normalizePrescriberName(ocr.doctor_name);
-  if (!confirmedPrescriber || !ocrPrescriber) {
-    return review(
-      "prescriber_missing",
-      "Prescriber identity is missing from OCR or customer confirmation.",
-      evidence,
-    );
-  }
-  evidence.prescriberMatched = confirmedPrescriber === ocrPrescriber;
+  evidence.prescriberMatched = Boolean(
+    confirmedPrescriber &&
+      ocrPrescriber &&
+      confirmedPrescriber === ocrPrescriber,
+  );
   const confirmedPhone = normalizePhone(order.prescriber_phone);
   const ocrPhone = normalizePhone(ocr.prescriber_phone);
   if (
-    !evidence.prescriberMatched ||
+    (confirmedPrescriber && ocrPrescriber && !evidence.prescriberMatched) ||
     (confirmedPhone && ocrPhone && confirmedPhone !== ocrPhone)
   ) {
     return review(

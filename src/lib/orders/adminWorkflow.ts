@@ -7,10 +7,7 @@ import {
 
 export const ADMIN_FULFILLMENT_STATUSES = [
   "review",
-  "ready_to_order",
   "ordered",
-  "shipped",
-  "completed",
   "hold",
   "cancelled",
 ] as const;
@@ -28,17 +25,11 @@ export type AdminFulfillmentTransition = {
 
 const FULFILLMENT_PROGRESS_FLOW: AdminFulfillmentStatus[] = [
   "review",
-  "ready_to_order",
   "ordered",
-  "shipped",
-  "completed",
 ];
 
 const PAYMENT_CAPTURE_EXPECTED_STATUSES = new Set<AdminFulfillmentStatus>([
-  "ready_to_order",
   "ordered",
-  "shipped",
-  "completed",
 ]);
 
 export function isAdminFulfillmentStatus(
@@ -56,8 +47,6 @@ export function getAdminFulfillmentStatus(
     return order.fulfillment_status;
   }
 
-  if (order.status === "completed") return "completed";
-  if (order.status === "shipped") return "shipped";
   if (order.status === "cancelled") return "cancelled";
   return "review";
 }
@@ -131,24 +120,10 @@ export function assessAdminFulfillmentTransition(
     );
   }
 
-  if (target === "completed" && !verification.complete) {
-    warnings.push(
-      `Prescription verification is ${verification.label.toLowerCase()}.`,
-    );
-  }
-
   const currentIndex = FULFILLMENT_PROGRESS_FLOW.indexOf(currentStatus);
   const targetIndex = FULFILLMENT_PROGRESS_FLOW.indexOf(target);
 
   if (
-    target === "completed" &&
-    currentStatus !== "shipped" &&
-    currentStatus !== "completed"
-  ) {
-    warnings.push(
-      `This skips fulfillment steps from ${currentStatus.replace(/_/g, " ")} to completed.`,
-    );
-  } else if (
     currentIndex >= 0 &&
     targetIndex >= 0 &&
     targetIndex > currentIndex + 1
@@ -164,10 +139,7 @@ export function assessAdminFulfillmentTransition(
     warnings.push("This moves the fulfillment workflow backward.");
   }
 
-  if (
-    (currentStatus === "completed" || currentStatus === "cancelled") &&
-    target !== currentStatus
-  ) {
+  if (currentStatus === "cancelled" && target !== currentStatus) {
     warnings.push(`This reopens a ${currentStatus} order.`);
   }
 
