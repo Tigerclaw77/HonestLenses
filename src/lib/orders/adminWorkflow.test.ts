@@ -17,8 +17,8 @@ for (const target of ADMIN_FULFILLMENT_STATUSES) {
   assert.equal(transition.valid, true, `${target} is a known target`);
   assert.equal(
     transition.allowed,
-    true,
-    `admin override to ${target} must never be hard-blocked`,
+    !["ready_to_order", "ordered", "shipped", "completed"].includes(target),
+    `uncaptured payment cannot enter ${target}`,
   );
 }
 
@@ -38,8 +38,8 @@ assert.ok(
 );
 assert.equal(
   completion.allowed,
-  true,
-  "warnings do not change admin completion authority",
+  false,
+  "uncaptured payment cannot be marked fulfilled",
 );
 
 const uploadedReview = assessAdminFulfillmentTransition(
@@ -49,6 +49,25 @@ const uploadedReview = assessAdminFulfillmentTransition(
     rx_status: "uploaded_pending_review",
   },
   "ready_to_order",
+);
+
+const missingIntent = assessAdminFulfillmentTransition(
+  {
+    status: "captured",
+    payment_intent_id: null,
+    verification_status: "verified",
+    fulfillment_status: "review",
+  },
+  "ready_to_order",
+);
+assert.equal(
+  missingIntent.allowed,
+  false,
+  "a local captured label without a PaymentIntent cannot establish payment",
+);
+assert.ok(
+  missingIntent.warnings.some((warning) => warning.includes("PaymentIntent is missing")),
+  "the operator receives an explicit missing-payment-evidence reason",
 );
 assert.equal(
   uploadedReview.allowed,
