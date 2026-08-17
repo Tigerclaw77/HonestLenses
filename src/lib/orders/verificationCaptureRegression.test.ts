@@ -1,6 +1,8 @@
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { getCaptureReadiness } from "./captureReadiness";
+import { runVerificationCaptureWorkflow } from "./verificationCaptureWorkflow";
 
 function source(...parts: string[]): string {
   return readFileSync(join(process.cwd(), ...parts), "utf8");
@@ -30,6 +32,11 @@ assert.match(
   verifyRoute,
   /captureAuthorizedOrderPayment\([\s\S]*"admin-verification"/,
   "admin verification keeps Stripe capture coupled to approval",
+);
+assert.doesNotMatch(
+  verifyRoute,
+  /verified_lens:\s*body\.verified_lens/,
+  "verification only writes columns present in the orders table",
 );
 assert.match(
   verifyRoute,
@@ -97,4 +104,47 @@ assert.match(
   "generic fulfillment updates cannot bypass uploaded-Rx verification",
 );
 
-console.log("Verification/capture regression tests passed.");
+async function assertCapturedRetryReconcilesWithoutAnotherStripeCapture() {
+  let stripeCaptureCalls = 0;
+  let persistenceAttempts = 0;
+  const reconcilePayment = async () => {
+    const readiness = getCaptureReadiness(
+      { payment_intent_id: "pi_captured" },
+      { id: "pi_captured", status: "succeeded" },
+    );
+    if (readiness.shouldCapture) stripeCaptureCalls += 1;
+    assert.equal(readiness.reason, "already_captured");
+    return { paymentIntentId: "pi_captured", alreadyCaptured: true };
+  };
+
+  const failedWrite = await runVerificationCaptureWorkflow({
+    reconcilePayment,
+    persistVerifiedState: async () => {
+      persistenceAttempts += 1;
+      throw new Error("simulated post-capture state-write failure");
+    },
+  });
+  assert.deepEqual(failedWrite, {
+    ok: false,
+    stage: "persistence",
+    capture: { paymentIntentId: "pi_captured", alreadyCaptured: true },
+  });
+
+  const recovered = await runVerificationCaptureWorkflow({
+    reconcilePayment,
+    persistVerifiedState: async () => {
+      persistenceAttempts += 1;
+      return { id: "order-captured", status: "captured", verification_status: "verified" };
+    },
+  });
+  assert.equal(recovered.ok, true);
+  assert.equal(stripeCaptureCalls, 0, "a succeeded PaymentIntent never invokes Stripe capture during retry");
+  assert.equal(persistenceAttempts, 2, "the retry re-attempts only the local verified-state write");
+}
+
+void assertCapturedRetryReconcilesWithoutAnotherStripeCapture()
+  .then(() => console.log("Verification/capture regression tests passed."))
+  .catch((error: unknown) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
