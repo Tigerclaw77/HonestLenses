@@ -35,7 +35,7 @@ assert.deepEqual(
     },
     {
       key: "ready_to_order",
-      title: "Ready to Order",
+      title: "Ready to Place",
     },
     {
       key: "resolve_exception",

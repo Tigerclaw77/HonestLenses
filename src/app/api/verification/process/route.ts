@@ -109,10 +109,10 @@ export async function POST(req: Request) {
     try {
       await sendFounderOperationalAlert({
         orderId: order.id,
-        type: "passive_verification_completed",
-        headline: "Passive verification completed — ready to order",
+        type: "ready_to_place",
+        headline: "Order ready to place with manufacturer",
         detail:
-          "The passive verification window completed. Payment is captured and the order is ready for fulfillment.",
+          "The passive verification window completed and payment is captured. Record the manufacturer/distributor order when placed.",
       });
     } catch (alertError) {
       console.error("Founder passive-verification alert failed:", alertError);

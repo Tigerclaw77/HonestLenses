@@ -1,9 +1,7 @@
 export const FOUNDER_ALERT_TYPES = [
-  "order_authorized",
-  "rx_uploaded_review",
-  "verification_completed",
-  "passive_verification_completed",
-  "ready_to_order",
+  "rx_review_required",
+  "prescriber_verification_required",
+  "ready_to_place",
 ] as const;
 
 export type FounderAlertType = (typeof FOUNDER_ALERT_TYPES)[number];
@@ -17,11 +15,6 @@ type FounderAlertKeyInput = {
   orderId: string;
   type: FounderAlertType;
   dedupeSuffix?: string;
-};
-
-type UploadedRxAlertOrder = {
-  status?: string | null;
-  payment_intent_id?: string | null;
 };
 
 function isEmail(value: string): boolean {
@@ -56,20 +49,4 @@ export function founderAlertKey({
 }: FounderAlertKeyInput): string {
   const suffix = dedupeSuffix?.trim() || "state-v1";
   return `founder-alert:${type}:${orderId}:${suffix}`.slice(0, 256);
-}
-
-/**
- * Uploading a prescription while building a cart is customer progress, not an
- * operator task. Checkout authorization emits the normal founder alert once
- * the order becomes actionable. This upload-specific alert is reserved for a
- * new or replacement prescription added after payment authorization.
- */
-export function shouldSendUploadedRxFounderAlert(
-  order: UploadedRxAlertOrder,
-): boolean {
-  return (
-    order.status === "authorized" &&
-    typeof order.payment_intent_id === "string" &&
-    order.payment_intent_id.trim().length > 0
-  );
 }

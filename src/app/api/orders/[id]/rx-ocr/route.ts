@@ -16,8 +16,6 @@ import {
   enforceRateLimit,
   rateLimitErrorResponse,
 } from "@/lib/security/rateLimit";
-import { sendFounderOperationalAlert } from "@/lib/founderAlerts";
-import { shouldSendUploadedRxFounderAlert } from "@/lib/founderAlertConfig";
 
 /* =========================
    TYPES
@@ -329,23 +327,6 @@ export async function POST(
         { error: "Failed to save Rx evidence", code: "evidence_save_failed" },
         { status: 500 },
       );
-    }
-
-    if (shouldSendUploadedRxFounderAlert(order)) {
-      try {
-        await sendFounderOperationalAlert({
-          orderId,
-          type: "rx_uploaded_review",
-          headline: "Uploaded prescription needs review",
-          detail:
-            "Payment is already authorized and the customer added or replaced prescription evidence. Review the image and complete verification.",
-          // A retry of the same persisted upload is one founder action, while a
-          // later replacement upload is intentionally a new review request.
-          dedupeSuffix: storagePath,
-        });
-      } catch (alertError) {
-        console.error("Founder uploaded-Rx alert failed:", alertError);
-      }
     }
 
     if (

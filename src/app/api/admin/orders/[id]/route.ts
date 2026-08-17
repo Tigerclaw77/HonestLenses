@@ -9,7 +9,6 @@ import {
   assessAdminFulfillmentTransition,
   isAdminFulfillmentStatus,
 } from "@/lib/orders/adminWorkflow";
-import { sendFounderOperationalAlert } from "@/lib/founderAlerts";
 
 type PatchBody = {
   fulfillment_status?: unknown;
@@ -152,20 +151,6 @@ export async function PATCH(
         orderId: id,
         error: eventError.message,
       });
-    }
-  }
-
-  if (transition?.targetStatus === "ready_to_order") {
-    try {
-      await sendFounderOperationalAlert({
-        orderId: id,
-        type: "ready_to_order",
-        headline: "Order marked ready to order",
-        detail:
-          "The order is ready for the founder to capture payment if needed and place the supplier order.",
-      });
-    } catch (alertError) {
-      console.error("Founder ready-to-order alert failed:", alertError);
     }
   }
 

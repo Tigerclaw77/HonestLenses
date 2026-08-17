@@ -51,6 +51,14 @@ assert.equal(
   "Verify prescription",
   "captured-but-pending orders remain on the safe verification recovery path",
 );
+assert.equal(
+  getVerificationState({
+    ...capturedPendingVerification,
+    fulfillment_status: "ordered",
+  }).complete,
+  false,
+  "manufacturer placement never substitutes for prescription verification",
+);
 assert.doesNotMatch(
   verifyRoute,
   /verified_lens:\s*body\.verified_lens/,
