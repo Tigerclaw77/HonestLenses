@@ -162,11 +162,9 @@ function normalizeFulfillmentStatus(order: Order): FulfillmentStatus {
 }
 
 function hasDownstreamVerificationEvidence(order: Order): boolean {
-  const payment = projectPaymentState(order, { fallback: "strict" }).status;
   const fulfillment = normalizeFulfillmentStatus(order);
 
   return (
-    payment === "captured" ||
     fulfillment === "ordered" ||
     fulfillment === "shipped" ||
     fulfillment === "completed"

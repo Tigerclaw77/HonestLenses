@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getCaptureReadiness } from "./captureReadiness";
+import { getNextAction, getVerificationState } from "./getNextAction";
 import { runVerificationCaptureWorkflow } from "./verificationCaptureWorkflow";
 
 function source(...parts: string[]): string {
@@ -38,6 +39,23 @@ assert.match(
   verifyRoute,
   /captureAuthorizedOrderPayment\([\s\S]*"admin-verification"/,
   "admin verification keeps Stripe capture coupled to approval",
+);
+
+const capturedPendingVerification = {
+  status: "captured",
+  verification_status: "pending",
+  fulfillment_status: "review",
+  rx: { right: { sphere: "-2.00" } },
+};
+assert.equal(
+  getVerificationState(capturedPendingVerification).complete,
+  false,
+  "a Stripe webhook marking payment captured never substitutes for a local prescription verification",
+);
+assert.equal(
+  getNextAction(capturedPendingVerification).label,
+  "Verify prescription",
+  "captured-but-pending orders remain on the safe verification recovery path",
 );
 assert.doesNotMatch(
   verifyRoute,
