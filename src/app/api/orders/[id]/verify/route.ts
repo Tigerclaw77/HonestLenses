@@ -41,7 +41,6 @@ export async function POST(
       capture_amount_cents,
       feedback_credit_cents,
       payment_intent_id,
-      authorization_expires_at,
       revised_total_amount_cents,
       allow_price_increase,
       allow_price_decrease
@@ -50,7 +49,18 @@ export async function POST(
     .eq("id", orderId)
     .single();
 
-  if (orderError || !order) {
+  if (orderError) {
+    console.error("Admin verification order lookup failed", {
+      orderId,
+      error: orderError.message,
+    });
+    return NextResponse.json(
+      { error: "Unable to load the order.", code: "ORDER_LOOKUP_FAILED" },
+      { status: 500 },
+    );
+  }
+
+  if (!order) {
     return NextResponse.json(
       { error: "Order not found" },
       { status: 404 }
