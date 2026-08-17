@@ -33,6 +33,31 @@ assert.match(
 );
 assert.match(
   verifyRoute,
+  /const \{ id: orderId \} = await context\.params;[\s\S]*\.eq\("id", orderId\)[\s\S]*\.single\(\)/,
+  "verification loads the exact order ID submitted by the displayed admin card",
+);
+assert.match(
+  verifyRoute,
+  /payment_intent_id/,
+  "verification loads the selected order's stored PaymentIntent",
+);
+assert.match(
+  verifyRoute,
+  /\.eq\("payment_intent_id", order\.payment_intent_id\)/,
+  "post-capture persistence remains bound to the selected order's PaymentIntent",
+);
+assert.doesNotMatch(
+  verifyRoute,
+  /authorization_expires_at/,
+  "verification does not select the absent authorization_expires_at column and misreport the query failure as an unknown order",
+);
+assert.match(
+  verifyRoute,
+  /if \(orderError\)[\s\S]*ORDER_LOOKUP_FAILED[\s\S]*if \(!order\)[\s\S]*Order not found/,
+  "database lookup failures and genuinely missing orders remain distinct and fail safely",
+);
+assert.match(
+  verifyRoute,
   /\.select\("id, status, verification_status"\)[\s\S]*\.maybeSingle\(\)/,
   "verification checks that the local post-capture state update matched",
 );
