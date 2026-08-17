@@ -86,6 +86,8 @@ type OrderRow = {
   payment_intent_id?: string | null;
   payment_status?: PaymentStatus | null;
   stripe_payment_intent_status?: string | null;
+  stripe_authorized_amount_cents?: number | null;
+  stripe_captured_amount_cents?: number | null;
   stripe_authorized_at?: string | null;
   stripe_capture_before?: string | null;
   payment_status_source?:
@@ -185,6 +187,8 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       ...order,
       payment_status: projection.status,
       stripe_payment_intent_status: null,
+      stripe_authorized_amount_cents: null,
+      stripe_captured_amount_cents: null,
       stripe_authorized_at: null,
       stripe_capture_before: null,
       payment_status_source: "missing_intent",
@@ -200,6 +204,8 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       ...order,
       payment_status: projection.status,
       stripe_payment_intent_status: null,
+      stripe_authorized_amount_cents: null,
+      stripe_captured_amount_cents: null,
       stripe_authorized_at: null,
       stripe_capture_before: null,
       payment_status_source: "order_fallback",
@@ -220,6 +226,8 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       ...order,
       payment_status: projection.status,
       stripe_payment_intent_status: null,
+      stripe_authorized_amount_cents: null,
+      stripe_captured_amount_cents: null,
       stripe_authorized_at: null,
       stripe_capture_before: null,
       payment_status_source: "order_fallback",
@@ -252,6 +260,12 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       ...order,
       payment_status: projection.status,
       stripe_payment_intent_status: projection.stripePaymentIntentStatus,
+      stripe_authorized_amount_cents:
+        intent.status === "requires_capture" || intent.status === "succeeded"
+          ? intent.amount
+          : null,
+      stripe_captured_amount_cents:
+        intent.status === "succeeded" ? intent.amount_received : null,
       stripe_authorized_at:
         authorizedAtSeconds === null
           ? null
@@ -277,6 +291,8 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       ...order,
       payment_status: projection.status,
       stripe_payment_intent_status: null,
+      stripe_authorized_amount_cents: null,
+      stripe_captured_amount_cents: null,
       stripe_authorized_at: null,
       stripe_capture_before: null,
       payment_status_source: "stripe_lookup_failed",

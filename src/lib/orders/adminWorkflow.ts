@@ -83,9 +83,8 @@ export function isFounderOverrideEligible(order: Order): boolean {
 }
 
 /**
- * Admin fulfillment changes are overrides. Uploaded prescriptions are the one
- * hard gate: they cannot enter a fulfillment state that expects captured
- * payment until prescription verification is complete.
+ * Fulfillment states that expect captured payment have two hard gates: a real
+ * captured payment and, for uploaded prescriptions, completed verification.
  */
 export function assessAdminFulfillmentTransition(
   order: Order,
@@ -105,6 +104,8 @@ export function assessAdminFulfillmentTransition(
 
   const warnings: string[] = [];
   const payment = getPaymentState(order);
+  const hasCapturedPaymentEvidence =
+    payment.status === "captured" && Boolean(order.payment_intent_id?.trim());
   const verification = getVerificationState(order);
   const uploadedRxRequiresReview = Boolean(
     order.rx_upload_path && !verification.complete,
@@ -112,10 +113,12 @@ export function assessAdminFulfillmentTransition(
 
   if (
     PAYMENT_CAPTURE_EXPECTED_STATUSES.has(target) &&
-    payment.status !== "captured"
+    !hasCapturedPaymentEvidence
   ) {
     warnings.push(
-      `Payment is ${payment.label.toLowerCase()}, not captured.`,
+      order.payment_intent_id?.trim()
+        ? `Payment is ${payment.label.toLowerCase()}, not captured.`
+        : "PaymentIntent is missing; payment cannot be established.",
     );
   }
 
@@ -170,10 +173,9 @@ export function assessAdminFulfillmentTransition(
 
   return {
     valid: true,
-    allowed: !(
-      PAYMENT_CAPTURE_EXPECTED_STATUSES.has(target) &&
-      uploadedRxRequiresReview
-    ),
+    allowed:
+      !PAYMENT_CAPTURE_EXPECTED_STATUSES.has(target) ||
+      (hasCapturedPaymentEvidence && !uploadedRxRequiresReview),
     currentStatus,
     targetStatus: target,
     warnings: [...new Set(warnings)],

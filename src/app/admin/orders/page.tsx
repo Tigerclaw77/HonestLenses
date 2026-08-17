@@ -38,6 +38,7 @@ import {
   getAuthorizationRisk,
   type AuthorizationRisk,
 } from "@/lib/orders/authorizationRisk";
+import { getAdminPaymentDisplay } from "@/lib/orders/adminPaymentDisplay";
 import type { ManualVerificationAttemptMethod } from "@/lib/orders/verificationAttempts";
 import { isOrderRowControlTarget } from "@/lib/admin/orderRowInteraction";
 
@@ -99,6 +100,8 @@ type Order = {
   fulfillment_status?: string | null;
   payment_status?: PaymentStatus | null;
   stripe_payment_intent_status?: string | null;
+  stripe_authorized_amount_cents?: number | null;
+  stripe_captured_amount_cents?: number | null;
   stripe_authorized_at?: string | null;
   stripe_capture_before?: string | null;
   payment_status_source?: string | null;
@@ -2081,6 +2084,7 @@ function OrderDetailsModal({
   const patientName = getPatientName(order);
   const showPatientName = namesDiffer(patientName, customerName);
   const payment = getPaymentState(order);
+  const paymentDisplay = getAdminPaymentDisplay(order);
   const verification = getVerificationState(order);
   const fulfillment = normalizedFulfillmentStatus(order);
   const rxSource = getRxSourceState(order);
@@ -2195,9 +2199,15 @@ function OrderDetailsModal({
               Payment Record
             </div>
             <div>Status: {payment.label}</div>
-            <div>Authorized: {formatMoney(order.total_amount_cents)}</div>
             <div>
-              Capture: {formatMoney(effectiveCaptureAmountCents(order))}
+              Authorized: {paymentDisplay.authorizedAmountCents === null
+                ? "—"
+                : formatMoney(paymentDisplay.authorizedAmountCents)}
+            </div>
+            <div>
+              Capture: {paymentDisplay.capturedAmountCents === null
+                ? "Not captured"
+                : formatMoney(paymentDisplay.capturedAmountCents)}
             </div>
             <div>Stripe: {order.stripe_payment_intent_status ?? "-"}</div>
             <div style={{ marginTop: 5, overflowWrap: "anywhere" }}>
