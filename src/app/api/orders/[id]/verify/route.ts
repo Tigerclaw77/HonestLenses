@@ -9,6 +9,7 @@ import {
 } from "@/lib/admin-auth";
 import { captureAuthorizedOrderPayment } from "@/lib/payments/legacyPaymentCommands";
 import { sendFounderOperationalAlert } from "@/lib/founderAlerts";
+import { runVerificationCaptureWorkflow } from "@/lib/orders/verificationCaptureWorkflow";
 
 type VerifyPayload = {
   revised_total_amount_cents?: number;
@@ -123,13 +124,49 @@ export async function POST(
         { status: 409 },
       );
     }
-    try {
-      const capture = await captureAuthorizedOrderPayment(
-        order,
-        "admin-verification",
-      );
-      capturePaymentIntentId = capture.paymentIntentId;
-    } catch {
+  }
+
+  // 5️⃣ Apply verification outcome
+  const workflow = await runVerificationCaptureWorkflow({
+    reconcilePayment: async () => {
+      if (priceChanged) {
+        return { paymentIntentId: "", alreadyCaptured: false };
+      }
+      return captureAuthorizedOrderPayment(order, "admin-verification");
+    },
+    persistVerifiedState: async () => {
+      let updateQuery = supabaseServer
+        .from("orders")
+        .update({
+          verification_status: priceChanged ? "altered" : "verified",
+          verification_passed: !priceChanged,
+          verification_completed_at: !priceChanged
+            ? new Date().toISOString()
+            : null,
+          status: priceChanged ? order.status : "captured",
+          revised_total_amount_cents: priceChanged ? revisedCents : null,
+          price_reason: priceChanged ? body.price_reason ?? null : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", orderId);
+
+      updateQuery = priceChanged
+        ? updateQuery.eq("status", order.status)
+        : updateQuery.in("status", ["authorized", "captured"]);
+
+      if (order.payment_intent_id) {
+        updateQuery = updateQuery.eq("payment_intent_id", order.payment_intent_id);
+      }
+
+      const { data: updatedOrder, error: updateError } = await updateQuery
+        .select("id, status, verification_status")
+        .maybeSingle();
+      return updateError ? null : updatedOrder;
+    },
+  });
+
+  if (!workflow.ok) {
+    if (workflow.stage === "capture") {
       return NextResponse.json(
         {
           error:
@@ -140,53 +177,25 @@ export async function POST(
         { status: 409 },
       );
     }
-  }
-
-  // 5️⃣ Apply verification outcome
-  let updateQuery = supabaseServer
-    .from("orders")
-    .update({
-      verification_status: priceChanged ? "altered" : "verified",
-      verification_passed: !priceChanged,
-      verification_completed_at: !priceChanged
-        ? new Date().toISOString()
-        : null,
-      status: priceChanged ? order.status : "captured",
-      revised_total_amount_cents: priceChanged ? revisedCents : null,
-      price_reason: priceChanged ? body.price_reason ?? null : null,
-      verified_lens: body.verified_lens ?? null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", orderId);
-
-  updateQuery = priceChanged
-    ? updateQuery.eq("status", order.status)
-    : updateQuery.in("status", ["authorized", "captured"]);
-
-  if (order.payment_intent_id) {
-    updateQuery = updateQuery.eq("payment_intent_id", order.payment_intent_id);
-  }
-
-  const { data: updatedOrder, error: updateError } = await updateQuery
-    .select("id, status, verification_status")
-    .maybeSingle();
-
-  if (updateError || !updatedOrder) {
     return NextResponse.json(
       {
         error:
-          capturePaymentIntentId
+          workflow.capture?.paymentIntentId
             ? "Payment is captured, but the verified order state was not saved. Do not fulfill from this screen; retry verification to reconcile the local state."
             : "Unable to save the verification override.",
-        code: capturePaymentIntentId
+        code: !priceChanged && workflow.capture?.paymentIntentId
           ? "CAPTURED_STATE_UPDATE_FAILED"
           : "VERIFICATION_STATE_UPDATE_FAILED",
-        payment_captured: Boolean(capturePaymentIntentId),
+        payment_captured: Boolean(workflow.capture?.paymentIntentId),
         retryable: true,
       },
       { status: 500 }
     );
   }
+
+  capturePaymentIntentId = priceChanged
+    ? null
+    : workflow.capture.paymentIntentId;
 
   const { error: eventError } = await supabaseServer.from("order_events").insert({
     order_id: orderId,
