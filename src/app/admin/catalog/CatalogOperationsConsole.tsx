@@ -402,7 +402,7 @@ export default function CatalogOperationsConsole({
 
           <div className="actions">
             <a className="actionLink primary" href={MANAGED_CATALOG_CREATE_HREF}>
-              Add managed lens
+              Add new lens
             </a>
             {selectedLens && (
               <>
@@ -540,7 +540,7 @@ export default function CatalogOperationsConsole({
                 <p className="eyebrow">Protected source record</p>
                 <h2>LensCore preview (read-only)</h2>
                 <p>
-                  This source-backed lens is not a managed catalog record and cannot be changed from this page. Use Add managed lens for a new, distinct database-backed family.
+                  This source-backed lens is not a database-backed catalog record and cannot be changed from this page. Use Add new lens for a new, distinct family.
                 </p>
               </div>
               <div
