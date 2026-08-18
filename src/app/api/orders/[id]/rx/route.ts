@@ -8,6 +8,7 @@ import {
   hasOrderAccessContext,
 } from "@/lib/order-access";
 import { resolveDefaultSku } from "../../../../../lib/pricing/resolveDefaultSku";
+import { getLensFamilyQuantityReset } from "../../../../../lib/orders/rxFamilyChange";
 import {
   lenses,
   resolveLensRxState,
@@ -211,7 +212,7 @@ export async function POST(
 
   const { data: order, error: orderError } = await supabaseServer
     .from("orders")
-    .select("id, user_id, status, verification_status, rx_source, rx_upload_path")
+    .select("id, user_id, status, verification_status, rx_source, rx_upload_path, rx")
     .eq("id", orderId)
     .single();
 
@@ -254,6 +255,11 @@ export async function POST(
     left: leftResult.eye,
   };
 
+  // This must run before the new default SKU is persisted. Once the SKU is
+  // overwritten, cart resolution can no longer tell that saved quantities
+  // belong to a different lens family.
+  const quantityReset = getLensFamilyQuantityReset(order.rx, sanitizedRx);
+
   /* =========================
      8️⃣ FINAL VERIFICATION STATUS
   ========================= */
@@ -272,6 +278,7 @@ export async function POST(
     .update({
       rx: sanitizedRx,
       sku,
+      ...quantityReset,
       verification_status: nextVerificationStatus,
       rx_source: order.rx_upload_path ? "ocr" : order.rx_source ?? "manual",
       rx_status: order.rx_upload_path
