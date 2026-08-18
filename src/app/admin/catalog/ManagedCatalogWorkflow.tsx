@@ -35,11 +35,11 @@ function parseParameters(value: string): { value: LensCore["parameters"] | null;
   } catch (error) { return { value: null, error: error instanceof Error ? error.message : "Invalid JSON." }; }
 }
 
-export default function ManagedCatalogWorkflow({ initialFamilies, storageAvailable }: { initialFamilies: ManagedCatalogFamily[]; storageAvailable: boolean }) {
+export default function ManagedCatalogWorkflow({ initialFamilies, storageAvailable, startInCreateMode = false }: { initialFamilies: ManagedCatalogFamily[]; storageAvailable: boolean; startInCreateMode?: boolean }) {
   const [families, setFamilies] = useState(initialFamilies);
-  const [selectedId, setSelectedId] = useState<string | null>(initialFamilies[0]?.coreId ?? null);
-  const [draft, setDraft] = useState<ManagedCatalogFamilyInput>(() => initialFamilies[0] ? inputFromFamily(initialFamilies[0]) : emptyFamily());
-  const [parametersText, setParametersText] = useState(() => JSON.stringify(initialFamilies[0]?.parameters ?? emptyFamily().parameters, null, 2));
+  const [selectedId, setSelectedId] = useState<string | null>(startInCreateMode ? null : initialFamilies[0]?.coreId ?? null);
+  const [draft, setDraft] = useState<ManagedCatalogFamilyInput>(() => startInCreateMode || !initialFamilies[0] ? emptyFamily() : inputFromFamily(initialFamilies[0]));
+  const [parametersText, setParametersText] = useState(() => JSON.stringify(startInCreateMode || !initialFamilies[0] ? emptyFamily().parameters : initialFamilies[0].parameters, null, 2));
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const parsed = useMemo(() => parseParameters(parametersText), [parametersText]);
@@ -78,7 +78,7 @@ export default function ManagedCatalogWorkflow({ initialFamilies, storageAvailab
     setStatus("Published as a new immutable family version.");
   }
 
-  return <section className="managedCatalog">
+  return <section id="managed-catalog" className="managedCatalog" tabIndex={-1}>
     <div className="managedHeading"><div><p>Persistent catalog administration</p><h2>Managed Lens Families</h2><span>Source-managed LensCore families above remain read-only. Each publish here creates a new version and only changes this managed family.</span></div><button type="button" onClick={add}>Add managed family</button></div>
     {!storageAvailable ? <p className="managedError">Managed catalog storage is not available until the local migration is applied. No production database has been changed.</p> : <div className="managedGrid">
       <aside>{families.length ? families.map((family) => <button type="button" className={selectedId === family.coreId ? "selected" : ""} key={family.coreId} onClick={() => select(family)}><strong>{family.displayName}</strong><span>{family.coreId} · v{family.version}</span></button>) : <p>No managed families published yet.</p>}</aside>
