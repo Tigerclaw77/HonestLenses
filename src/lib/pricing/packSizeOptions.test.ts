@@ -9,6 +9,7 @@ import {
   getPackSizeOptionsForCoreId,
   isSkuAvailableForCoreId,
 } from "./packSizeOptions";
+import { getQuantityOptionsWithSelectedValue } from "@/lib/cart/quantityConfig";
 
 const options = getPackSizeOptionsForCoreId("OASYS_2W");
 assert.deepEqual(
@@ -70,6 +71,16 @@ assert.match(
   resolveRoute,
   /requestedSku \?\? storedSku \?\? resolveDefaultSku/,
   "the explicit pack choice must survive later quantity and shipping resolves",
+);
+assert.match(
+  resolveRoute,
+  /hasCompatibleStoredQuantity = storedSku !== null/,
+  "quantities from an incompatible prior lens family must not survive SKU resolution",
+);
+assert.deepEqual(
+  getQuantityOptionsWithSelectedValue([0, 1, 2, 3, 4], 12),
+  [0, 1, 2, 3, 4, 12],
+  "a converted quantity remains selectable even when it exceeds the normal cap",
 );
 
 console.log("Equivalent pack-size choice regression checks passed");

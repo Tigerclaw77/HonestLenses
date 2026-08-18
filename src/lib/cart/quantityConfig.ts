@@ -40,6 +40,19 @@ export type QuantityConfig = {
   options: number[];
 };
 
+export function getQuantityOptionsWithSelectedValue(
+  options: readonly number[],
+  selectedQuantity: number,
+): number[] {
+  if (!Number.isInteger(selectedQuantity) || selectedQuantity < 0) {
+    return [...options];
+  }
+
+  if (options.includes(selectedQuantity)) return [...options];
+
+  return [...options, selectedQuantity].sort((a, b) => a - b);
+}
+
 /**
  * Authoritative quantity logic.
  * This is the SINGLE source of truth.

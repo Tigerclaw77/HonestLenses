@@ -395,6 +395,7 @@ export async function POST(req: Request) {
     )
       ? order.sku
       : null;
+  const hasCompatibleStoredQuantity = storedSku !== null;
   const resolvedSku =
     requestedSku ?? storedSku ?? resolveDefaultSku(coreId, targetMonths);
   if (!resolvedSku) {
@@ -432,10 +433,16 @@ export async function POST(req: Request) {
     requestedLeftBoxCount: body?.left_box_count,
     hasRequestedRightBoxCount: hasOwn(body, "right_box_count"),
     hasRequestedLeftBoxCount: hasOwn(body, "left_box_count"),
-    storedRightBoxCount: storedQuantity.right,
-    storedLeftBoxCount: storedQuantity.left,
-    hasStoredRightBoxCount: storedEyeQuantityPresence.right,
-    hasStoredLeftBoxCount: storedEyeQuantityPresence.left,
+    storedRightBoxCount: hasCompatibleStoredQuantity
+      ? storedQuantity.right
+      : 0,
+    storedLeftBoxCount: hasCompatibleStoredQuantity
+      ? storedQuantity.left
+      : 0,
+    hasStoredRightBoxCount:
+      hasCompatibleStoredQuantity && storedEyeQuantityPresence.right,
+    hasStoredLeftBoxCount:
+      hasCompatibleStoredQuantity && storedEyeQuantityPresence.left,
   });
 
   if (!hasResolvedCartQuantity(counts)) {
