@@ -9,7 +9,10 @@ import AbandonmentFeedbackExperiment from "@/components/AbandonmentFeedbackExper
 import EyeRow from "../../components/cart/EyeRow";
 
 import { fmtPrice } from "../../lib/cart/formatters";
-import { buildQuantityConfig } from "../../lib/cart/quantityConfig";
+import {
+  buildQuantityConfig,
+  getQuantityOptionsWithSelectedValue,
+} from "../../lib/cart/quantityConfig";
 import type { CartOrder } from "../../lib/cart/types";
 import { fetchCart, resolveCart } from "../../lib/cart/api";
 import { getLensDisplayName } from "../../lib/cart/display";
@@ -358,6 +361,14 @@ export default function CartPage() {
 
   const effectiveLeft =
     leftQtyOverride ?? storedLeft ?? (leftEye ? defaultPerEye : 0);
+  const rightQuantityOptions = getQuantityOptionsWithSelectedValue(
+    quantityOptions,
+    effectiveRight,
+  );
+  const leftQuantityOptions = getQuantityOptionsWithSelectedValue(
+    quantityOptions,
+    effectiveLeft,
+  );
 
   const totalBoxes =
     (rightEye ? effectiveRight : 0) + (leftEye ? effectiveLeft : 0);
@@ -444,7 +455,7 @@ export default function CartPage() {
               }}
               unitPricePerBoxCents={unitPricePerBoxCents}
               durationLabel={durationLabel}
-              quantityOptions={quantityOptions}
+              quantityOptions={rightQuantityOptions}
               smallerPackLabel={smallerPack ? "Use smaller pack" : undefined}
               onUseSmallerPack={
                 smallerPack
@@ -470,7 +481,7 @@ export default function CartPage() {
                 }}
                 unitPricePerBoxCents={unitPricePerBoxCents}
                 durationLabel={durationLabel}
-                quantityOptions={quantityOptions}
+                quantityOptions={leftQuantityOptions}
                 smallerPackLabel={smallerPack ? "Use smaller pack" : undefined}
                 onUseSmallerPack={
                   smallerPack

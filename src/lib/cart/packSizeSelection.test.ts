@@ -9,6 +9,11 @@ import {
   isSkuAvailableForCoreId,
   getPersistedPackSku,
 } from "./packSizeSelection";
+import {
+  buildQuantityConfig,
+  getQuantityOptionsWithSelectedValue,
+} from "./quantityConfig";
+import { resolveCartEyeBoxCounts } from "./resolveQuantities";
 import { getAuthoritativeOrderQuote } from "@/lib/orders/orderPricing";
 import { checkoutAmountMatchesPaymentIntent, getCheckoutAmountCents } from "@/lib/payments/checkoutAmount";
 import { resolveOrderManufacturer } from "@/lib/orders/skuManufacturer";
@@ -52,6 +57,59 @@ test("switches OASYS 24 to the next smaller 12 pack and preserves supply", () =>
 test("rejects cross-family choices and does not offer order-level switches for mixed eyes", () => {
   assert.equal(isSkuAvailableForCoreId("OASYS_2W", "MOIST_30"), false);
   assert.equal(getOrderPackCoreId({ rightCoreId: "OASYS_2W", leftCoreId: "MOIST" }), null);
+});
+
+test("a prior lens family cannot carry quantities into a clariti annual cart", () => {
+  assert.equal(getPersistedPackSku("CLARITI_1D", "DT1_30", true), null);
+  assert.deepEqual(
+    resolveCartEyeBoxCounts({
+      hasRightEye: true,
+      hasLeftEye: true,
+      defaultPerEye: 4,
+      storedRightBoxCount: 18,
+      storedLeftBoxCount: 18,
+      hasStoredRightBoxCount: false,
+      hasStoredLeftBoxCount: false,
+    }),
+    { right: 4, left: 4, totalBoxes: 8 },
+  );
+});
+
+test("clariti annual 90 to 30 keeps persisted, displayed, and priced quantities aligned", () => {
+  const annual90 = buildQuantityConfig("2027-12-31", "CLARITI_1D_90");
+  assert.equal(annual90?.defaultPerEye, 4);
+  assert.equal(
+    getNextSmallerPackSizeOption("CLARITI_1D", "CLARITI_1D_90")?.sku,
+    "CLARITI_1D_30",
+  );
+
+  const perEye30 = convertPackSizeQuantity(annual90?.defaultPerEye ?? null, "CLARITI_1D_90", "CLARITI_1D_30");
+  assert.equal(perEye30, 12);
+  assert.equal(
+    getQuantityOptionsWithSelectedValue(
+      buildQuantityConfig("2027-12-31", "CLARITI_1D_30")?.options ?? [],
+      perEye30 ?? 0,
+    ).includes(perEye30 ?? 0),
+    true,
+  );
+
+  const quote = getAuthoritativeOrderQuote({
+    sku: "CLARITI_1D_30",
+    totalBoxes: 24,
+    rightBoxCount: 12,
+    leftBoxCount: 12,
+  });
+  assert.equal(quote.totalMonths, 12);
+  assert.equal(quote.shippingCents, 0);
+  assert.equal(getCheckoutAmountCents({ id: "clariti", total_amount_cents: quote.totalAmountCents, feedback_credit_cents: 0 }), quote.totalAmountCents);
+  assert.equal(getPersistedPackSku("CLARITI_1D", "CLARITI_1D_30", true), "CLARITI_1D_30");
+});
+
+test("quantity options retain persisted and adjusted selections outside the normal cap", () => {
+  assert.deepEqual(
+    getQuantityOptionsWithSelectedValue([0, 1, 2, 3, 4, 5, 6, 7, 8], 54),
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 54],
+  );
 });
 
 test("preserves a valid selected SKU but locks pack changes after quantity adjustment", () => {

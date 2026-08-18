@@ -412,6 +412,7 @@ export async function POST(req: Request) {
     order.sku,
     storedQuantity.total > 0,
   );
+  const hasCompatibleStoredQuantity = previousSku !== null;
   const resolvedSku = requestedSku ?? previousSku ?? defaultSku;
 
   const monthsPerBox = getSkuBoxDurationMonths(resolvedSku);
@@ -442,11 +443,15 @@ export async function POST(req: Request) {
   const storedRightBoxCount =
     hasRequestedPackSize && previousSku
       ? convertPackSizeQuantity(storedQuantity.right, previousSku, resolvedSku)
-      : storedQuantity.right;
+      : hasCompatibleStoredQuantity
+        ? storedQuantity.right
+        : 0;
   const storedLeftBoxCount =
     hasRequestedPackSize && previousSku
       ? convertPackSizeQuantity(storedQuantity.left, previousSku, resolvedSku)
-      : storedQuantity.left;
+      : hasCompatibleStoredQuantity
+        ? storedQuantity.left
+        : 0;
 
   const counts = resolveCartEyeBoxCounts({
     hasRightEye: Boolean(rx.right),
@@ -458,8 +463,10 @@ export async function POST(req: Request) {
     hasRequestedLeftBoxCount: hasOwn(body, "left_box_count"),
     storedRightBoxCount,
     storedLeftBoxCount,
-    hasStoredRightBoxCount: storedEyeQuantityPresence.right,
-    hasStoredLeftBoxCount: storedEyeQuantityPresence.left,
+    hasStoredRightBoxCount:
+      hasCompatibleStoredQuantity && storedEyeQuantityPresence.right,
+    hasStoredLeftBoxCount:
+      hasCompatibleStoredQuantity && storedEyeQuantityPresence.left,
   });
 
   if (!hasResolvedCartQuantity(counts)) {
