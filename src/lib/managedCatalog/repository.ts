@@ -57,7 +57,7 @@ export async function publishManagedCatalogFamily(input: ManagedCatalogFamilyInp
     skus: input.skus.map((sku) => ({ sku: sku.sku.trim(), packSize: sku.packSize, retailPriceCents: sku.pricePerBoxCents, vendorSku: sku.vendorSku?.trim() || null, vendorOrderIdentifier: sku.vendorOrderIdentifier?.trim() || null, active: sku.active !== false })),
     images: input.images.map((image, index) => ({ storagePath: image.storagePath, altText: image.altText?.trim() || null, position: image.position ?? index, isPrimary: image.isPrimary !== false })),
   };
-  const { data, error } = await supabaseServer.rpc("publish_managed_catalog_family", { payload });
+  const { data, error } = await supabaseServer.rpc("hl_publish_managed_catalog_family", { payload });
   if (error) throw error;
   if (typeof data !== "string") throw new Error("Managed catalog publish returned no version id.");
   return data;

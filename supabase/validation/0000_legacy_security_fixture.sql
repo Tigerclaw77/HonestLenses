@@ -31,19 +31,30 @@ set search_path = ''
 as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
 $$;
+grant usage on schema auth to service_role;
+grant execute on function auth.uid() to service_role;
 
 create schema if not exists storage;
 revoke all on schema storage from public, anon, authenticated;
 
 create table storage.buckets (
   id text primary key,
+  name text not null,
   public boolean not null default false,
   file_size_limit bigint,
   allowed_mime_types text[]
 );
 
-insert into storage.buckets (id, public)
-values ('prescriptions', false);
+insert into storage.buckets (id, name, public)
+values ('prescriptions', 'prescriptions', false);
+
+create table storage.objects (
+  id uuid primary key default gen_random_uuid(),
+  bucket_id text not null references storage.buckets(id),
+  name text not null,
+  owner_id uuid
+);
+alter table storage.objects enable row level security;
 
 create table public.orders (
   id uuid primary key default gen_random_uuid(),

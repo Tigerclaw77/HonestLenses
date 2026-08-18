@@ -3,6 +3,9 @@ import type { LensCore, RxPayload } from "@/LensCore/types";
 import { listManagedCatalogFamilies } from "./repository";
 import { managedInputToLensCore } from "./validation";
 import type { ManagedCatalogFamily } from "./types";
+import { isManagedFamilyCustomerOrderable } from "./availability";
+
+export { isManagedFamilyCustomerOrderable } from "./availability";
 
 /**
  * Runtime lookup deliberately checks the static catalog first. That keeps the
@@ -10,7 +13,12 @@ import type { ManagedCatalogFamily } from "./types";
  * catalog migration has not yet been applied.
  */
 export async function findManagedCatalogFamily(coreId: string): Promise<ManagedCatalogFamily | null> {
-  return (await listManagedCatalogFamilies()).find((family) => family.coreId === coreId && family.active) ?? null;
+  return (
+    (await listManagedCatalogFamilies()).find(
+      (family) =>
+        family.coreId === coreId && isManagedFamilyCustomerOrderable(family),
+    ) ?? null
+  );
 }
 
 export async function getRuntimeLens(coreId: string): Promise<LensCore | null> {

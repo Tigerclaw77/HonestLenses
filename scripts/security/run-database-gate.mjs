@@ -387,6 +387,183 @@ async function testCommerceReverse(client, connectionConfig) {
   };
 }
 
+async function testManagedCatalogDatabase(client) {
+  const tableAudit = await client.query(`
+    select
+      c.relname as name,
+      c.relrowsecurity as rls_enabled,
+      has_table_privilege('anon', c.oid, 'select,insert,update,delete') as anon_any,
+      has_table_privilege('authenticated', c.oid, 'select,insert,update,delete') as authenticated_any,
+      has_table_privilege('service_role', c.oid, 'select,insert,update,delete') as service_all
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = any(array[
+        'catalog_managed_families',
+        'catalog_managed_family_versions',
+        'catalog_managed_skus',
+        'catalog_managed_images'
+      ])
+    order by c.relname
+  `);
+  assert(tableAudit.rows.length === 4, "Managed catalog table inventory is incomplete");
+  for (const row of tableAudit.rows) {
+    assert(row.rls_enabled, `${row.name} lacks RLS`);
+    assert(!row.anon_any, `anon has managed catalog access to ${row.name}`);
+    assert(!row.authenticated_any, `authenticated has managed catalog access to ${row.name}`);
+    assert(row.service_all, `service_role lacks managed catalog access to ${row.name}`);
+  }
+
+  const bucket = await client.query(`
+    select id, name, public, file_size_limit, allowed_mime_types
+    from storage.buckets
+    where id = 'catalog-images'
+  `);
+  assert(
+    JSON.stringify(bucket.rows[0]) === JSON.stringify({
+      id: 'catalog-images',
+      name: 'catalog-images',
+      public: true,
+      file_size_limit: '5242880',
+      allowed_mime_types: ['image/jpeg', 'image/png'],
+    }),
+    "Catalog artwork bucket configuration is not exact",
+  );
+
+  const policyAudit = await client.query(`
+    select polname
+    from pg_policy policy
+    join pg_class relation on relation.oid = policy.polrelid
+    join pg_namespace namespace on namespace.oid = relation.relnamespace
+    where namespace.nspname = 'storage'
+      and relation.relname = 'objects'
+      and polname like 'hl_catalog_images_deny_%'
+    order by polname
+  `);
+  assert(policyAudit.rows.length === 3, "Catalog artwork browser-write policies are missing");
+
+  const familyOne = '10000000-0000-4000-8000-000000000001';
+  const familyTwo = '20000000-0000-4000-8000-000000000002';
+  const revisionOne = '30000000-0000-4000-8000-000000000003';
+  const revisionTwo = '40000000-0000-4000-8000-000000000004';
+  await executeAs(client, 'service_role', `
+    insert into public.catalog_managed_families (id, core_id)
+    values ($1, 'DB_GATE_ONE'), ($2, 'DB_GATE_TWO')
+  `, [familyOne, familyTwo]);
+  await executeAs(client, 'service_role', `
+    insert into public.catalog_managed_family_versions (
+      id, family_id, version, display_name, manufacturer, replacement,
+      parameters
+    ) values
+      ($3, $1, 1, 'DB gate one', 'ALCON', '1M', '{}'::jsonb),
+      ($4, $2, 1, 'DB gate two', 'ALCON', '1M', '{}'::jsonb)
+  `, [familyOne, familyTwo, revisionOne, revisionTwo]);
+  await executeAs(client, 'service_role', `
+    update public.catalog_managed_families
+    set current_version_id = $2
+    where id = $1
+  `, [familyOne, revisionOne]);
+
+  await expectDatabaseError(
+    client,
+    'service_role',
+    `update public.catalog_managed_families set current_version_id = $1 where id = $2`,
+    '23503',
+    [revisionTwo, familyOne],
+  );
+  await expectDatabaseError(
+    client,
+    'service_role',
+    `update public.catalog_managed_family_versions set display_name = 'mutated' where id = $1`,
+    '55000',
+    [revisionOne],
+  );
+  await executeAs(client, 'service_role', `
+    insert into public.catalog_managed_skus (family_version_id, sku, pack_size, retail_price_cents)
+    values ($1, 'DB_GATE_ONE_6', 6, 1000)
+  `, [revisionOne]);
+  await executeAs(client, 'service_role', `
+    insert into public.catalog_managed_images (family_version_id, storage_path, is_primary)
+    values ($1, 'families/DB_GATE_ONE/test.jpg', true)
+  `, [revisionOne]);
+  await expectDatabaseError(
+    client,
+    'service_role',
+    `update public.catalog_managed_skus set retail_price_cents = 2000 where sku = 'DB_GATE_ONE_6'`,
+    '55000',
+  );
+  await expectDatabaseError(
+    client,
+    'service_role',
+    `delete from public.catalog_managed_images where family_version_id = $1`,
+    '55000',
+    [revisionOne],
+  );
+  await expectDenied(client, 'anon', 'select * from public.catalog_managed_families');
+  await expectDenied(client, 'authenticated', "insert into public.catalog_managed_families (core_id) values ('ATTACK')");
+  await expectDenied(client, 'anon', "insert into storage.objects (bucket_id, name) values ('catalog-images', 'families/ATTACK/a.jpg')");
+  await expectDenied(client, 'authenticated', "insert into storage.objects (bucket_id, name) values ('catalog-images', 'families/ATTACK/a.jpg')");
+
+  const publishedRevision = await executeAs(client, 'service_role', `
+    select public.hl_publish_managed_catalog_family(
+      '{"coreId":"DB_GATE_RPC","displayName":"DB Gate RPC","manufacturer":"ALCON","replacement":"1M","toric":false,"multifocal":false,"active":true,"browseVisible":true,"parameters":{"baseCurve":[8.6],"diameter":[14.2],"sphere":{"segments":[{"min":-1,"max":1,"step":0.25}]}},"vendorOrderIdentifier":"DB-GATE","skus":[{"sku":"DB_GATE_RPC_6","packSize":6,"retailPriceCents":1000,"vendorSku":"DB-GATE-6","active":true}],"images":[{"storagePath":"families/DB_GATE_RPC/test.jpg","position":0,"isPrimary":true}]}'::jsonb
+    ) as revision_id
+  `);
+  assert(publishedRevision.rows[0]?.revision_id, "Managed catalog publish function did not return a revision");
+  const ownership = await client.query(`
+    select count(*)::integer as count
+    from public.catalog_managed_families family
+    join public.catalog_managed_family_versions revision
+      on revision.id = family.current_version_id
+     and revision.family_id = family.id
+    where family.core_id = 'DB_GATE_RPC'
+  `);
+  assert(ownership.rows[0]?.count === 1, "Published current revision does not belong to its family");
+
+  const bucketBeforeConflict = await client.query(`
+    select public, file_size_limit, allowed_mime_types
+    from storage.buckets
+    where id = 'catalog-images'
+  `);
+  let createOnlyConflictRejected = false;
+  try {
+    await applySqlFile(
+      client,
+      path.join(
+        migrationDirectory,
+        '20260818014740_create_managed_catalog.sql',
+      ),
+    );
+  } catch (error) {
+    assert(
+      error instanceof Error && error.message.includes('managed catalog migration conflict'),
+      `Managed catalog create-only preflight failed unexpectedly: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    createOnlyConflictRejected = true;
+  }
+  assert(createOnlyConflictRejected, 'Managed catalog migration did not reject an existing-object collision');
+  const bucketAfterConflict = await client.query(`
+    select public, file_size_limit, allowed_mime_types
+    from storage.buckets
+    where id = 'catalog-images'
+  `);
+  assert(
+    JSON.stringify(bucketAfterConflict.rows) === JSON.stringify(bucketBeforeConflict.rows),
+    'A failed managed catalog migration changed the existing artwork bucket',
+  );
+
+  return {
+    tables: 4,
+    rls: true,
+    anonymousAndAuthenticatedWritesDenied: true,
+    exactBucketConfiguration: true,
+    ownershipEnforced: true,
+    revisionsImmutable: true,
+    browserArtworkWritesDenied: true,
+    createOnlyConflictRejected: true,
+  };
+}
+
 async function testPrescriptionHandoffMigration(client, applied) {
   await applySqlFile(
     client,
@@ -441,6 +618,11 @@ async function testPrescriptionHandoffMigration(client, applied) {
       version: "20260811023838",
       name: "prescription_mobile_handoffs",
     },
+    {
+      file: "20260818014740_create_managed_catalog.sql",
+      version: "20260818014740",
+      name: "create_managed_catalog",
+    },
   ];
 
   for (const migration of operationalMigrations) {
@@ -452,6 +634,7 @@ async function testPrescriptionHandoffMigration(client, applied) {
       ),
     );
   }
+  const managedCatalogDatabase = await testManagedCatalogDatabase(client);
 
   const orderId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const unrelatedOrderId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -668,6 +851,7 @@ async function testPrescriptionHandoffMigration(client, applied) {
     browserDirectAccessRejected: true,
     serverRoleAccess: true,
     unnecessaryCustomerPaymentColumns: 0,
+    managedCatalogDatabase,
   };
 }
 
@@ -1320,6 +1504,7 @@ async function runGate(client, connectionConfig) {
       commerceRollback,
     },
     prescriptionHandoff,
+    managedCatalogDatabase: prescriptionHandoff.managedCatalogDatabase,
   };
 }
 

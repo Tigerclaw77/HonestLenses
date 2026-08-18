@@ -134,7 +134,7 @@ export function validateManagedCatalogFamily(
   if (!input.images.length) add(issues, "images", "Upload one primary product image.");
   if (input.images.filter((image) => image.isPrimary !== false).length !== 1) add(issues, "images", "Exactly one primary product image is required.");
   input.images.forEach((image, index) => {
-    if (!image.storagePath.startsWith("families/")) add(issues, `images[${index}].storagePath`, "Image must be stored in the managed catalog family path.");
+    if (!image.storagePath.startsWith(`families/${coreId}/`)) add(issues, `images[${index}].storagePath`, "Image must be stored beneath this family's managed catalog path.");
   });
 
   if (!input.skus.length) add(issues, "skus", "At least one active SKU is required.");
