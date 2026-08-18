@@ -38,6 +38,19 @@ export function parseNumberList(value: string): { values: number[]; error: strin
   return { values, error: null };
 }
 
+export function parseCommaSeparatedText(value: string): string[] {
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+/**
+ * An editor key is intentionally stable throughout an editing session. It
+ * changes only when the operator starts/selects a different lens, never when
+ * a parsed value changes, so React keeps the focused input mounted.
+ */
+export function guidedInputEditorKey(session: number, field: string): string {
+  return String(session) + ":" + field;
+}
+
 export function formatNumberList(values: readonly number[] | undefined): string {
   return values?.join(", ") ?? "";
 }
@@ -80,7 +93,7 @@ export function emptyManagedCatalogFamily(): ManagedCatalogFamilyInput {
     replacement: "DD",
     type: { toric: false, multifocal: false },
     active: true,
-    browseVisible: false,
+    browseVisible: true,
     vendorOrderIdentifier: "",
     skus: [emptyManagedCatalogSku()],
     images: [],
