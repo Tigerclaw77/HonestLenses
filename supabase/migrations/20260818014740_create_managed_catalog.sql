@@ -1,6 +1,55 @@
 -- Versioned, admin-managed catalog records. Legacy LensCore families remain
 -- source-backed and are intentionally not copied into these tables.
 
+-- This migration is deliberately create-only. A name collision means an
+-- operator must investigate rather than silently adopting or rewriting an
+-- existing object.
+do $$
+declare
+  conflicting_object text;
+begin
+  select object_name into conflicting_object
+  from unnest(array[
+    'public.catalog_managed_families',
+    'public.catalog_managed_family_versions',
+    'public.catalog_managed_skus',
+    'public.catalog_managed_images'
+  ]) as object_name
+  where to_regclass(object_name) is not null
+  limit 1;
+
+  if conflicting_object is not null then
+    raise exception 'managed catalog migration conflict: % already exists', conflicting_object;
+  end if;
+
+  if to_regprocedure('public.hl_managed_catalog_set_updated_at()') is not null
+    or to_regprocedure('public.hl_managed_catalog_reject_revision_mutation()') is not null
+    or to_regprocedure('public.hl_publish_managed_catalog_family(jsonb)') is not null then
+    raise exception 'managed catalog migration conflict: a namespaced function already exists';
+  end if;
+
+  if exists (select 1 from storage.buckets where id = 'catalog-images') then
+    raise exception 'managed catalog migration conflict: storage bucket catalog-images already exists';
+  end if;
+
+  if exists (
+    select 1
+    from pg_policy policy
+    join pg_class relation on relation.oid = policy.polrelid
+    join pg_namespace namespace on namespace.oid = relation.relnamespace
+    where namespace.nspname = 'storage'
+      and relation.relname = 'objects'
+      and policy.polname in (
+        'hl_catalog_images_deny_anon_authenticated_insert',
+        'hl_catalog_images_deny_anon_authenticated_update',
+        'hl_catalog_images_deny_anon_authenticated_delete'
+      )
+  ) then
+    raise exception 'managed catalog migration conflict: a catalog-images storage policy already exists';
+  end if;
+end;
+$$;
+
 create table public.catalog_managed_families (
   id uuid primary key default gen_random_uuid(),
   core_id text not null unique check (core_id ~ '^[A-Z0-9_]+$'),
@@ -26,13 +75,14 @@ create table public.catalog_managed_family_versions (
   vendor_order_identifier text,
   created_at timestamptz not null default now(),
   created_by uuid,
-  unique (family_id, version)
+  unique (family_id, version),
+  unique (family_id, id)
 );
 
 alter table public.catalog_managed_families
   add constraint catalog_managed_families_current_version_fkey
-  foreign key (current_version_id)
-  references public.catalog_managed_family_versions(id)
+  foreign key (id, current_version_id)
+  references public.catalog_managed_family_versions(family_id, id)
   on delete restrict;
 
 create table public.catalog_managed_skus (
@@ -71,7 +121,7 @@ create index catalog_managed_skus_version_idx
 create index catalog_managed_images_version_idx
   on public.catalog_managed_images (family_version_id, position);
 
-create or replace function public.catalog_managed_set_updated_at()
+create function public.hl_managed_catalog_set_updated_at()
 returns trigger
 language plpgsql
 security invoker
@@ -85,11 +135,35 @@ $$;
 
 create trigger catalog_managed_families_set_updated_at
 before update on public.catalog_managed_families
-for each row execute function public.catalog_managed_set_updated_at();
+for each row execute function public.hl_managed_catalog_set_updated_at();
+
+create function public.hl_managed_catalog_reject_revision_mutation()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  raise exception '% records are immutable after publication', tg_table_name
+    using errcode = '55000';
+end;
+$$;
+
+create trigger catalog_managed_family_versions_immutable
+before update or delete on public.catalog_managed_family_versions
+for each row execute function public.hl_managed_catalog_reject_revision_mutation();
+
+create trigger catalog_managed_skus_immutable
+before update or delete on public.catalog_managed_skus
+for each row execute function public.hl_managed_catalog_reject_revision_mutation();
+
+create trigger catalog_managed_images_immutable
+before update or delete on public.catalog_managed_images
+for each row execute function public.hl_managed_catalog_reject_revision_mutation();
 
 -- Called only by the server's service-role client. A revision row is immutable:
 -- an edit atomically appends a version and advances the family pointer.
-create or replace function public.publish_managed_catalog_family(payload jsonb)
+create function public.hl_publish_managed_catalog_family(payload jsonb)
 returns uuid
 language plpgsql
 security invoker
@@ -187,9 +261,13 @@ grant select, insert, update, delete on table public.catalog_managed_families,
   public.catalog_managed_skus,
   public.catalog_managed_images to service_role;
 
-revoke all privileges on function public.publish_managed_catalog_family(jsonb)
+revoke all privileges on function public.hl_managed_catalog_set_updated_at(),
+  public.hl_managed_catalog_reject_revision_mutation(),
+  public.hl_publish_managed_catalog_family(jsonb)
   from public, anon, authenticated;
-grant execute on function public.publish_managed_catalog_family(jsonb) to service_role;
+grant execute on function public.hl_managed_catalog_set_updated_at(),
+  public.hl_managed_catalog_reject_revision_mutation(),
+  public.hl_publish_managed_catalog_family(jsonb) to service_role;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
@@ -198,8 +276,30 @@ values (
   true,
   5242880,
   array['image/jpeg', 'image/png']::text[]
-)
-on conflict (id) do update
-set public = excluded.public,
-    file_size_limit = excluded.file_size_limit,
-    allowed_mime_types = excluded.allowed_mime_types;
+);
+
+-- Public reads are intentional for product artwork. These restrictive policies
+-- add a second line of defense: browser roles can never write this bucket even
+-- if another future storage policy is broader. Server service-role uploads
+-- still bypass RLS and are constrained by the application path validator.
+create policy hl_catalog_images_deny_anon_authenticated_insert
+on storage.objects
+as restrictive
+for insert
+to anon, authenticated
+with check (bucket_id <> 'catalog-images');
+
+create policy hl_catalog_images_deny_anon_authenticated_update
+on storage.objects
+as restrictive
+for update
+to anon, authenticated
+using (bucket_id <> 'catalog-images')
+with check (bucket_id <> 'catalog-images');
+
+create policy hl_catalog_images_deny_anon_authenticated_delete
+on storage.objects
+as restrictive
+for delete
+to anon, authenticated
+using (bucket_id <> 'catalog-images');

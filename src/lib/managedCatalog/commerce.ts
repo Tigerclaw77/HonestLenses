@@ -42,11 +42,39 @@ export function convertManagedPackSizeQuantity(family: Pick<ManagedCatalogFamily
   return Math.max(1, Math.round(quantity * (getManagedSkuDurationMonths(family, fromSku) / getManagedSkuDurationMonths(family, toSku))));
 }
 
-export function getManagedOrderQuote({ family, sku, totalBoxes, shippingMethod }: { family: ManagedCatalogFamily; sku: string; totalBoxes: number; shippingMethod?: ShippingMethod | null }) {
+export function deriveManagedTotalMonths({
+  family,
+  sku,
+  totalBoxes,
+  rightBoxCount,
+  leftBoxCount,
+}: {
+  family: Pick<ManagedCatalogFamily, "replacement" | "skus">;
+  sku: string;
+  totalBoxes: number;
+  rightBoxCount?: number | null;
+  leftBoxCount?: number | null;
+}): number {
+  const monthsPerBox = getManagedSkuDurationMonths(family, sku);
+  const sideCounts = [rightBoxCount, leftBoxCount].filter(
+    (count): count is number => typeof count === "number" && count > 0,
+  );
+  return sideCounts.length
+    ? Math.min(...sideCounts.map((count) => count * monthsPerBox))
+    : totalBoxes * monthsPerBox;
+}
+
+export function getManagedOrderQuote({ family, sku, totalBoxes, rightBoxCount, leftBoxCount, shippingMethod }: { family: ManagedCatalogFamily; sku: string; totalBoxes: number; rightBoxCount?: number | null; leftBoxCount?: number | null; shippingMethod?: ShippingMethod | null }) {
   const selectedSku = family.skus.find((item) => item.sku === sku && item.active !== false);
   if (!selectedSku) throw new Error("Managed SKU is not active for this family.");
   const pricing = getManagedPrice(selectedSku, totalBoxes, family.manufacturer);
-  const totalMonths = getManagedSkuDurationMonths(family, sku) * totalBoxes;
+  const totalMonths = deriveManagedTotalMonths({
+    family,
+    sku,
+    totalBoxes,
+    rightBoxCount,
+    leftBoxCount,
+  });
   const shipping = resolveShipping({ manufacturer: pricing.manufacturer, totalMonths, itemCount: totalBoxes, hasMixedSkus: false, shippingMethod: normalizeShippingMethod(shippingMethod) });
   return { manufacturer: pricing.manufacturer, totalMonths, shippingMethod: shipping.shippingMethod, shippingCents: shipping.shippingCents, totalAmountCents: pricing.total_amount_cents + shipping.shippingCents, priceReason: pricing.price_reason };
 }

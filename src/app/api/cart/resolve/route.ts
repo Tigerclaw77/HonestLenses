@@ -505,7 +505,7 @@ export async function POST(req: Request) {
   const left = counts.left;
   const totalBoxes = counts.totalBoxes;
   const quote = managedFamily
-    ? getManagedOrderQuote({ family: managedFamily, sku: resolvedSku, totalBoxes, shippingMethod: body?.shipping_method ?? order.shipping_method ?? null })
+    ? getManagedOrderQuote({ family: managedFamily, sku: resolvedSku, totalBoxes, rightBoxCount: right, leftBoxCount: left, shippingMethod: body?.shipping_method ?? order.shipping_method ?? null })
     : getAuthoritativeOrderQuote({
       sku: resolvedSku,
       totalBoxes,
