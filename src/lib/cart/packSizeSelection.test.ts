@@ -17,6 +17,10 @@ import { resolveCartEyeBoxCounts } from "./resolveQuantities";
 import { getAuthoritativeOrderQuote } from "@/lib/orders/orderPricing";
 import { checkoutAmountMatchesPaymentIntent, getCheckoutAmountCents } from "@/lib/payments/checkoutAmount";
 import { resolveOrderManufacturer } from "@/lib/orders/skuManufacturer";
+import {
+  getLensFamilyQuantityReset,
+  hasLensFamilySelectionChanged,
+} from "@/lib/orders/rxFamilyChange";
 
 const MULTI_PACK_FAMILIES = [
   "OASYS_MAX_1D", "OASYS_MAX_1D_MF", "OASYS_1D_AST", "OASYS_2W",
@@ -72,6 +76,83 @@ test("a prior lens family cannot carry quantities into a clariti annual cart", (
       hasStoredLeftBoxCount: false,
     }),
     { right: 4, left: 4, totalBoxes: 8 },
+  );
+});
+
+test("an Rx family change clears stale quantities before its SKU is overwritten", () => {
+  const claritiRx = {
+    right: { coreId: "CLARITI_1D" },
+    left: { coreId: "CLARITI_1D" },
+  };
+  const oasysRx = {
+    right: { coreId: "OASYS_2W" },
+    left: { coreId: "OASYS_2W" },
+  };
+
+  assert.equal(hasLensFamilySelectionChanged(claritiRx, oasysRx), true);
+  assert.deepEqual(getLensFamilyQuantityReset(claritiRx, oasysRx), {
+    right_box_count: null,
+    left_box_count: null,
+    total_box_count: null,
+    box_count: 0,
+    adjusted_right_box_count: null,
+    adjusted_left_box_count: null,
+    adjusted_total_box_count: null,
+    order_quantity_adjustment_reason: null,
+    order_quantity_adjusted_by: null,
+    order_quantity_adjusted_at: null,
+  });
+
+  // The cleared fields cause the normal resolver to use OASYS 24-pack defaults,
+  // even when the old clariti draft held an implausible 54 / 54 selection.
+  const resolved = resolveCartEyeBoxCounts({
+    hasRightEye: true,
+    hasLeftEye: true,
+    defaultPerEye: 1,
+    storedRightBoxCount: 54,
+    storedLeftBoxCount: 54,
+    hasStoredRightBoxCount: false,
+    hasStoredLeftBoxCount: false,
+  });
+  assert.deepEqual(resolved, { right: 1, left: 1, totalBoxes: 2 });
+
+  const quote = getAuthoritativeOrderQuote({
+    sku: "OASYS_2W_24",
+    totalBoxes: resolved.totalBoxes,
+    rightBoxCount: resolved.right,
+    leftBoxCount: resolved.left,
+  });
+  assert.equal(quote.shippingCents, 0);
+  assert.equal(quote.manufacturer, "vistakon");
+  assert.equal(resolveOrderManufacturer(quote.manufacturer, quote.sku), "vistakon");
+  assert.equal(getCheckoutAmountCents({ id: "oasys", total_amount_cents: quote.totalAmountCents, feedback_credit_cents: 0 }), quote.totalAmountCents);
+  assert.equal(getPersistedPackSku("OASYS_2W", "OASYS_2W_24", true), "OASYS_2W_24");
+  assert.equal(convertPackSizeQuantity(resolved.right, "OASYS_2W_24", "OASYS_2W_12"), 2);
+});
+
+test("same-family Rx updates preserve adjustments while either asymmetric eye change resets both", () => {
+  const oasysRx = {
+    right: { coreId: "OASYS_2W", power: "-2.00" },
+    left: { coreId: "OASYS_2W", power: "-1.50" },
+  };
+  const updatedOasysRx = {
+    right: { coreId: "OASYS_2W", power: "-2.25" },
+    left: { coreId: "OASYS_2W", power: "-1.75" },
+  };
+  assert.equal(hasLensFamilySelectionChanged(oasysRx, updatedOasysRx), false);
+  assert.deepEqual(getLensFamilyQuantityReset(oasysRx, updatedOasysRx), {});
+
+  const asymmetricRx = {
+    right: { coreId: "OASYS_2W" },
+    left: { coreId: "MOIST" },
+  };
+  assert.equal(hasLensFamilySelectionChanged(asymmetricRx, asymmetricRx), false);
+  assert.equal(
+    hasLensFamilySelectionChanged(asymmetricRx, {
+      right: { coreId: "OASYS_2W" },
+      left: { coreId: "VITA" },
+    }),
+    true,
   );
 });
 
