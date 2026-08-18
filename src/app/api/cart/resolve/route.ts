@@ -10,6 +10,13 @@ import {
 import { getSkuBoxDurationMonths } from "../../../../lib/pricing/skuDefaults";
 import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
 import {
+  convertPackSizeQuantity,
+  canChangeOrderPackSize,
+  getOrderPackCoreId,
+  getPersistedPackSku,
+  isSkuAvailableForCoreId,
+} from "@/lib/cart/packSizeSelection";
+import {
   hasResolvedCartQuantity,
   resolveCartEyeBoxCounts,
 } from "@/lib/cart/resolveQuantities";
@@ -82,6 +89,7 @@ type ResolveBody = {
   right_box_count?: number | null;
   left_box_count?: number | null;
   shipping_method?: string;
+  sku?: string;
 };
 
 /* =========================
@@ -121,6 +129,10 @@ function isResolveBody(value: unknown): value is ResolveBody {
     typeof value.order_id !== "string"
   )
     return false;
+
+  if (value.sku !== undefined && value.sku !== null && typeof value.sku !== "string") {
+    return false;
+  }
 
   if (
     value.right_box_count !== undefined &&
@@ -324,10 +336,17 @@ export async function POST(req: Request) {
     );
   }
 
-  const coreId = rx.right?.coreId ?? rx.left?.coreId ?? null;
+  const primaryCoreId = rx.right?.coreId ?? rx.left?.coreId ?? null;
+  const packCoreId = getOrderPackCoreId({
+    rightCoreId: rx.right?.coreId,
+    leftCoreId: rx.left?.coreId,
+  });
 
-  if (!coreId) {
-    return NextResponse.json({ error: "Missing coreId." }, { status: 400 });
+  if (!primaryCoreId) {
+    return NextResponse.json(
+      { error: "Missing lens selection" },
+      { status: 400 },
+    );
   }
 
   /* =========================
@@ -363,20 +382,53 @@ export async function POST(req: Request) {
     remainingDays,
   });
 
-  const resolvedSku = resolveDefaultSku(coreId, targetMonths);
-  if (!resolvedSku) {
+  const requestedSku = body?.sku?.trim() || null;
+  if (requestedSku && !packCoreId) {
+    return NextResponse.json(
+      { error: "Order-level pack sizes require matching lens families for both eyes." },
+      { status: 400 },
+    );
+  }
+
+  // An order has one SKU, so only matching-eye families can change pack size.
+  // Retain the existing primary-eye resolver behaviour for all other carts.
+  const coreId = packCoreId ?? primaryCoreId;
+  const defaultSku = resolveDefaultSku(coreId, targetMonths);
+  if (!defaultSku) {
     return NextResponse.json({ error: "No SKU found." }, { status: 400 });
   }
+
+  if (requestedSku && !isSkuAvailableForCoreId(coreId, requestedSku)) {
+    return NextResponse.json(
+      { error: "Requested pack size is not available for this lens." },
+      { status: 400 },
+    );
+  }
+
+  const storedQuantity = getAuthoritativeOrderQuantity(order);
+  const storedEyeQuantityPresence = getStoredEyeQuantityPresence(order);
+  const previousSku = getPersistedPackSku(
+    coreId,
+    order.sku,
+    storedQuantity.total > 0,
+  );
+  const resolvedSku = requestedSku ?? previousSku ?? defaultSku;
 
   const monthsPerBox = getSkuBoxDurationMonths(resolvedSku);
 
   const defaultPerEye = Math.ceil(targetMonths / monthsPerBox);
-  const storedQuantity = getAuthoritativeOrderQuantity(order);
-  const storedEyeQuantityPresence = getStoredEyeQuantityPresence(order);
   const hasRequestedQuantity =
     hasOwn(body, "right_box_count") || hasOwn(body, "left_box_count");
+  const hasRequestedPackSize = requestedSku !== null && requestedSku !== previousSku;
 
-  if (storedQuantity.adjusted && hasRequestedQuantity) {
+  if (
+    (storedQuantity.adjusted && hasRequestedQuantity) ||
+    !canChangeOrderPackSize({
+      adjusted: storedQuantity.adjusted,
+      requestedSku,
+      previousSku,
+    })
+  ) {
     return NextResponse.json(
       {
         error:
@@ -387,6 +439,15 @@ export async function POST(req: Request) {
     );
   }
 
+  const storedRightBoxCount =
+    hasRequestedPackSize && previousSku
+      ? convertPackSizeQuantity(storedQuantity.right, previousSku, resolvedSku)
+      : storedQuantity.right;
+  const storedLeftBoxCount =
+    hasRequestedPackSize && previousSku
+      ? convertPackSizeQuantity(storedQuantity.left, previousSku, resolvedSku)
+      : storedQuantity.left;
+
   const counts = resolveCartEyeBoxCounts({
     hasRightEye: Boolean(rx.right),
     hasLeftEye: Boolean(rx.left),
@@ -395,8 +456,8 @@ export async function POST(req: Request) {
     requestedLeftBoxCount: body?.left_box_count,
     hasRequestedRightBoxCount: hasOwn(body, "right_box_count"),
     hasRequestedLeftBoxCount: hasOwn(body, "left_box_count"),
-    storedRightBoxCount: storedQuantity.right,
-    storedLeftBoxCount: storedQuantity.left,
+    storedRightBoxCount,
+    storedLeftBoxCount,
     hasStoredRightBoxCount: storedEyeQuantityPresence.right,
     hasStoredLeftBoxCount: storedEyeQuantityPresence.left,
   });

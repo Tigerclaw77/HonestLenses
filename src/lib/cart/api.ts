@@ -104,6 +104,7 @@ export async function fetchCart(
 export async function resolveCart(
   accessToken?: string | null,
   body?: {
+    sku?: string;
     right_box_count?: number;
     left_box_count?: number;
     shipping_method?: ShippingMethod;

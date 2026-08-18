@@ -24,6 +24,10 @@ import {
 import { getCartLensAnalyticsProperties } from "@/lib/posthog/lensMetadata";
 import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 import { normalizeFeedbackCreditCents } from "@/lib/abandonmentFeedback";
+import {
+  getNextSmallerPackSizeOption,
+  getOrderPackCoreId,
+} from "@/lib/cart/packSizeSelection";
 
 const DEV_MODE =
   process.env.NODE_ENV === "development" && process.env.VERCEL !== "1";
@@ -216,6 +220,28 @@ export default function CartPage() {
     [accessToken, cart, defaultPerEye, syncingQty],
   );
 
+  const handleUseSmallerPack = useCallback(
+    async (nextSku: string) => {
+      if (syncingQty) return;
+      const token = accessToken ?? (DEV_MODE ? DEV_ACCESS_TOKEN : null);
+      setSyncingQty(true);
+      setError(null);
+      try {
+        setCart(await resolveCart(token, { sku: nextSku }));
+        setRightQtyOverride(null);
+        setLeftQtyOverride(null);
+      } catch (e) {
+        captureClientException(e, { source: "cart_smaller_pack_change" });
+        setError(
+          e instanceof Error ? e.message : "Unable to use the smaller pack.",
+        );
+      } finally {
+        setSyncingQty(false);
+      }
+    },
+    [accessToken, syncingQty],
+  );
+
   /* ---------- Initial load ---------- */
 
   useEffect(() => {
@@ -311,6 +337,13 @@ export default function CartPage() {
   const leftLensName = leftEye
     ? getLensDisplayName(leftEye.coreId, cart.sku)
     : "Unknown Lens";
+  const packCoreId = getOrderPackCoreId({
+    rightCoreId: rightEye?.coreId,
+    leftCoreId: leftEye?.coreId,
+  });
+  const smallerPack = packCoreId
+    ? getNextSmallerPackSizeOption(packCoreId, sku)
+    : null;
 
   /* ---------- Effective quantities ---------- */
 
@@ -412,6 +445,12 @@ export default function CartPage() {
               unitPricePerBoxCents={unitPricePerBoxCents}
               durationLabel={durationLabel}
               quantityOptions={quantityOptions}
+              smallerPackLabel={smallerPack ? "Use smaller pack" : undefined}
+              onUseSmallerPack={
+                smallerPack
+                  ? () => void handleUseSmallerPack(smallerPack.sku)
+                  : undefined
+              }
               disabled={syncingQty}
             />
           )}
@@ -432,6 +471,12 @@ export default function CartPage() {
                 unitPricePerBoxCents={unitPricePerBoxCents}
                 durationLabel={durationLabel}
                 quantityOptions={quantityOptions}
+                smallerPackLabel={smallerPack ? "Use smaller pack" : undefined}
+                onUseSmallerPack={
+                  smallerPack
+                    ? () => void handleUseSmallerPack(smallerPack.sku)
+                    : undefined
+                }
                 disabled={syncingQty}
               />
             </>
