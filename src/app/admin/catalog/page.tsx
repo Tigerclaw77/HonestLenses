@@ -23,7 +23,12 @@ function getLensImageAssetNames(): string[] {
     .sort();
 }
 
-export default async function AdminCatalogPage() {
+export default async function AdminCatalogPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ managed?: string }>;
+}) {
+  const params = await searchParams;
   const assetNames = getLensImageAssetNames();
   const pricingIndex = buildPricingIndex();
   const lensSummaries = lenses
@@ -52,6 +57,10 @@ export default async function AdminCatalogPage() {
 
   return <>
     <CatalogOperationsConsole snapshot={snapshot} />
-    <ManagedCatalogWorkflow initialFamilies={managedFamilies} storageAvailable={managedStorageAvailable} />
+    <ManagedCatalogWorkflow
+      initialFamilies={managedFamilies}
+      storageAvailable={managedStorageAvailable}
+      startInCreateMode={params.managed === "add"}
+    />
   </>;
 }

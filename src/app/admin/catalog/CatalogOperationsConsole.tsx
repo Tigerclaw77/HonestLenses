@@ -14,8 +14,12 @@ import {
   getCatalogAssetSummary,
   validateCatalogDraft,
 } from "@/lib/catalogOps/validation";
+import {
+  LEGACY_LENSCORE_CLONE_REASON,
+  LEGACY_LENSCORE_EDIT_REASON,
+  MANAGED_CATALOG_CREATE_HREF,
+} from "@/lib/catalogOps/adminUi";
 
-type ConsoleMode = "view" | "add" | "edit" | "clone";
 type VisibilityFilter = "all" | "visible" | "hidden" | "missing-image" | "issues";
 
 function formatCents(cents: number | null): string {
@@ -110,17 +114,6 @@ function emptyDraft(): CatalogDraft {
     skus: [],
     parameters: {},
     acknowledgeMissingImage: false,
-  };
-}
-
-function cloneDraft(lens: CatalogLensSummary): CatalogDraft {
-  return {
-    ...draftFromLens(lens),
-    originalCoreId: undefined,
-    coreId: `${lens.coreId}_COPY`,
-    displayName: `${lens.displayName} Copy`,
-    imageRef: `${lens.coreId}_COPY`,
-    acknowledgeMissingImage: true,
   };
 }
 
@@ -259,7 +252,6 @@ export default function CatalogOperationsConsole({
   const selectedLens =
     snapshot.lenses.find((lens) => lens.coreId === selectedCoreId) ??
     snapshot.lenses[0];
-  const [mode, setMode] = useState<ConsoleMode>("view");
   const [draft, setDraft] = useState<CatalogDraft>(() =>
     selectedLens ? draftFromLens(selectedLens) : emptyDraft(),
   );
@@ -347,27 +339,6 @@ export default function CatalogOperationsConsole({
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
-  function startEdit(lens: CatalogLensSummary) {
-    const nextDraft = draftFromLens(lens);
-    setMode("edit");
-    setDraft(nextDraft);
-    setParameterJson(JSON.stringify(nextDraft.parameters, null, 2));
-  }
-
-  function startClone(lens: CatalogLensSummary) {
-    const nextDraft = cloneDraft(lens);
-    setMode("clone");
-    setDraft(nextDraft);
-    setParameterJson(JSON.stringify(nextDraft.parameters, null, 2));
-  }
-
-  function startAdd() {
-    const nextDraft = emptyDraft();
-    setMode("add");
-    setDraft(nextDraft);
-    setParameterJson("{}");
-  }
-
   return (
     <main className="catalogConsole">
       <section className="topbar">
@@ -375,8 +346,8 @@ export default function CatalogOperationsConsole({
           <p className="eyebrow">Internal Operations</p>
           <h1>Lens Catalog Console</h1>
           <p className="intro">
-            Controlled catalog drafting and validation for LensCore, SKU
-            mappings, pricing linkage, and product image references.
+            Read-only inspection for protected LensCore families. Add new
+            database-backed families through the managed catalog workflow.
           </p>
         </div>
 
@@ -430,18 +401,23 @@ export default function CatalogOperationsConsole({
           </div>
 
           <div className="actions">
-            <button onClick={startAdd}>Add Lens</button>
+            <a className="actionLink primary" href={MANAGED_CATALOG_CREATE_HREF}>
+              Add managed lens
+            </a>
             {selectedLens && (
               <>
-                <button onClick={() => startEdit(selectedLens)}>
+                <button disabled title={LEGACY_LENSCORE_EDIT_REASON}>
                   Edit Selected
                 </button>
-                <button onClick={() => startClone(selectedLens)}>
+                <button disabled title={LEGACY_LENSCORE_CLONE_REASON}>
                   Clone Selected
                 </button>
               </>
             )}
           </div>
+          <p className="protectedNotice">
+            The {snapshot.lenses.length} LensCore families listed here are source-managed and protected. Edit and clone are intentionally unavailable; create a distinct managed family instead.
+          </p>
 
           <div className="resultsCount">
             {filteredLenses.length} of {snapshot.lenses.length} lenses
@@ -459,12 +435,8 @@ export default function CatalogOperationsConsole({
                   }
                   onClick={() => {
                     setSelectedCoreId(lens.coreId);
-                    if (mode === "view") {
-                      setDraft(draftFromLens(lens));
-                      setParameterJson(
-                        JSON.stringify(lens.parameters, null, 2),
-                      );
-                    }
+                    setDraft(draftFromLens(lens));
+                    setParameterJson(JSON.stringify(lens.parameters, null, 2));
                   }}
                 >
                   <CatalogImage
@@ -565,16 +537,10 @@ export default function CatalogOperationsConsole({
           <div className="editorPane">
             <div className="paneHeader">
               <div>
-                <p className="eyebrow">Draft Workflow</p>
-                <h2>
-                  {mode === "add" && "Add Lens"}
-                  {mode === "edit" && "Edit Lens"}
-                  {mode === "clone" && "Clone Lens"}
-                  {mode === "view" && "Draft Preview"}
-                </h2>
+                <p className="eyebrow">Protected source record</p>
+                <h2>LensCore preview (read-only)</h2>
                 <p>
-                  Drafts validate against current LensCore, CORE_TO_SKUS,
-                  pricing tables, duration logic, and image assets.
+                  This source-backed lens is not a managed catalog record and cannot be changed from this page. Use Add managed lens for a new, distinct database-backed family.
                 </p>
               </div>
               <div
@@ -588,6 +554,7 @@ export default function CatalogOperationsConsole({
               </div>
             </div>
 
+            <fieldset className="legacyReadOnly" disabled>
             <div className="formGrid">
               <label>
                 coreId
@@ -794,6 +761,7 @@ export default function CatalogOperationsConsole({
                 <pre>{buildSkuMappingSnippet(effectiveDraft)}</pre>
               </div>
             </div>
+            </fieldset>
           </div>
 
           <div className="globalPane">
@@ -961,6 +929,46 @@ export default function CatalogOperationsConsole({
 
         button:hover {
           background: rgba(255, 255, 255, 0.1);
+        }
+
+        button:disabled {
+          cursor: not-allowed;
+          opacity: 0.52;
+        }
+
+        .actionLink {
+          align-items: center;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 8px;
+          color: #f4f7f8;
+          display: inline-flex;
+          justify-content: center;
+          padding: 9px 10px;
+          text-align: center;
+          text-decoration: none;
+        }
+
+        .actionLink.primary {
+          background: #126da5;
+          border-color: #126da5;
+        }
+
+        .actionLink:hover {
+          background: #167dbb;
+        }
+
+        .protectedNotice {
+          color: rgba(244, 247, 248, 0.68);
+          font-size: 0.78rem;
+          line-height: 1.45;
+          margin: 10px 0 0;
+        }
+
+        .legacyReadOnly {
+          border: 0;
+          margin: 0;
+          min-inline-size: 0;
+          padding: 0;
         }
 
         .resultsCount {
