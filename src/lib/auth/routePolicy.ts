@@ -33,6 +33,18 @@ export const ROUTE_AUTHORIZATION_POLICY: Record<string, RoutePolicy> = {
     access: "admin",
     guard: "requireAdmin",
   },
+  "src/app/api/admin/catalog/families/[coreId]/route.ts": {
+    access: "admin",
+    guard: "requireAdmin",
+  },
+  "src/app/api/admin/catalog/families/route.ts": {
+    access: "admin",
+    guard: "requireAdmin",
+  },
+  "src/app/api/admin/catalog/images/route.ts": {
+    access: "admin",
+    guard: "requireAdmin",
+  },
   "src/app/api/admin/orders/[id]/route.ts": {
     access: "admin",
     guard: "requireAdmin",
@@ -76,6 +88,10 @@ export const ROUTE_AUTHORIZATION_POLICY: Record<string, RoutePolicy> = {
   "src/app/api/cart/route.ts": {
     access: "customer-owned",
     guard: "requireOrderAccess",
+  },
+  "src/app/api/catalog/lenses/route.ts": {
+    access: "public",
+    guard: "none",
   },
   "src/app/api/checkout/authorized/route.ts": {
     access: "customer-owned",

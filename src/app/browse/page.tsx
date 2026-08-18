@@ -27,6 +27,12 @@ type LensSelection = {
 };
 
 type LensImageVariant = "card" | "modal";
+type BrowseLens = LensCore & {
+  managed?: {
+    skus: { sku: string; packSize: number; pricePerBoxCents: number }[];
+    primaryImageUrl: string | null;
+  };
+};
 
 const FALLBACK_LENS_IMAGE_SRC = "/lens-images/placeholder.png";
 
@@ -40,14 +46,18 @@ const LENS_IMAGE_SIZES: Record<
 
 function LensImage({
   coreId,
+  imageUrl,
   variant = "card",
 }: {
   coreId: string;
+  imageUrl?: string | null;
   variant?: LensImageVariant;
 }) {
   const safeCoreId = coreId.trim();
   const encodedCoreId = encodeURIComponent(safeCoreId);
-  const sources = safeCoreId
+  const sources = imageUrl
+    ? [imageUrl, FALLBACK_LENS_IMAGE_SRC]
+    : safeCoreId
     ? [
         `/lens-images/${encodedCoreId}.webp`,
         `/lens-images/${encodedCoreId}.png`,
@@ -139,9 +149,10 @@ function getPricePerBoxCents(sku: string): number | null {
 export default function BrowsePage() {
   const router = useRouter();
 
-  const [selectedLens, setSelectedLens] = useState<LensCore | null>(null);
+  const [catalogLenses, setCatalogLenses] = useState<BrowseLens[]>(lenses);
+  const [selectedLens, setSelectedLens] = useState<BrowseLens | null>(null);
   const lensMap = Object.fromEntries(
-    lenses.map((l) => [l.coreId, l.displayName]),
+    catalogLenses.map((l) => [l.coreId, l.displayName]),
   );
   const [search, setSearch] = useState("");
   const [manufacturerFilter, setManufacturerFilter] = useState("all");
@@ -178,7 +189,17 @@ export default function BrowsePage() {
     router.push(`/upload-prescription?${params.toString()}`);
   }
 
-  const filtered = lenses
+  useEffect(() => {
+    void fetch("/api/catalog/lenses")
+      .then((response) => response.ok ? response.json() as Promise<{ families?: { lens: LensCore; skus: { sku: string; packSize: number; pricePerBoxCents: number }[]; primaryImageUrl: string | null }[] }> : null)
+      .then((payload) => {
+        if (!payload?.families?.length) return;
+        setCatalogLenses([...lenses, ...payload.families.map((family) => ({ ...family.lens, managed: { skus: family.skus, primaryImageUrl: family.primaryImageUrl } }))]);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const filtered = catalogLenses
     .filter((lens) => !lens.coreId.includes("_XR"))
     .filter((lens) => {
       const matchesSearch = lens.displayName
@@ -329,8 +350,10 @@ export default function BrowsePage() {
             }}
           >
             {filtered.map((lens) => {
-              const skus = getLensSkus(lens);
-              const lowest = getLowestPrice(skus);
+              const skus = lens.managed?.skus.map((sku) => sku.sku) ?? getLensSkus(lens);
+              const lowest = lens.managed
+                ? Math.min(...lens.managed.skus.map((sku) => sku.pricePerBoxCents))
+                : getLowestPrice(skus);
 
               return (
                 <div
@@ -378,7 +401,7 @@ export default function BrowsePage() {
                       overflow: "hidden",
                     }}
                   >
-                    <LensImage coreId={lens.coreId} />
+                    <LensImage coreId={lens.coreId} imageUrl={lens.managed?.primaryImageUrl} />
                   </div>
 
                   <div style={{ display: "flex", flexDirection: "column" }}>
@@ -477,11 +500,11 @@ function LensModal({
   onClose,
   onSelect,
 }: {
-  lens: LensCore;
+  lens: BrowseLens;
   onClose: () => void;
   onSelect: (lensId: string, eye: "right" | "left" | "both") => void;
 }) {
-  const skus = getLensSkus(lens);
+  const skus = lens.managed?.skus.map((sku) => sku.sku) ?? getLensSkus(lens);
   const [selectedSku, setSelectedSku] = useState("");
   const selectedSkuValue = selectedSku && skus.includes(selectedSku)
     ? selectedSku
@@ -531,7 +554,7 @@ function LensModal({
             overflow: "hidden",
           }}
         >
-          <LensImage coreId={lens.coreId} variant="modal" />
+          <LensImage coreId={lens.coreId} imageUrl={lens.managed?.primaryImageUrl} variant="modal" />
         </div>
 
         {/* TITLE */}
@@ -559,8 +582,8 @@ function LensModal({
           ) : skus.length === 1 ? (
             (() => {
               const sku = skus[0];
-              const size = getPackSizeFromSku(sku) ?? "?";
-              const price = getPricePerBoxCents(sku);
+              const size = lens.managed?.skus.find((item) => item.sku === sku)?.packSize ?? getPackSizeFromSku(sku) ?? "?";
+              const price = lens.managed?.skus.find((item) => item.sku === sku)?.pricePerBoxCents ?? getPricePerBoxCents(sku);
 
               return (
                 <div
@@ -589,8 +612,8 @@ function LensModal({
               }}
             >
               {skus.map((sku) => {
-                const size = getPackSizeFromSku(sku) ?? "?";
-                const price = getPricePerBoxCents(sku);
+                const size = lens.managed?.skus.find((item) => item.sku === sku)?.packSize ?? getPackSizeFromSku(sku) ?? "?";
+                const price = lens.managed?.skus.find((item) => item.sku === sku)?.pricePerBoxCents ?? getPricePerBoxCents(sku);
 
                 return (
                   <option key={sku} value={sku}>

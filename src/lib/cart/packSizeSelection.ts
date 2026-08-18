@@ -7,6 +7,19 @@ export type PackSizeOption = {
   durationMonths: number;
 };
 
+/** Shared selection primitive for both source-managed and managed SKUs. */
+export function getNextSmallerPackSizeOptionFromOptions(
+  options: readonly PackSizeOption[],
+  currentSku: string | null | undefined,
+): PackSizeOption | null {
+  if (!currentSku) return null;
+  const current = options.find((option) => option.sku === currentSku);
+  if (!current) return null;
+  return [...options]
+    .sort((a, b) => b.packSize - a.packSize || b.sku.localeCompare(a.sku))
+    .find((option) => option.packSize < current.packSize) ?? null;
+}
+
 function getPackSize(sku: string): number | null {
   const match = /_(\d+)$/.exec(sku);
   return match ? Number(match[1]) : null;
@@ -64,13 +77,8 @@ export function getNextSmallerPackSizeOption(
   coreId: string,
   currentSku: string | null | undefined,
 ): PackSizeOption | null {
-  if (!currentSku) return null;
   const options = getPackSizeOptionsForCoreId(coreId);
-  const current = options.find((option) => option.sku === currentSku);
-  if (!current) return null;
-  return [...options]
-    .reverse()
-    .find((option) => option.packSize < current.packSize) ?? null;
+  return getNextSmallerPackSizeOptionFromOptions(options, currentSku);
 }
 
 /** Preserves intended supply duration when an order-level pack size changes. */

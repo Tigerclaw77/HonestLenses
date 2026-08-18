@@ -3,6 +3,7 @@ import type { LensCore } from "../types";
 type SphereRange = {
   min: number;
   max: number;
+  step?: 0.25 | 0.5 | 1;
 };
 
 export function resolveToricOptions(
@@ -37,5 +38,6 @@ export function resolveToricOptions(
     .map((rule) => ({
       min: rule.sphereRange.min,
       max: rule.sphereRange.max,
+      step: rule.sphereStepOverride,
     }));
 }

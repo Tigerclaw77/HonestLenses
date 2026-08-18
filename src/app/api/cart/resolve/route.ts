@@ -26,7 +26,9 @@ import {
   getAuthoritativeOrderQuantity,
   getStoredEyeQuantityPresence,
 } from "@/lib/orders/orderQuantity";
-import { validate as validateLensParams } from "@/LensCore";
+import { getLensById, validateLensParams } from "@/LensCore";
+import { findManagedCatalogFamily, getRuntimeLens } from "@/lib/managedCatalog/runtime";
+import { convertManagedPackSizeQuantity, getManagedDefaultSku, getManagedOrderQuote, getManagedPackSizeOptions, getManagedSkuDurationMonths } from "@/lib/managedCatalog/commerce";
 import { POSTHOG_EVENTS } from "../../../../lib/posthog/events";
 import {
   captureServerEvent,
@@ -162,10 +164,11 @@ function hasOwn(value: object | null, key: string): boolean {
   return value !== null && Object.prototype.hasOwnProperty.call(value, key);
 }
 
-function validateResolvedEyeRx(eye: EyeRx | undefined): string[] {
+async function validateResolvedEyeRx(eye: EyeRx | undefined): Promise<string[]> {
   if (!eye) return [];
-
-  const result = validateLensParams(eye.coreId, {
+  const lens = await getRuntimeLens(eye.coreId);
+  if (!lens) return ["Lens not found."];
+  const result = validateLensParams(lens, {
     sphere: typeof eye.sphere === "number" ? eye.sphere : Number.NaN,
     cylinder: eye.cylinder ?? null,
     axis: eye.axis ?? null,
@@ -321,10 +324,11 @@ export async function POST(req: Request) {
   }
 
   const rx = order.rx;
-  const rxValidationErrors = [
-    ...validateResolvedEyeRx(rx.right),
-    ...validateResolvedEyeRx(rx.left),
-  ];
+  const [rightRxValidationErrors, leftRxValidationErrors] = await Promise.all([
+    validateResolvedEyeRx(rx.right),
+    validateResolvedEyeRx(rx.left),
+  ]);
+  const rxValidationErrors = [...rightRxValidationErrors, ...leftRxValidationErrors];
 
   if (rxValidationErrors.length > 0) {
     return NextResponse.json(
@@ -393,12 +397,24 @@ export async function POST(req: Request) {
   // An order has one SKU, so only matching-eye families can change pack size.
   // Retain the existing primary-eye resolver behaviour for all other carts.
   const coreId = packCoreId ?? primaryCoreId;
-  const defaultSku = resolveDefaultSku(coreId, targetMonths);
+  // Do not touch the managed database for any source-backed family. This is
+  // the legacy execution path byte-for-byte in terms of catalog data.
+  const managedFamily = getLensById(coreId)
+    ? null
+    : await findManagedCatalogFamily(coreId);
+  const defaultSku = managedFamily
+    ? getManagedDefaultSku(managedFamily, targetMonths)
+    : resolveDefaultSku(coreId, targetMonths);
   if (!defaultSku) {
     return NextResponse.json({ error: "No SKU found." }, { status: 400 });
   }
 
-  if (requestedSku && !isSkuAvailableForCoreId(coreId, requestedSku)) {
+  const isRequestedSkuAvailable = requestedSku
+    ? managedFamily
+      ? getManagedPackSizeOptions(managedFamily).some((option) => option.sku === requestedSku)
+      : isSkuAvailableForCoreId(coreId, requestedSku)
+    : true;
+  if (!isRequestedSkuAvailable) {
     return NextResponse.json(
       { error: "Requested pack size is not available for this lens." },
       { status: 400 },
@@ -407,15 +423,17 @@ export async function POST(req: Request) {
 
   const storedQuantity = getAuthoritativeOrderQuantity(order);
   const storedEyeQuantityPresence = getStoredEyeQuantityPresence(order);
-  const previousSku = getPersistedPackSku(
-    coreId,
-    order.sku,
-    storedQuantity.total > 0,
-  );
+  const previousSku = managedFamily
+    ? order.sku && storedQuantity.total > 0 && getManagedPackSizeOptions(managedFamily).some((option) => option.sku === order.sku)
+      ? order.sku
+      : null
+    : getPersistedPackSku(coreId, order.sku, storedQuantity.total > 0);
   const hasCompatibleStoredQuantity = previousSku !== null;
   const resolvedSku = requestedSku ?? previousSku ?? defaultSku;
 
-  const monthsPerBox = getSkuBoxDurationMonths(resolvedSku);
+  const monthsPerBox = managedFamily
+    ? getManagedSkuDurationMonths(managedFamily, resolvedSku)
+    : getSkuBoxDurationMonths(resolvedSku);
 
   const defaultPerEye = Math.ceil(targetMonths / monthsPerBox);
   const hasRequestedQuantity =
@@ -442,13 +460,17 @@ export async function POST(req: Request) {
 
   const storedRightBoxCount =
     hasRequestedPackSize && previousSku
-      ? convertPackSizeQuantity(storedQuantity.right, previousSku, resolvedSku)
+      ? managedFamily
+        ? convertManagedPackSizeQuantity(managedFamily, storedQuantity.right, previousSku, resolvedSku)
+        : convertPackSizeQuantity(storedQuantity.right, previousSku, resolvedSku)
       : hasCompatibleStoredQuantity
         ? storedQuantity.right
         : 0;
   const storedLeftBoxCount =
     hasRequestedPackSize && previousSku
-      ? convertPackSizeQuantity(storedQuantity.left, previousSku, resolvedSku)
+      ? managedFamily
+        ? convertManagedPackSizeQuantity(managedFamily, storedQuantity.left, previousSku, resolvedSku)
+        : convertPackSizeQuantity(storedQuantity.left, previousSku, resolvedSku)
       : hasCompatibleStoredQuantity
         ? storedQuantity.left
         : 0;
@@ -482,13 +504,15 @@ export async function POST(req: Request) {
   const right = counts.right;
   const left = counts.left;
   const totalBoxes = counts.totalBoxes;
-  const quote = getAuthoritativeOrderQuote({
-    sku: resolvedSku,
-    totalBoxes,
-    rightBoxCount: right,
-    leftBoxCount: left,
-    shippingMethod: body?.shipping_method ?? order.shipping_method ?? null,
-  });
+  const quote = managedFamily
+    ? getManagedOrderQuote({ family: managedFamily, sku: resolvedSku, totalBoxes, shippingMethod: body?.shipping_method ?? order.shipping_method ?? null })
+    : getAuthoritativeOrderQuote({
+      sku: resolvedSku,
+      totalBoxes,
+      rightBoxCount: right,
+      leftBoxCount: left,
+      shippingMethod: body?.shipping_method ?? order.shipping_method ?? null,
+    });
   const totalMonths = quote.totalMonths;
   const preserveSubmittedQuantity =
     storedQuantity.adjusted && !hasRequestedQuantity;

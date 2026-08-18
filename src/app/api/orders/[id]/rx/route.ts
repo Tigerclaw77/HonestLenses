@@ -10,13 +10,15 @@ import {
 import { resolveDefaultSku } from "../../../../../lib/pricing/resolveDefaultSku";
 import { getLensFamilyQuantityReset } from "../../../../../lib/orders/rxFamilyChange";
 import {
-  lenses,
   resolveLensRxState,
   resolveParameterOption,
-  validate as validateLensParams,
+  validateLensParams,
 } from "@/LensCore";
+import type { LensCore } from "@/LensCore/types";
 import { getColorOptions } from "../../../../../data/lensColors";
 import { boundedText, isIsoDate } from "@/lib/security/inputValidation";
+import { findManagedCatalogFamily, getRuntimeLens } from "@/lib/managedCatalog/runtime";
+import { getManagedDefaultSku } from "@/lib/managedCatalog/commerce";
 
 /* =========================
    Types
@@ -56,7 +58,7 @@ type SanitizedEyeResult = {
 
 function applyResolvedParameters(
   eye: EyeRx,
-  lens: (typeof lenses)[number],
+  lens: LensCore,
 ): EyeRx {
   const clean: EyeRx = { ...eye };
   const resolved = resolveLensRxState(lens, {
@@ -83,14 +85,14 @@ function applyResolvedParameters(
   return clean;
 }
 
-function sanitizeAndValidateEyeRx(
+async function sanitizeAndValidateEyeRx(
   eye: EyeRx | undefined,
-): SanitizedEyeResult {
+): Promise<SanitizedEyeResult> {
   if (!eye) return { errors: [] };
 
   if (!eye.coreId) return { eye, errors: [] };
 
-  const lens = lenses.find((l) => l.coreId === eye.coreId);
+  const lens = await getRuntimeLens(eye.coreId);
   if (!lens) {
     return {
       eye,
@@ -98,7 +100,7 @@ function sanitizeAndValidateEyeRx(
     };
   }
 
-  const allowedColors = getColorOptions(lens.displayName);
+  const allowedColors = getColorOptions(lens.coreId);
   const clean = applyResolvedParameters(eye, lens);
   const errors: string[] = [];
   const colorState = resolveParameterOption(clean.color ?? null, allowedColors);
@@ -113,7 +115,7 @@ function sanitizeAndValidateEyeRx(
     clean.color = colorState.value;
   }
 
-  const validation = validateLensParams(lens.coreId, {
+  const validation = validateLensParams(lens, {
     sphere: clean.sphere,
     cylinder: clean.cylinder ?? null,
     axis: clean.axis ?? null,
@@ -196,7 +198,8 @@ export async function POST(
   let sku: string | null = null;
 
   if (coreId) {
-    sku = resolveDefaultSku(coreId);
+    const managed = await findManagedCatalogFamily(coreId);
+    sku = managed ? getManagedDefaultSku(managed) : resolveDefaultSku(coreId);
 
     if (!sku) {
       return NextResponse.json(
@@ -234,8 +237,10 @@ export async function POST(
      7️⃣ Sanitize RX
   ========================= */
 
-  const rightResult = sanitizeAndValidateEyeRx(rx.right);
-  const leftResult = sanitizeAndValidateEyeRx(rx.left);
+  const [rightResult, leftResult] = await Promise.all([
+    sanitizeAndValidateEyeRx(rx.right),
+    sanitizeAndValidateEyeRx(rx.left),
+  ]);
   const validationErrors = [...rightResult.errors, ...leftResult.errors];
 
   if (validationErrors.length > 0) {
