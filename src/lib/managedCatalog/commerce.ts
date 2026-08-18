@@ -5,9 +5,13 @@ import type { ManagedCatalogFamily, ManagedCatalogSku } from "./types";
 
 const REPLACEMENT_DAYS = { DD: 1, "1W": 7, "2W": 14, "1M": 30 } as const;
 
+/** The pack-duration model shown to operators is the one used for carts and shipping. */
+export function getManagedPackDurationMonths(replacement: ManagedCatalogFamily["replacement"], packSize: number): number {
+  return Math.max(1, Math.round((packSize * REPLACEMENT_DAYS[replacement]) / 30));
+}
+
 export function getManagedPackSizeOptions(family: Pick<ManagedCatalogFamily, "replacement" | "skus">): PackSizeOption[] {
-  const days = REPLACEMENT_DAYS[family.replacement];
-  return family.skus.filter((sku) => sku.active !== false).map((sku) => ({ sku: sku.sku, packSize: sku.packSize, durationMonths: Math.max(1, Math.round((sku.packSize * days) / 30)) })).sort((a, b) => a.packSize - b.packSize || a.sku.localeCompare(b.sku));
+  return family.skus.filter((sku) => sku.active !== false).map((sku) => ({ sku: sku.sku, packSize: sku.packSize, durationMonths: getManagedPackDurationMonths(family.replacement, sku.packSize) })).sort((a, b) => a.packSize - b.packSize || a.sku.localeCompare(b.sku));
 }
 
 export function getManagedDefaultSku(family: Pick<ManagedCatalogFamily, "replacement" | "skus">, targetMonths = 6): string | null {
