@@ -45,6 +45,17 @@ function applyXrToricSphereGuard(
   return opts;
 }
 
+function matchesRangeStep(
+  value: number,
+  min: number,
+  step: number | undefined,
+): boolean {
+  if (!step) return true;
+
+  const quotient = (value - min) / step;
+  return Math.abs(quotient - Math.round(quotient)) < 1e-9;
+}
+
 export function resolveSphereOptions(
   lens: LensCore,
   baseCurve: number | null,
@@ -78,7 +89,12 @@ export function resolveSphereOptions(
 
     if (validRanges.length > 0) {
       opts = opts.filter((sphere) =>
-        validRanges.some((range) => sphere >= range.min && sphere <= range.max),
+        validRanges.some(
+          (range) =>
+            sphere >= range.min &&
+            sphere <= range.max &&
+            matchesRangeStep(sphere, range.min, range.step),
+        ),
       );
     }
   }

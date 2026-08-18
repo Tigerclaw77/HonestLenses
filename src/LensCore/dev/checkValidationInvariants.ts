@@ -197,11 +197,12 @@ if (!oasys1d) {
   );
 }
 
-const defineColorOptions = getColorOptions("Define");
+const defineColorOptions = getColorOptions("DEFINE");
 const requiredColor = resolveParameterOption(null, defineColorOptions);
 const validColor = resolveParameterOption("Natural Shine", defineColorOptions);
 const invalidColor = resolveParameterOption("Not A Color", defineColorOptions);
 const singleColor = resolveParameterOption(null, ["Only Color"]);
+const biotrueAst = getLensById("BIOTRUE_1D_AST");
 
 failures.push(
   ...assertInvariant(
@@ -220,7 +221,26 @@ failures.push(
     singleColor.source === "single-option" && singleColor.value === "Only Color",
     "Single-option color should auto-resolve.",
   ),
+  ...assertInvariant(
+    getColorOptions("AO_COL").length > 0 && getColorOptions("DAILIES_COL").length > 0,
+    "All active colored LensCore IDs should resolve color options.",
+  ),
 );
+
+if (!biotrueAst) {
+  failures.push("BIOTRUE_1D_AST invariant fixture is missing.");
+} else {
+  failures.push(
+    ...assertInvariant(
+      validate("BIOTRUE_1D_AST", { sphere: -5.5, cylinder: -2.75, axis: 10 }).valid,
+      "BIOTRUE_1D_AST CYL -2.75 should accept a 0.50-D sphere increment.",
+    ),
+    ...assertInvariant(
+      !validate("BIOTRUE_1D_AST", { sphere: -5.75, cylinder: -2.75, axis: 10 }).valid,
+      "BIOTRUE_1D_AST CYL -2.75 should reject a non-0.50-D sphere increment.",
+    ),
+  );
+}
 
 if (failures.length > 0) {
   console.error("Lens validation invariant check failed:");

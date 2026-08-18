@@ -9,7 +9,6 @@ import { resolveAxisOptions } from "@/LensCore/helpers/resolveAxisOptions";
 import { resolveAddOptions } from "../LensCore/helpers/resolveAddOptions";
 import ColorSelector from "../components/ColorSelector";
 import { getColorOptions } from "../data/lensColors";
-import { getLensDisplayName } from "../lib/cart/display";
 import ExpirationDatePicker from "@/components/ExpirationDatePicker";
 import type { OcrExtract } from "@/types/ocr";
 import { lenses, resolveParameterOption } from "@/LensCore";
@@ -293,6 +292,20 @@ export default function RxForm({
 }: Props) {
   const router = useRouter();
 
+  const [catalogLenses, setCatalogLenses] = useState<readonly LensCore[]>(lenses);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/catalog/lenses")
+      .then((response) => response.ok ? response.json() as Promise<{ lenses?: LensCore[] }> : null)
+      .then((payload) => {
+        if (!active || !payload?.lenses?.length) return;
+        setCatalogLenses([...lenses, ...payload.lenses]);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
   const [loading, setLoading] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({});
@@ -332,7 +345,7 @@ export default function RxForm({
   const boostedConfidence =
     proposalConfidence === "medium" &&
     proposedLensId &&
-    lenses.find((l) => l.coreId === proposedLensId)?.type.toric
+    catalogLenses.find((l) => l.coreId === proposedLensId)?.type.toric
       ? "high"
       : proposalConfidence;
 
@@ -355,8 +368,8 @@ export default function RxForm({
     mode === "ocr" ? (ocrExtract?.doctorPhone ?? "") : "",
   );
 
-  const rightLens = lenses.find((l) => l.coreId === rightcoreId);
-  const leftLens = lenses.find((l) => l.coreId === leftcoreId);
+  const rightLens = catalogLenses.find((l) => l.coreId === rightcoreId);
+  const leftLens = catalogLenses.find((l) => l.coreId === leftcoreId);
   const rightEffectiveBC = resolveEffectiveNumberOption(
     rightBC,
     rightLens?.parameters.baseCurve,
@@ -368,12 +381,12 @@ export default function RxForm({
 
   const rightColorOptions = useMemo(() => {
     if (!rightLens) return [];
-    return getColorOptions(rightLens.displayName);
+    return getColorOptions(rightLens.coreId);
   }, [rightLens]);
 
   const leftColorOptions = useMemo(() => {
     if (!leftLens) return [];
-    return getColorOptions(leftLens.displayName);
+    return getColorOptions(leftLens.coreId);
   }, [leftLens]);
   const rightEffectiveColor = resolveEffectiveStringOption(
     rightColor,
@@ -924,8 +937,8 @@ export default function RxForm({
   ]);
 
   function isLensFamilyMatch(a: string, b: string): boolean {
-    const lensA = lenses.find((l) => l.coreId === a);
-    const lensB = lenses.find((l) => l.coreId === b);
+    const lensA = catalogLenses.find((l) => l.coreId === a);
+    const lensB = catalogLenses.find((l) => l.coreId === b);
 
     if (!lensA || !lensB) return false;
 
@@ -1311,7 +1324,7 @@ export default function RxForm({
               {proposedLensId && lensCardState === "suggested" && (
                 <div className="rx-hint mt-2">
                   <span style={{ fontSize: "0.95rem", fontWeight: 600 }}>
-                    ✓ Detected lens: {getLensDisplayName(proposedLensId, null)}
+                    ✓ Detected lens: {catalogLenses.find((lens) => lens.coreId === proposedLensId)?.displayName ?? proposedLensId}
                   </span>
                 </div>
               )}
@@ -1442,13 +1455,13 @@ export default function RxForm({
                 >
                   <option value="">Select lens</option>
                   {(mode === "ocr" && proposedLensId
-                    ? lenses.filter((l) =>
+                    ? catalogLenses.filter((l) =>
                         isLensFamilyMatch(l.coreId, proposedLensId),
                       )
-                    : lenses
+                    : catalogLenses
                   ).map((l) => (
                     <option key={l.coreId} value={l.coreId}>
-                      {getLensDisplayName(l.coreId, null)}
+                      {l.displayName}
                     </option>
                   ))}
 
@@ -1831,13 +1844,13 @@ export default function RxForm({
                 >
                   <option value="">Select lens</option>
                   {(mode === "ocr" && proposedLensId
-                    ? lenses.filter((l) =>
+                    ? catalogLenses.filter((l) =>
                         isLensFamilyMatch(l.coreId, proposedLensId),
                       )
-                    : lenses
+                    : catalogLenses
                   ).map((l) => (
                     <option key={l.coreId} value={l.coreId}>
-                      {getLensDisplayName(l.coreId, null)}
+                      {l.displayName}
                     </option>
                   ))}
 

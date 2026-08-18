@@ -1,4 +1,5 @@
 const MAX_PRESCRIPTION_BYTES = 10 * 1024 * 1024;
+const MAX_CATALOG_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_IMAGE_PIXELS = 25_000_000;
 
 type AllowedImage = {
@@ -7,6 +8,12 @@ type AllowedImage = {
 };
 
 export type ValidatedPrescriptionUpload = AllowedImage & {
+  buffer: Buffer;
+  height: number;
+  width: number;
+};
+
+export type ValidatedCatalogImageUpload = AllowedImage & {
   buffer: Buffer;
   height: number;
   width: number;
@@ -104,5 +111,25 @@ export async function validatePrescriptionUpload(
     throw new Error("Prescription image dimensions are too large.");
   }
 
+  return { ...allowed, ...dimensions, buffer };
+}
+
+/** Product artwork has a separate, lower size ceiling from prescription data. */
+export async function validateCatalogImageUpload(
+  file: File,
+): Promise<ValidatedCatalogImageUpload> {
+  if (file.size <= 0 || file.size > MAX_CATALOG_IMAGE_BYTES) {
+    throw new Error("Catalog image must be between 1 byte and 5 MB.");
+  }
+  const allowed = ALLOWED_IMAGES[file.type];
+  if (!allowed) throw new Error("Catalog image must be a JPEG or PNG.");
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const dimensions = dimensionsFor(buffer, allowed.mimeType);
+  if (!dimensions || dimensions.width <= 0 || dimensions.height <= 0) {
+    throw new Error("Catalog image content does not match its file type.");
+  }
+  if (dimensions.width * dimensions.height > MAX_IMAGE_PIXELS) {
+    throw new Error("Catalog image dimensions are too large.");
+  }
   return { ...allowed, ...dimensions, buffer };
 }
