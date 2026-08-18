@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { lenses, validateLensParams } from "@/LensCore";
 import {
   catalogProductType,
   copyManagedCatalogInput,
   emptyManagedCatalogFamily,
   formatCentsAsPrice,
+  guidedInputEditorKey,
   getManagedSupplyDurationMonths,
   getSupplyDurationLabel,
   lensTypeFromCatalogProductType,
   parametersFromAdvancedJson,
+  parseCommaSeparatedText,
   parseNumberList,
   parsePriceToCents,
   shouldShowCatalogValidationIssue,
@@ -81,6 +84,11 @@ assert.ok(parsePriceToCents("49.999").error);
 assert.equal(getManagedSupplyDurationMonths("1M", 6), 6);
 assert.equal(getManagedSupplyDurationMonths("DD", 30), 1);
 assert.equal(getSupplyDurationLabel("1M", 6), "About 6 months per box");
+assert.deepEqual(parseCommaSeparatedText("LOW, MID, HIGH"), ["LOW", "MID", "HIGH"]);
+assert.deepEqual(parseCommaSeparatedText("LOW, "), ["LOW"], "a trailing comma must remain typable without rewriting the field");
+assert.equal(guidedInputEditorKey(7, "cylinders-0"), guidedInputEditorKey(7, "cylinders-0"), "a focused field keeps one stable key during its editing session");
+assert.notEqual(guidedInputEditorKey(7, "cylinders-0"), guidedInputEditorKey(8, "cylinders-0"), "a new lens session intentionally resets raw input text");
+assert.equal(emptyManagedCatalogFamily().browseVisible, true, "new lenses default to showing in store");
 
 assert.equal(suggestedCatalogCoreId("BAUSCH + LOMB", "Biotrue ONEday"), "BAUSCH_LOMB_BIOTRUE_ONEDAY");
 assert.equal(shouldShowCatalogValidationIssue("displayName", new Set(), false), false, "blank new form must not show a validation wall");
@@ -99,5 +107,17 @@ const parsed = parametersFromAdvancedJson(advancedText);
 assert.equal(JSON.stringify(parsed.parameters), advancedText, "advanced rules must round-trip without losing existing restrictions");
 assert.equal(parsed.error, null);
 assert.deepEqual(copyManagedCatalogInput(advanced).parameters, advanced.parameters, "editing an existing managed input starts with an exact detached copy");
+
+const workflowSource = readFileSync("src/app/admin/catalog/ManagedCatalogWorkflow.tsx", "utf8");
+assert.doesNotMatch(workflowSource, /key=\{\"(?:cylinders|axis|bc|dia):\" \+ formatNumberList/, "parsed list values must never be used as React keys");
+assert.match(workflowSource, /guidedInputEditorKey\(editorSession, "cylinders-" \+ index\)/, "cylinder input key must remain stable while typing");
+assert.match(workflowSource, /guidedInputEditorKey\(editorSession, "axis-" \+ index\)/, "axis input key must remain stable while typing");
+assert.match(workflowSource, /parseCommaSeparatedText\(event\.target\.value\)/, "ADD input retains its raw text instead of normalizing on every keystroke");
+assert.doesNotMatch(workflowSource, /value=\{multifocal\.adds\.join/, "ADD input cannot be rendered from the normalized list while being typed");
+assert.match(workflowSource, /label="Available ADD values or categories"/, "ADD remains an explicitly labelled field");
+for (const example of ["Example: 8.4, 8.6", "Example: 14.0, 14.2", "Example: -6.25, +4.25", "Example: -0.75, -1.25, -1.75", "Example: 10, 20, 30, 180", "Example: LOW, MID, HIGH"]) {
+  assert.ok(workflowSource.includes(example), "workflow must retain the correct field-specific example: " + example);
+}
+assert.match(workflowSource, /\.managedForm select\{height:39px;min-height:39px\}/, "replacement schedule remains a compact control");
 
 console.log("Managed catalog guided-form conversions, validation visibility, and advanced round-trip checks passed.");
