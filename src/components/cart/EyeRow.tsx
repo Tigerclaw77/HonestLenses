@@ -25,6 +25,8 @@ type EyeRowProps = {
   unitPricePerBoxCents: number | null;
   durationLabel: string;
   quantityOptions: number[];
+  smallerPackLabel?: string;
+  onUseSmallerPack?: () => void;
   disabled?: boolean;
 };
 
@@ -108,6 +110,8 @@ export default function EyeRow(props: EyeRowProps) {
     unitPricePerBoxCents,
     durationLabel,
     quantityOptions,
+    smallerPackLabel,
+    onUseSmallerPack,
     disabled,
   } = props;
 
@@ -120,6 +124,16 @@ export default function EyeRow(props: EyeRowProps) {
     <div className="hl-eye">
       <div className="hl-eye-label">{label}</div>
       <div className="hl-eye-lens">{lensName}</div>
+      {smallerPackLabel && onUseSmallerPack ? (
+        <button
+          type="button"
+          className="hl-smaller-pack-link"
+          disabled={Boolean(disabled)}
+          onClick={onUseSmallerPack}
+        >
+          {smallerPackLabel}
+        </button>
+      ) : null}
 
       <RxBlock rx={rx} />
 
@@ -146,6 +160,10 @@ export default function EyeRow(props: EyeRowProps) {
           ))}
         </select>
       </div>
+      <style jsx>{`
+        .hl-smaller-pack-link { margin: 5px 0 0; padding: 0; border: 0; background: transparent; color: #cbd5e1; font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; }
+        .hl-smaller-pack-link:disabled { opacity: .55; cursor: not-allowed; }
+      `}</style>
     </div>
   );
 }
