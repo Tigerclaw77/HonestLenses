@@ -10,6 +10,10 @@ import {
   isSkuAvailableForCoreId,
 } from "./packSizeOptions";
 import { getQuantityOptionsWithSelectedValue } from "@/lib/cart/quantityConfig";
+import {
+  getLensFamilyQuantityReset,
+  hasLensFamilySelectionChanged,
+} from "@/lib/orders/rxFamilyChange";
 
 const options = getPackSizeOptionsForCoreId("OASYS_2W");
 assert.deepEqual(
@@ -81,6 +85,36 @@ assert.deepEqual(
   getQuantityOptionsWithSelectedValue([0, 1, 2, 3, 4], 12),
   [0, 1, 2, 3, 4, 12],
   "a converted quantity remains selectable even when it exceeds the normal cap",
+);
+
+const claritiRx = {
+  right: { coreId: "CLARITI_1D" },
+  left: { coreId: "CLARITI_1D" },
+};
+const oasysRx = {
+  right: { coreId: "OASYS_2W" },
+  left: { coreId: "OASYS_2W" },
+};
+assert.equal(hasLensFamilySelectionChanged(claritiRx, oasysRx), true);
+assert.deepEqual(getLensFamilyQuantityReset(claritiRx, oasysRx), {
+  right_box_count: null,
+  left_box_count: null,
+  total_box_count: null,
+  box_count: 0,
+  adjusted_right_box_count: null,
+  adjusted_left_box_count: null,
+  adjusted_total_box_count: null,
+  order_quantity_adjustment_reason: null,
+  order_quantity_adjusted_by: null,
+  order_quantity_adjusted_at: null,
+});
+assert.equal(
+  hasLensFamilySelectionChanged(oasysRx, {
+    right: { ...oasysRx.right, power: "-2.25" },
+    left: { ...oasysRx.left, power: "-1.75" },
+  }),
+  false,
+  "same-family prescription changes preserve reviewed quantities",
 );
 
 console.log("Equivalent pack-size choice regression checks passed");
