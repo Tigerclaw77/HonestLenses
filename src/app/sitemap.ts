@@ -6,6 +6,7 @@ import {
   getLensParameterRoutes,
   getLensSlug,
   getParameterIndexRoutes,
+  isPublicCatalogLens,
   SITE_URL,
 } from "@/lib/seo/contactSeoRoutes";
 
@@ -25,37 +26,34 @@ const guideSlugs = [
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
+  const publicLenses = lenses.filter(isPublicCatalogLens);
+
   const staticPages: MetadataRoute.Sitemap = [
     {
       url: SITE_URL,
-      lastModified: new Date(),
       changeFrequency: "daily",
       priority: 1,
     },
     {
       url: `${SITE_URL}/contacts`,
-      lastModified: new Date(),
       changeFrequency: "daily",
       priority: 0.9,
     },
     {
       url: `${SITE_URL}/guides`,
-      lastModified: new Date(),
       changeFrequency: "monthly",
       priority: 0.7,
     },
   ];
 
-  const lensPages: MetadataRoute.Sitemap = lenses.map((lens) => ({
+  const lensPages: MetadataRoute.Sitemap = publicLenses.map((lens) => ({
     url: `${SITE_URL}/contacts/${getLensSlug(lens)}`,
-    lastModified: new Date(),
     changeFrequency: "weekly",
     priority: 0.8,
   }));
 
   const guidePages: MetadataRoute.Sitemap = guideSlugs.map((slug) => ({
     url: `${SITE_URL}/guides/${slug}`,
-    lastModified: new Date(),
     changeFrequency: "monthly",
     priority: 0.65,
   }));
@@ -63,48 +61,42 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const commercialContactPages: MetadataRoute.Sitemap =
     commercialContactPageList.map((page) => ({
       url: page.canonicalUrl,
-      lastModified: new Date(),
       changeFrequency: "weekly",
       priority: 0.75,
     }));
 
-  const parameterPages: MetadataRoute.Sitemap = lenses.map((lens) => ({
+  const parameterPages: MetadataRoute.Sitemap = publicLenses.map((lens) => ({
     url: `${SITE_URL}/contacts/${getLensSlug(lens)}/parameters`,
-    lastModified: new Date(),
     changeFrequency: "monthly",
     priority: 0.6,
   }));
 
-  const alternativePages: MetadataRoute.Sitemap = lenses.map((lens) => ({
+  const alternativePages: MetadataRoute.Sitemap = publicLenses.map((lens) => ({
     url: `${SITE_URL}/contacts/${getLensSlug(lens)}/alternatives`,
-    lastModified: new Date(),
     changeFrequency: "monthly",
     priority: 0.55,
   }));
 
   const parameterIndexPages: MetadataRoute.Sitemap = getParameterIndexRoutes(
-    lenses,
+    publicLenses,
   ).map(({ parameter, value }) => ({
     url: `${SITE_URL}/contacts/by/${parameter}/${value}`,
-    lastModified: new Date(),
     changeFrequency: "monthly",
     priority: 0.55,
   }));
 
-  const conditionPages: MetadataRoute.Sitemap = getConditionRoutes(lenses).map(
+  const conditionPages: MetadataRoute.Sitemap = getConditionRoutes(publicLenses).map(
     (condition) => ({
       url: `${SITE_URL}/contacts/for/${condition}`,
-      lastModified: new Date(),
       changeFrequency: "monthly",
       priority: 0.55,
     }),
   );
 
   const lensParameterPages: MetadataRoute.Sitemap = getLensParameterRoutes(
-    lenses,
+    publicLenses,
   ).map(({ slug, parameter, value }) => ({
     url: `${SITE_URL}/contacts/${slug}/${parameter}/${value}`,
-    lastModified: new Date(),
     changeFrequency: "monthly",
     priority: 0.5,
   }));

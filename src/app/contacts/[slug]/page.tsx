@@ -1,7 +1,10 @@
 import { lenses } from "@/LensCore/data/lenses";
+import type { LensCore } from "@/LensCore/types";
 import {
   findLensBySlug,
+  getLensAddValues,
   getLensSlug,
+  isPublicCatalogLens,
   SITE_URL,
 } from "@/lib/seo/contactSeoRoutes";
 import { notFound } from "next/navigation";
@@ -11,8 +14,30 @@ type Props = {
   params: Promise<{ slug: string }>;
 };
 
+function ProductJsonLd({ lens, slug }: { lens: LensCore; slug: string }) {
+  const product = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: `${lens.displayName} Contact Lenses`,
+    description: `${lens.displayName} contact lenses manufactured by ${lens.manufacturer} for ${lens.replacement} replacement.`,
+    manufacturer: {
+      "@type": "Organization",
+      name: lens.manufacturer,
+    },
+    category: "Contact lenses",
+    url: `${SITE_URL}/contacts/${slug}`,
+  };
+
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(product) }}
+    />
+  );
+}
+
 export function generateStaticParams() {
-  return lenses.map((lens) => ({
+  return lenses.filter(isPublicCatalogLens).map((lens) => ({
     slug: getLensSlug(lens),
   }));
 }
@@ -40,8 +65,21 @@ export default async function LensPage({ params }: Props) {
 
   if (!lens) return notFound();
 
+  const relatedCategoryLinks = [
+    lens.type.toric
+      ? { href: "/contacts/for/astigmatism", label: "Contact lenses for astigmatism" }
+      : null,
+    lens.type.multifocal || getLensAddValues(lens).length > 0
+      ? { href: "/contacts/for/presbyopia", label: "Multifocal contact lens options" }
+      : null,
+    lens.manufacturer === "VISTAKON"
+      ? { href: "/contacts/acuvue-contact-lenses", label: "ACUVUE contact lenses" }
+      : null,
+  ].filter((link): link is { href: string; label: string } => Boolean(link));
+
   return (
     <div style={{ padding: 40, maxWidth: 900, lineHeight: 1.6 }}>
+      <ProductJsonLd lens={lens} slug={slug} />
       <ProductTelemetry
         coreId={lens.coreId}
         source="product_page"
@@ -99,6 +137,9 @@ export default async function LensPage({ params }: Props) {
 
       <ul>
         <li>
+          <a href="/contacts">Browse all contact lenses</a>
+        </li>
+        <li>
           <a href={`/contacts/${slug}/parameters`}>
             View full parameter availability for {lens.displayName}
           </a>
@@ -108,6 +149,11 @@ export default async function LensPage({ params }: Props) {
             View similar contact lens options
           </a>
         </li>
+        {relatedCategoryLinks.map((link) => (
+          <li key={link.href}>
+            <a href={link.href}>{link.label}</a>
+          </li>
+        ))}
       </ul>
     </div>
   );

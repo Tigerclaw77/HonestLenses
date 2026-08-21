@@ -13,6 +13,7 @@ import { getLensSkus } from "@/lib/pricing/getLensSkus";
 import { getPackSizeFromSku } from "@/lib/pricing/getPackSize";
 import { getPrice } from "@/lib/pricing/getPrice";
 import { getLowestPrice } from "@/lib/pricing/getLowestPrice";
+import { getLensSlug, isPublicCatalogLens } from "@/lib/seo/contactSeoRoutes";
 import { getPopularityRank } from "@/data/lensPopularityTiers";
 
 import { POSTHOG_EVENTS, track } from "@/lib/posthog/client";
@@ -200,7 +201,7 @@ export default function BrowsePage() {
   }, []);
 
   const filtered = catalogLenses
-    .filter((lens) => !lens.coreId.includes("_XR"))
+    .filter(isPublicCatalogLens)
     .filter((lens) => {
       const matchesSearch = lens.displayName
         .toLowerCase()
@@ -405,7 +406,13 @@ export default function BrowsePage() {
                   </div>
 
                   <div style={{ display: "flex", flexDirection: "column" }}>
-                    <div style={{ fontWeight: 600 }}>{lens.displayName}</div>
+                    <a
+                      href={`/contacts/${getLensSlug(lens)}`}
+                      onClick={(event) => event.stopPropagation()}
+                      style={{ fontWeight: 600, color: "inherit" }}
+                    >
+                      {lens.displayName}
+                    </a>
 
                     <div style={{ fontSize: ".9rem", opacity: 0.75 }}>
                       {lowest ? `from $${(lowest / 100).toFixed(2)} / box` : ""}

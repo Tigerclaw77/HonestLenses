@@ -3,7 +3,9 @@ import { lenses } from "@/LensCore/data/lenses";
 import {
   getParameterIndexLensMatches,
   getReadableParameter,
+  getLensSlug,
   isContactParameterKey,
+  isPublicCatalogLens,
   SITE_URL,
 } from "@/lib/seo/contactSeoRoutes";
 import { notFound } from "next/navigation";
@@ -20,7 +22,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   if (!isContactParameterKey(parameter)) return {};
 
-  const results = getParameterIndexLensMatches(lenses, parameter, value);
+  const results = getParameterIndexLensMatches(
+    lenses.filter(isPublicCatalogLens),
+    parameter,
+    value,
+  );
 
   if (results.length === 0) return {};
 
@@ -42,7 +48,11 @@ export default async function ParameterIndexPage({ params }: Props) {
     return notFound();
   }
 
-  const results = getParameterIndexLensMatches(lenses, parameter, value);
+  const results = getParameterIndexLensMatches(
+    lenses.filter(isPublicCatalogLens),
+    parameter,
+    value,
+  );
 
   if (results.length === 0) {
     return notFound();
@@ -63,9 +73,15 @@ export default async function ParameterIndexPage({ params }: Props) {
 
       <ul>
         {results.map((lens) => (
-          <li key={lens.displayName}>{lens.displayName}</li>
+          <li key={lens.coreId}>
+            <a href={`/contacts/${getLensSlug(lens)}`}>{lens.displayName}</a>
+          </li>
         ))}
       </ul>
+
+      <p>
+        <a href="/contacts">Browse all contact lenses</a>
+      </p>
     </div>
   );
 }

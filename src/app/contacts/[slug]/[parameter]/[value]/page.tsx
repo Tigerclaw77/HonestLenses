@@ -71,6 +71,14 @@ export default async function LensParameterPage({ params }: Props) {
         This page provides information about prescription parameters
         available for {lens.displayName} lenses.
       </p>
+
+      <p>
+        <a href={`/contacts/${slug}/parameters`}>
+          View all {lens.displayName} parameters
+        </a>
+        {" · "}
+        <a href={`/contacts/${slug}`}>Back to {lens.displayName}</a>
+      </p>
     </div>
   );
 }

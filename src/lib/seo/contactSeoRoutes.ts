@@ -19,6 +19,16 @@ export function getLensSlug(lens: LensCore) {
   return slugifyLens(lens.displayName);
 }
 
+/**
+ * XR families are prescription-resolved specialty variants. The shopping flow
+ * intentionally withholds them from the public browse catalog while XR
+ * resolution remains disabled in the cart. Keep their direct routes intact,
+ * but do not treat them as normal public catalog/index targets.
+ */
+export function isPublicCatalogLens(lens: LensCore) {
+  return !lens.coreId.includes("_XR");
+}
+
 export function findLensBySlug(lenses: LensCore[], slug: string) {
   return lenses.find((lens) => getLensSlug(lens) === slug) ?? null;
 }
@@ -53,10 +63,34 @@ function uniqueSorted(values: number[]) {
   return [...new Set(values)].sort((a, b) => a - b);
 }
 
-function getCylinderValues(lens: LensCore) {
+export function getLensCylinderValues(lens: LensCore) {
   return uniqueSorted(
     (lens.parameters.toric?.groups ?? []).flatMap((group) => group.cylinders),
   );
+}
+
+export function getLensAxisValues(lens: LensCore) {
+  return uniqueSorted(
+    (lens.parameters.toric?.groups ?? []).flatMap((group) => {
+      if ("axis" in group && group.axis) return [...group.axis];
+
+      return (group.sphereAxisRules ?? []).flatMap((rule) => [...rule.axis]);
+    }),
+  );
+}
+
+export function getLensAddValues(lens: LensCore) {
+  const multifocal = lens.parameters.multifocal;
+
+  if (!multifocal) return [];
+
+  return [
+    ...new Set([
+      ...multifocal.adds,
+      ...(multifocal.xrAdds ?? []),
+      ...(multifocal.groups ?? []).flatMap((group) => group.adds),
+    ]),
+  ];
 }
 
 export function getLensParameterValues(
@@ -71,7 +105,7 @@ export function getLensParameterValues(
     return uniqueSorted(lens.parameters.diameter ?? []);
   }
 
-  return getCylinderValues(lens);
+  return getLensCylinderValues(lens);
 }
 
 export function hasLensParameterValue(

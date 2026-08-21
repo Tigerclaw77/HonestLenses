@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { lenses } from "@/LensCore/data/lenses";
 import {
   getConditionLensMatches,
+  getLensSlug,
   getReadableCondition,
   isContactCondition,
+  isPublicCatalogLens,
   SITE_URL,
 } from "@/lib/seo/contactSeoRoutes";
 import { notFound } from "next/navigation";
@@ -17,7 +19,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   if (!isContactCondition(condition)) return {};
 
-  const results = getConditionLensMatches(lenses, condition);
+  const results = getConditionLensMatches(
+    lenses.filter(isPublicCatalogLens),
+    condition,
+  );
 
   if (results.length === 0) return {};
 
@@ -37,7 +42,10 @@ export default async function ConditionPage({ params }: Props) {
 
   if (!isContactCondition(condition)) return notFound();
 
-  const results = getConditionLensMatches(lenses, condition);
+  const results = getConditionLensMatches(
+    lenses.filter(isPublicCatalogLens),
+    condition,
+  );
 
   if (!results.length) return notFound();
 
@@ -49,9 +57,15 @@ export default async function ConditionPage({ params }: Props) {
 
       <ul>
         {results.map((lens) => (
-          <li key={lens.displayName}>{lens.displayName}</li>
+          <li key={lens.coreId}>
+            <a href={`/contacts/${getLensSlug(lens)}`}>{lens.displayName}</a>
+          </li>
         ))}
       </ul>
+
+      <p>
+        <a href="/contacts">Browse all contact lenses</a>
+      </p>
     </div>
   );
 }
