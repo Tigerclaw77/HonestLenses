@@ -116,6 +116,7 @@ export default function Header({
                   Browse
                 </a>
               )}
+              <Link href="/contacts">Contact Lenses</Link>
               {showAbout && <Link href="/about">About</Link>}
             </nav>
 
@@ -187,6 +188,7 @@ export default function Header({
               <a href="/browse" onClick={handleShopClick}>
                 Shop
               </a>
+              <Link href="/contacts">Contact Lenses</Link>
               <Link href="/about">About</Link>
             </nav>
 
