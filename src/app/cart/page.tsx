@@ -59,9 +59,16 @@ export default function CartPage() {
   const [syncingQty, setSyncingQty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cart, setCart] = useState<CartOrder | null>(null);
+  const [checkoutNotice, setCheckoutNotice] = useState(false);
 
   const [rightQtyOverride, setRightQtyOverride] = useState<number | null>(null);
   const [leftQtyOverride, setLeftQtyOverride] = useState<number | null>(null);
+
+  useEffect(() => {
+    setCheckoutNotice(
+      new URLSearchParams(window.location.search).get("notice") === "checkout",
+    );
+  }, []);
 
   /* ---------- Derived ---------- */
 
@@ -325,6 +332,11 @@ export default function CartPage() {
       <>
         <Header variant="shop" />
         <main className="content-shell">
+          {checkoutNotice && (
+            <p role="status">
+              Choose or resume an order from your cart before continuing to checkout.
+            </p>
+          )}
           <p className="order-error">{error ?? "Cart unavailable."}</p>
         </main>
       </>
@@ -631,6 +643,12 @@ export default function CartPage() {
   return (
     <>
       <Header variant="shop" />
+
+      {checkoutNotice && (
+        <p className="content-shell" role="status">
+          Choose or resume an order from your cart before continuing to checkout.
+        </p>
+      )}
 
       {cartUI}
       <AbandonmentFeedbackExperiment

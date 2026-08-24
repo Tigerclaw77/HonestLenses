@@ -27,10 +27,18 @@ import {
   getFeedbackAmountDueCents,
   normalizeFeedbackCreditCents,
 } from "@/lib/abandonmentFeedback";
+import {
+  getCheckoutRecoveryPath,
+  getCurrentOrderRecovery,
+  isOrderId,
+} from "@/lib/orderRecoveryClient";
 
-const stripePromise = loadStripe(
-  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!,
-);
+let stripePromise: ReturnType<typeof loadStripe> | null = null;
+
+function getStripePromise() {
+  stripePromise ??= loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+  return stripePromise;
+}
 
 const stripeAppearance = {
   theme: "stripe",
@@ -445,13 +453,19 @@ function CheckoutInner() {
 
     async function init() {
       try {
-        if (!orderId) throw new Error("Missing orderId.");
+        if (!isOrderId(orderId)) {
+          const recovery = await getCurrentOrderRecovery();
+          if (cancelled) return;
+
+          router.replace(getCheckoutRecoveryPath(recovery.recovery));
+          return;
+        }
 
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
-        const orderRes = await fetch(`/api/orders/${orderId}`, {
+        const orderRes = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
           cache: "no-store",
           headers: {
             ...(session?.access_token
@@ -581,7 +595,7 @@ function CheckoutInner() {
     return () => {
       cancelled = true;
     };
-  }, [orderId]);
+  }, [orderId, router]);
 
   useEffect(() => {
     if (!order || checkoutStartTracked.current) return;
@@ -762,7 +776,7 @@ function CheckoutInner() {
 
           <Elements
             key={clientSecret}
-            stripe={stripePromise}
+            stripe={getStripePromise()}
             options={{ clientSecret, appearance: stripeAppearance }}
           >
             <CheckoutForm

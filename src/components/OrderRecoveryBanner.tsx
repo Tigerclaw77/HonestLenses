@@ -2,37 +2,48 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-
-type RecoveryState = {
-  hasRecovery?: boolean;
-  orderId?: string;
-  resumeUrl?: string;
-};
+import { captureClientException } from "@/lib/posthog/client";
+import {
+  getCurrentOrderRecovery,
+  type OrderRecoveryState,
+} from "@/lib/orderRecoveryClient";
 
 const DISMISS_PREFIX = "hl_order_recovery_dismissed:";
 
 export default function OrderRecoveryBanner() {
   const router = useRouter();
-  const [recovery, setRecovery] = useState<RecoveryState | null>(null);
+  const [recovery, setRecovery] = useState<OrderRecoveryState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadRecovery() {
-      const res = await fetch("/api/order-recovery/current", {
-        cache: "no-store",
-      });
+      const result = await getCurrentOrderRecovery();
 
-      if (!res.ok) return;
+      if (result.failure) {
+        try {
+          captureClientException(result.failure.error, {
+            source: "order_recovery_load",
+            operation: "order_recovery_current",
+            failure_kind: result.failure.kind,
+            response_status: result.failure.status ?? null,
+          });
+        } catch {
+          // Recovery is nonessential; telemetry must not affect homepage use.
+        }
+      }
 
-      const body = (await res.json().catch(() => null)) as RecoveryState | null;
-      if (!body?.hasRecovery || !body.orderId || !body.resumeUrl) return;
+      const nextRecovery = result.recovery;
+      if (!nextRecovery) return;
 
-      if (localStorage.getItem(`${DISMISS_PREFIX}${body.orderId}`) === "1") {
+      if (
+        localStorage.getItem(`${DISMISS_PREFIX}${nextRecovery.orderId}`) ===
+        "1"
+      ) {
         return;
       }
 
-      if (!cancelled) setRecovery(body);
+      if (!cancelled) setRecovery(nextRecovery);
     }
 
     void loadRecovery();
