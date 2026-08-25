@@ -61,6 +61,10 @@ export const ROUTE_AUTHORIZATION_POLICY: Record<string, RoutePolicy> = {
     access: "admin",
     guard: "requireAdmin",
   },
+  "src/app/api/admin/orders/correct-lens/route.ts": {
+    access: "admin",
+    guard: "requireAdmin",
+  },
   "src/app/api/admin/orders/route.ts": {
     access: "admin",
     guard: "requireAdmin",

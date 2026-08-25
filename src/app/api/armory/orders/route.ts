@@ -224,7 +224,7 @@ function safeDigestEqual(left: string, right: string) {
   return timingSafeEqual(leftDigest, rightDigest);
 }
 
-function toArmoryOrder(row: OrderRow) {
+export function toArmoryOrder(row: OrderRow) {
   const rx = asObject(row.rx);
   const right = asObject(rx.right || rx.od || rx.OD);
   const left = asObject(rx.left || rx.os || rx.OS);

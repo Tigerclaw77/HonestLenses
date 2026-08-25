@@ -40,6 +40,8 @@ import {
 import { getAdminPaymentDisplay } from "@/lib/orders/adminPaymentDisplay";
 import type { ManualVerificationAttemptMethod } from "@/lib/orders/verificationAttempts";
 import { isOrderRowControlTarget } from "@/lib/admin/orderRowInteraction";
+import { lenses } from "@/LensCore";
+import { CORE_TO_SKUS } from "@/lib/pricing/resolveDefaultSku";
 
 /* =========================
    Types
@@ -226,6 +228,34 @@ type OrderQuantityAdjustmentModalState = {
   rightBoxes: string;
   leftBoxes: string;
   reason: OrderQuantityAdjustmentReason;
+  error: string | null;
+};
+
+type LensCorrectionEyeForm = {
+  sphere: string;
+  cylinder: string;
+  axis: string;
+  add: string;
+  base_curve: string;
+  diameter: string;
+};
+
+type LensCorrectionModalState = {
+  orderId: string;
+  patientName: string;
+  coreId: string;
+  sku: string;
+  expires: string;
+  right: LensCorrectionEyeForm;
+  left: LensCorrectionEyeForm;
+  rightBoxes: string;
+  leftBoxes: string;
+  sharedPackForBothEyes: boolean;
+  reason: string;
+  customerApprovedSubstitution: boolean;
+  paymentAlreadyCaptured: boolean;
+  capturedAmount: string;
+  supplierOrderAlreadyPlaced: boolean;
   error: string | null;
 };
 
@@ -471,6 +501,19 @@ function parseBoxCountInput(value: string): number | null {
   if (!/^\d+$/.test(trimmed)) return null;
   const count = Number(trimmed);
   return Number.isSafeInteger(count) ? count : null;
+}
+
+function correctionEyeForm(eye: RxEye | null | undefined): LensCorrectionEyeForm {
+  const text = (value: RxValue) =>
+    value === null || value === undefined ? "" : String(value);
+  return {
+    sphere: text(eye?.sphere ?? eye?.sph),
+    cylinder: text(eye?.cylinder ?? eye?.cyl),
+    axis: text(eye?.axis ?? eye?.ax),
+    add: text(eye?.add),
+    base_curve: text(eye?.base_curve ?? eye?.baseCurve ?? eye?.bc),
+    diameter: text(eye?.diameter ?? eye?.dia),
+  };
 }
 
 function displayNameFromLensIdentifier(
@@ -2053,6 +2096,7 @@ function OrderDetailsModal({
   onArchive,
   onAdjustQuantity,
   onAdjustCapture,
+  onCorrectLens,
 }: {
   order: Order;
   onClose: () => void;
@@ -2062,6 +2106,7 @@ function OrderDetailsModal({
   onArchive: () => void;
   onAdjustQuantity: () => void;
   onAdjustCapture: () => void;
+  onCorrectLens: () => void;
 }) {
   const customerName = getCustomerName(order);
   const patientName = getPatientName(order);
@@ -2196,13 +2241,20 @@ function OrderDetailsModal({
             <div style={{ marginTop: 5, overflowWrap: "anywhere" }}>
               PaymentIntent: {order.payment_intent_id ?? "-"}
             </div>
-            {isMerchantLane && (
+            <div
+              style={{
+                display: "flex",
+                gap: 6,
+                flexWrap: "wrap",
+                marginTop: 9,
+              }}
+            >
+              {isMerchantLane && (
               <div
                 style={{
                   display: "flex",
                   gap: 6,
                   flexWrap: "wrap",
-                  marginTop: 9,
                 }}
               >
                 <button
@@ -2220,7 +2272,15 @@ function OrderDetailsModal({
                   Adjust Capture
                 </button>
               </div>
-            )}
+              )}
+              <button
+                type="button"
+                onClick={onCorrectLens}
+                style={buttonStyle({ fontSize: 11 })}
+              >
+                Correct Lens / Rx
+              </button>
+            </div>
           </div>
 
           <div style={mutedPanelStyle()}>
@@ -2291,6 +2351,8 @@ export default function AdminOrdersPage() {
     useState<CaptureAdjustmentModalState | null>(null);
   const [orderQuantityAdjustmentModal, setOrderQuantityAdjustmentModal] =
     useState<OrderQuantityAdjustmentModalState | null>(null);
+  const [lensCorrectionModal, setLensCorrectionModal] =
+    useState<LensCorrectionModalState | null>(null);
   const [rxImageModal, setRxImageModal] = useState<RxImageModalState | null>(
     null,
   );
@@ -2604,7 +2666,7 @@ export default function AdminOrdersPage() {
 
   async function verifyUploadedPrescription(order: Order) {
     if (getOrderOperationalBucket(order) !== "founder_review") {
-      setAdminError("This order is not awaiting uploaded-prescription review.");
+      setAdminError("This order is not awaiting prescription review.");
       return;
     }
 
@@ -2963,6 +3025,114 @@ export default function AdminOrdersPage() {
         message: json.reauthorization_required
           ? "Quantity and price updated. The prior authorization was cancelled; the customer must approve the updated total."
           : "Order quantity and billing amount updated.",
+      });
+    } finally {
+      setSavingOrderId(null);
+    }
+  }
+
+  function openLensCorrection(order: Order, patientName: string) {
+    const details = fullRxDetails(order);
+    const right = details.rx?.right ?? null;
+    const left = details.rx?.left ?? null;
+    const coreId = right?.coreId ?? left?.coreId ?? "MYDAY";
+    const skus = CORE_TO_SKUS[coreId] ?? [];
+    const currentSku = order.sku && skus.includes(order.sku) ? order.sku : skus[0] ?? "";
+    const paymentDisplay = getAdminPaymentDisplay(order);
+    const paymentAlreadyCaptured =
+      getPaymentState(order).status === "captured" ||
+      order.stripe_payment_intent_status?.trim().toLowerCase() === "succeeded";
+    const capturedAmount = paymentDisplay.capturedAmountCents ??
+      (paymentAlreadyCaptured ? order.capture_amount_cents ?? null : null);
+    setLensCorrectionModal({
+      orderId: order.id,
+      patientName,
+      coreId,
+      sku: currentSku,
+      expires: String(details.expires ?? ""),
+      right: correctionEyeForm(right),
+      left: correctionEyeForm(left),
+      rightBoxes: String(finiteCount(order.adjusted_right_box_count) ?? finiteCount(order.right_box_count) ?? 1),
+      leftBoxes: String(finiteCount(order.adjusted_left_box_count) ?? finiteCount(order.left_box_count) ?? 0),
+      sharedPackForBothEyes: false,
+      reason: "",
+      customerApprovedSubstitution: false,
+      paymentAlreadyCaptured,
+      capturedAmount: capturedAmount === null ? "" : formatMoneyInput(capturedAmount),
+      supplierOrderAlreadyPlaced: normalizedFulfillmentStatus(order) === "ordered",
+      error: null,
+    });
+  }
+
+  function correctionEyePayload(eye: LensCorrectionEyeForm) {
+    if (!eye.sphere.trim()) return null;
+    const requiredSphere = Number(eye.sphere);
+    if (!Number.isFinite(requiredSphere)) return null;
+    const optionalNumber = (value: string): number | null | undefined => {
+      if (!value.trim()) return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+    const cylinder = optionalNumber(eye.cylinder);
+    const axis = optionalNumber(eye.axis);
+    const base_curve = optionalNumber(eye.base_curve);
+    const diameter = optionalNumber(eye.diameter);
+    if ([cylinder, axis, base_curve, diameter].some((value) => value === undefined)) return null;
+    return { sphere: requiredSphere, cylinder, axis, base_curve, diameter, add: eye.add.trim() || null };
+  }
+
+  async function saveLensCorrection() {
+    if (!lensCorrectionModal) return;
+    const right = correctionEyePayload(lensCorrectionModal.right);
+    const left = correctionEyePayload(lensCorrectionModal.left);
+    const rightBoxes = parseBoxCountInput(lensCorrectionModal.rightBoxes);
+    const leftBoxes = parseBoxCountInput(lensCorrectionModal.leftBoxes);
+    const capturedAmountCents = lensCorrectionModal.paymentAlreadyCaptured
+      ? parseDollarAmountToCents(lensCorrectionModal.capturedAmount)
+      : null;
+    if (!right || !left || rightBoxes === null || leftBoxes === null || !lensCorrectionModal.sku || !lensCorrectionModal.reason.trim()) {
+      setLensCorrectionModal((current) => current ? { ...current, error: "Enter a reason, lens SKU, numeric Rx values, and valid box counts." } : current);
+      return;
+    }
+    if (lensCorrectionModal.paymentAlreadyCaptured && (capturedAmountCents === null || capturedAmountCents <= 0)) {
+      setLensCorrectionModal((current) => current ? { ...current, error: "Enter the actual historical captured amount." } : current);
+      return;
+    }
+    setSavingOrderId(lensCorrectionModal.orderId);
+    setAdminError(null);
+    try {
+      const res = await fetch("/api/admin/orders/correct-lens", {
+        method: "POST",
+        headers: await authHeaders(),
+        credentials: "same-origin",
+        body: JSON.stringify({
+          orderId: lensCorrectionModal.orderId,
+          coreId: lensCorrectionModal.coreId,
+          sku: lensCorrectionModal.sku,
+          expires: lensCorrectionModal.expires,
+          right, left,
+          right_box_count: rightBoxes,
+          left_box_count: leftBoxes,
+          shared_pack_for_both_eyes: lensCorrectionModal.sharedPackForBothEyes,
+          reason: lensCorrectionModal.reason,
+          customer_approved_substitution: lensCorrectionModal.customerApprovedSubstitution,
+          payment_already_captured: lensCorrectionModal.paymentAlreadyCaptured,
+          captured_amount_cents: capturedAmountCents,
+          supplier_order_already_placed: lensCorrectionModal.supplierOrderAlreadyPlaced,
+        }),
+      });
+      const json = await readAdminApiPayload(res);
+      if (!res.ok) {
+        setLensCorrectionModal((current) => current ? { ...current, error: adminApiErrorMessage(json, "Lens correction failed.") } : current);
+        return;
+      }
+      await fetchData();
+      setLensCorrectionModal(null);
+      setAdminNotice({
+        tone: json.event_logged === false ? "info" : "success",
+        message: json.event_logged === false
+          ? "Lens/Rx correction saved, but its audit event could not be recorded."
+          : "Lens/Rx record correction saved. No Stripe or supplier action was performed.",
       });
     } finally {
       setSavingOrderId(null);
@@ -3970,6 +4140,9 @@ export default function AdminOrdersPage() {
           onAdjustCapture={() =>
             openCaptureAdjustment(detailsOrder, getCustomerName(detailsOrder))
           }
+          onCorrectLens={() =>
+            openLensCorrection(detailsOrder, getCustomerName(detailsOrder))
+          }
         />
       )}
 
@@ -4347,6 +4520,155 @@ export default function AdminOrdersPage() {
           </div>
         </div>
       )}
+
+      {lensCorrectionModal && (() => {
+        const availableSkus = CORE_TO_SKUS[lensCorrectionModal.coreId] ?? [];
+        const updateEye = (side: "right" | "left", field: keyof LensCorrectionEyeForm, value: string) =>
+          setLensCorrectionModal((current) => current
+            ? { ...current, [side]: { ...current[side], [field]: value }, error: null }
+            : current);
+        const eyeInputs: Array<{ key: keyof LensCorrectionEyeForm; label: string; required?: boolean }> = [
+          { key: "sphere", label: "Sphere", required: true },
+          { key: "cylinder", label: "Cylinder" },
+          { key: "axis", label: "Axis" },
+          { key: "add", label: "ADD" },
+          { key: "base_curve", label: "BC" },
+          { key: "diameter", label: "Diameter" },
+        ];
+        return (
+          <div
+            onClick={() => setLensCorrectionModal(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 52, background: "rgba(2,6,23,0.78)", display: "grid", placeItems: "center", padding: 20 }}
+          >
+            <div
+              onClick={(event) => event.stopPropagation()}
+              style={{ width: "min(820px, 100%)", maxHeight: "92vh", overflow: "auto", ...mutedPanelStyle(), background: "#0f172a" }}
+            >
+              <div style={{ fontWeight: 900, marginBottom: 4 }}>Correct Lens / Rx</div>
+              <div style={{ color: "rgba(226,232,240,0.72)", fontSize: 13, marginBottom: 12 }}>
+                {lensCorrectionModal.patientName}. This records the actual product, prescription, quantities, and operational history. It never charges, captures, refunds, or submits a supplier order.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 10 }}>
+                <label style={{ display: "grid", gap: 5, fontWeight: 700 }}>
+                  Replacement lens
+                  <select
+                    value={lensCorrectionModal.coreId}
+                    onChange={(event) => {
+                      const coreId = event.target.value;
+                      const skus = CORE_TO_SKUS[coreId] ?? [];
+                      setLensCorrectionModal((current) => current ? { ...current, coreId, sku: skus[0] ?? "", error: null } : current);
+                    }}
+                    style={{ padding: "9px 10px", borderRadius: 6 }}
+                  >
+                    {lenses.map((lens) => <option key={lens.coreId} value={lens.coreId}>{lens.displayName}</option>)}
+                  </select>
+                </label>
+                <label style={{ display: "grid", gap: 5, fontWeight: 700 }}>
+                  Pack / SKU
+                  <select
+                    value={lensCorrectionModal.sku}
+                    onChange={(event) => setLensCorrectionModal((current) => current ? { ...current, sku: event.target.value, error: null } : current)}
+                    style={{ padding: "9px 10px", borderRadius: 6 }}
+                  >
+                    {availableSkus.map((sku) => <option key={sku} value={sku}>{sku}</option>)}
+                  </select>
+                </label>
+                <label style={{ display: "grid", gap: 5, fontWeight: 700 }}>
+                  Prescription expiration
+                  <input type="date" value={lensCorrectionModal.expires} onChange={(event) => setLensCorrectionModal((current) => current ? { ...current, expires: event.target.value, error: null } : current)} style={{ padding: "9px 10px", borderRadius: 6 }} />
+                </label>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(310px, 1fr))", gap: 12, marginTop: 12 }}>
+                {(["right", "left"] as const).map((side) => (
+                  <section key={side} style={{ ...mutedPanelStyle(), display: "grid", gap: 8 }}>
+                    <strong>{side === "right" ? "OD / Right" : "OS / Left"}</strong>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+                      {eyeInputs.map(({ key, label, required }) => (
+                        <label key={key} style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700 }}>
+                          {label}{required ? " *" : ""}
+                          <input value={lensCorrectionModal[side][key]} onChange={(event) => updateEye(side, key, event.target.value)} inputMode={key === "add" ? "text" : "decimal"} style={{ padding: "8px 9px", borderRadius: 5 }} />
+                        </label>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 10, marginTop: 12 }}>
+                <label style={{ display: "grid", gap: 5, fontWeight: 700 }}>
+                  Physical packs allocated to OD
+                  <input value={lensCorrectionModal.rightBoxes} inputMode="numeric" onChange={(event) => setLensCorrectionModal((current) => current ? { ...current, rightBoxes: event.target.value, error: null } : current)} style={{ padding: "9px 10px", borderRadius: 6 }} />
+                </label>
+                <label style={{ display: "grid", gap: 5, fontWeight: 700 }}>
+                  Physical packs allocated to OS
+                  <input value={lensCorrectionModal.leftBoxes} inputMode="numeric" onChange={(event) => setLensCorrectionModal((current) => current ? { ...current, leftBoxes: event.target.value, error: null } : current)} style={{ padding: "9px 10px", borderRadius: 6 }} />
+                </label>
+              </div>
+              <label style={{ display: "flex", gap: 8, alignItems: "start", marginTop: 12, fontSize: 12, lineHeight: 1.35 }}>
+                <input
+                  type="checkbox"
+                  checked={lensCorrectionModal.sharedPackForBothEyes}
+                  onChange={(event) => setLensCorrectionModal((current) => current ? { ...current, sharedPackForBothEyes: event.target.checked, rightBoxes: event.target.checked ? "1" : current.rightBoxes, leftBoxes: event.target.checked ? "0" : current.leftBoxes, error: null } : current)}
+                />
+                <span><strong>One shared pack covers both identical prescriptions.</strong> This requires identical OD/OS parameters and records exactly one physical box total (OD 1, OS 0).</span>
+              </label>
+              <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+                <label style={{ display: "grid", gap: 5, fontWeight: 700 }}>
+                  Correction reason *
+                  <textarea
+                    value={lensCorrectionModal.reason}
+                    maxLength={500}
+                    onChange={(event) => setLensCorrectionModal((current) => current ? { ...current, reason: event.target.value, error: null } : current)}
+                    placeholder="Verified prescription required a different lens; customer approved substitution."
+                    style={{ minHeight: 70, padding: "9px 10px", borderRadius: 6 }}
+                  />
+                </label>
+                <label style={{ display: "flex", gap: 8, alignItems: "start", fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={lensCorrectionModal.customerApprovedSubstitution}
+                    onChange={(event) => setLensCorrectionModal((current) => current ? { ...current, customerApprovedSubstitution: event.target.checked, error: null } : current)}
+                  />
+                  <span>Customer approved this substitution.</span>
+                </label>
+                <label style={{ display: "flex", gap: 8, alignItems: "start", fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={lensCorrectionModal.paymentAlreadyCaptured}
+                    onChange={(event) => setLensCorrectionModal((current) => current ? { ...current, paymentAlreadyCaptured: event.target.checked, error: null } : current)}
+                  />
+                  <span>Payment was already captured externally/in Stripe. This records the fact only; it does not call Stripe.</span>
+                </label>
+                {lensCorrectionModal.paymentAlreadyCaptured && (
+                  <label style={{ display: "grid", gap: 5, fontWeight: 700 }}>
+                    Actual historical captured amount ($) *
+                    <input
+                      value={lensCorrectionModal.capturedAmount}
+                      inputMode="decimal"
+                      onChange={(event) => setLensCorrectionModal((current) => current ? { ...current, capturedAmount: event.target.value, error: null } : current)}
+                      style={{ padding: "9px 10px", borderRadius: 6 }}
+                    />
+                  </label>
+                )}
+                <label style={{ display: "flex", gap: 8, alignItems: "start", fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={lensCorrectionModal.supplierOrderAlreadyPlaced}
+                    onChange={(event) => setLensCorrectionModal((current) => current ? { ...current, supplierOrderAlreadyPlaced: event.target.checked, error: null } : current)}
+                  />
+                  <span>Supplier/manufacturer order was already placed manually. This marks fulfillment ordered; it does not submit or re-submit anything.</span>
+                </label>
+              </div>
+              {lensCorrectionModal.error && <div style={{ color: "#fca5a5", fontWeight: 700, marginTop: 12 }}>{lensCorrectionModal.error}</div>}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+                <button style={buttonStyle()} onClick={() => setLensCorrectionModal(null)}>Cancel</button>
+                <button style={buttonStyle({ background: "rgba(20,184,166,0.25)" })} onClick={saveLensCorrection} disabled={savingOrderId === lensCorrectionModal.orderId}>
+                  {savingOrderId === lensCorrectionModal.orderId ? "Saving..." : "Record correction"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {notesModal && (
         <div
