@@ -97,6 +97,7 @@ type CheckoutPayResponse = {
   shipping_method?: "standard" | "express";
   manufacturer?: string | null;
   sku?: string | null;
+  code?: string;
   error?: string;
 };
 
@@ -196,6 +197,16 @@ function CheckoutForm({
       const quote: CheckoutPayResponse = await quoteRes.json().catch(() => ({}));
 
       if (
+        quote.code === "PAYMENT_ALREADY_AUTHORIZED" &&
+        quote.payment_intent_id
+      ) {
+        router.replace(
+          `/checkout/return?payment_intent=${encodeURIComponent(quote.payment_intent_id)}`,
+        );
+        return;
+      }
+
+      if (
         !quoteRes.ok ||
         !quote.clientSecret ||
         !quote.payment_intent_id ||
@@ -244,7 +255,7 @@ function CheckoutForm({
       const result = await stripe.confirmPayment({
         elements,
         confirmParams: {
-          return_url: `${window.location.origin}/checkout/success`,
+          return_url: `${window.location.origin}/checkout/return`,
         },
         redirect: "if_required",
       });
@@ -488,6 +499,27 @@ function CheckoutInner() {
           throw new Error("Invalid order total.");
         }
 
+        if (orderData.status === "captured") {
+          router.replace(
+            `/checkout/success?${new URLSearchParams({
+              orderId,
+              mode: isUploadedVerificationOrder(orderData) ? "uploaded" : "passive",
+            }).toString()}`,
+          );
+          return;
+        }
+
+        if (
+          orderData.status === "authorized" &&
+          typeof orderData.payment_intent_id === "string" &&
+          orderData.payment_intent_id
+        ) {
+          router.replace(
+            `/checkout/return?payment_intent=${encodeURIComponent(orderData.payment_intent_id)}`,
+          );
+          return;
+        }
+
         setOrder({
           id: orderData.id,
           status: orderData.status,
@@ -528,7 +560,17 @@ function CheckoutInner() {
           body: JSON.stringify({ orderId }),
         });
 
-        const body: CheckoutPayResponse = await res.json();
+        const body: CheckoutPayResponse = await res.json().catch(() => ({}));
+
+        if (
+          body.code === "PAYMENT_ALREADY_AUTHORIZED" &&
+          body.payment_intent_id
+        ) {
+          router.replace(
+            `/checkout/return?payment_intent=${encodeURIComponent(body.payment_intent_id)}`,
+          );
+          return;
+        }
 
         if (
           !res.ok ||

@@ -249,7 +249,7 @@ async function runAutomationWorkflowTests() {
   assert.equal(failedRun.capture, null, "automation failure remains unresolved");
 
   const checkoutRoute = readFileSync(
-  join(process.cwd(), "src", "app", "api", "checkout", "authorized", "route.ts"),
+  join(process.cwd(), "src", "lib", "payments", "checkoutAuthorizationFinalizer.ts"),
   "utf8",
 );
   assert.match(
@@ -259,8 +259,16 @@ async function runAutomationWorkflowTests() {
 );
   assert.match(
   checkoutRoute,
-  /mode: "uploaded_auto_verified",[\s\S]*idempotent: true/,
+  /orderStatus === nextStatus && verificationStatus === nextVerificationStatus/,
   "completed automation retries return without duplicate capture or email",
+);
+  assert.match(
+  readFileSync(
+    join(process.cwd(), "src", "app", "api", "checkout", "authorized", "route.ts"),
+    "utf8",
+  ),
+  /allowAutomaticCapture: true/,
+  "only the original in-browser authorization route retains legacy auto-capture",
 );
   assert.match(
   readFileSync(

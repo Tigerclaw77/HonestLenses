@@ -9,17 +9,17 @@ function source(path: string): string {
 const actionRequiredChecks = [
   {
     scenario: "safe OCR exception",
-    path: "src/app/api/checkout/authorized/route.ts",
+    path: "src/lib/payments/checkoutAuthorizationFinalizer.ts",
     alertType: '"rx_review_required"',
   },
   {
     scenario: "prescriber mismatch",
-    path: "src/app/api/checkout/authorized/route.ts",
+    path: "src/lib/payments/checkoutAuthorizationFinalizer.ts",
     alertType: '"prescriber_verification_required"',
   },
   {
     scenario: "automated ready-to-place order",
-    path: "src/app/api/checkout/authorized/route.ts",
+    path: "src/lib/payments/checkoutAuthorizationFinalizer.ts",
     alertType: 'type: "ready_to_place"',
   },
   {

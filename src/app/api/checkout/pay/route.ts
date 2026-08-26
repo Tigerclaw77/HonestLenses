@@ -22,7 +22,6 @@ const REUSABLE_STATUSES = [
   "requires_payment_method",
   "requires_confirmation",
   "requires_action",
-  "requires_capture",
 ];
 
 type CheckoutPaymentOrder = {
@@ -211,6 +210,20 @@ export async function POST(req: Request) {
           throw new Error("Stripe intent not found");
         }
 
+        // An off-site method (for example Cash App) may authorize and redirect
+        // before the browser can call /api/checkout/authorized. Never expose
+        // that already-authorized intent for another confirmation attempt.
+        if (existing.status === "requires_capture") {
+          return NextResponse.json(
+            {
+              error: "Payment already authorized. Finishing checkout…",
+              code: "PAYMENT_ALREADY_AUTHORIZED",
+              payment_intent_id: existing.id,
+            },
+            { status: 409 },
+          );
+        }
+
         if (!REUSABLE_STATUSES.includes(existing.status)) {
           if (existing.status === "succeeded") {
             return NextResponse.json(
@@ -248,62 +261,29 @@ export async function POST(req: Request) {
           order.payment_intent_id = null;
         } else {
           if (existing.amount !== amountDueCents) {
-            if (existing.status === "requires_capture") {
-              await stripe.paymentIntents.cancel(
-                existing.id,
-                undefined,
-                {
-                  idempotencyKey:
-                    `legacy:${order.id}:cancel:${existing.id}`,
+            const updated = await stripe.paymentIntents.update(
+              order.payment_intent_id,
+              {
+                amount: amountDueCents,
+                metadata: {
+                  order_id: order.id,
+                  user_id: access.userId ?? "",
+                  checkout_actor: access.userId ? "user" : "guest",
+                  shipping_method: order.shipping_method ?? "standard",
+                  shipping_cents: String(order.shipping_cents ?? 0),
+                  feedback_credit_cents: String(
+                    order.feedback_credit_cents ?? 0,
+                  ),
+                  amount_due_cents: String(amountDueCents),
                 },
-              );
-              const { data: advanced, error: advanceError } =
-                await supabaseServer
-                .from("orders")
-                .update({
-                  payment_intent_id: null,
-                  payment_attempt_generation:
-                    order.payment_attempt_generation + 1,
-                })
-                .eq("id", order.id)
-                .eq("payment_intent_id", existing.id)
-                .select("payment_attempt_generation")
-                .maybeSingle();
+              },
+              {
+                idempotencyKey:
+                  `legacy:${order.id}:update:${existing.id}:${amountDueCents}`,
+              },
+            );
 
-              if (advanceError || !advanced) {
-                return NextResponse.json(
-                  { error: "Unable to advance the payment attempt." },
-                  { status: 409 },
-                );
-              }
-              order.payment_attempt_generation =
-                advanced.payment_attempt_generation;
-              order.payment_intent_id = null;
-            } else {
-              const updated = await stripe.paymentIntents.update(
-                order.payment_intent_id,
-                {
-                  amount: amountDueCents,
-                  metadata: {
-                    order_id: order.id,
-                    user_id: access.userId ?? "",
-                    checkout_actor: access.userId ? "user" : "guest",
-                    shipping_method: order.shipping_method ?? "standard",
-                    shipping_cents: String(order.shipping_cents ?? 0),
-                    feedback_credit_cents: String(
-                      order.feedback_credit_cents ?? 0,
-                    ),
-                    amount_due_cents: String(amountDueCents),
-                  },
-                },
-                {
-                  idempotencyKey:
-                    `legacy:${order.id}:update:${existing.id}:${amountDueCents}`,
-                },
-              );
-
-              return NextResponse.json(paymentResponse(order, updated));
-            }
+            return NextResponse.json(paymentResponse(order, updated));
           } else {
             return NextResponse.json(paymentResponse(order, existing));
           }

@@ -1,6 +1,7 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
+import type Stripe from "stripe";
 
 import { isCommerceV2Enabled } from "@/lib/commerce-v2/feature";
 import { SupabaseCommerceRepository } from "@/lib/commerce-v2/repository";
@@ -14,6 +15,7 @@ import {
   processLegacyStripeWebhook,
   type LegacyStripeWebhookRepository,
 } from "@/lib/payments/legacyStripeWebhook";
+import { reconcileAuthorizedPaymentIntent } from "@/lib/payments/checkoutAuthorizationFinalizer";
 
 const legacyRepository: LegacyStripeWebhookRepository = {
   async findOrder(orderId, paymentIntentId) {
@@ -75,6 +77,25 @@ export async function POST(request: Request) {
 
   if (!isCommerceV2Enabled()) {
     try {
+      // A Cash App (or other redirect method) authorization can complete after
+      // navigation leaves the checkout page. The verified Stripe event is the
+      // durable backstop for finalizing that authorization; it never confirms,
+      // captures, or creates a payment for manual-Rx orders.
+      if (event.type === "payment_intent.amount_capturable_updated") {
+        const reconciliation = await reconcileAuthorizedPaymentIntent({
+          intent: event.data.object as Stripe.PaymentIntent,
+          request,
+        });
+        return NextResponse.json({
+          received: true,
+          mode: "legacy_authorization_reconciliation",
+          stripeEventId: event.id,
+          reconciled: Boolean(reconciliation),
+          orderId: reconciliation?.orderId ?? null,
+          idempotent: reconciliation?.idempotent ?? false,
+        });
+      }
+
       const result = await processLegacyStripeWebhook(
         event,
         legacyRepository,
