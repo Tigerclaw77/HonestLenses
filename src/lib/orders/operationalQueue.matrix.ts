@@ -8,6 +8,7 @@ import {
   type OperationalQueueOrder,
 } from "./operationalQueue";
 import { getNextAction } from "./getNextAction";
+import { getFounderRxAttention } from "./founderRxAttention";
 
 type MatrixCase = {
   scenario: string;
@@ -245,7 +246,7 @@ const cases: MatrixCase[] = [
     expectedActionable: false,
   },
   {
-    scenario: "nonterminal archived order remains operationally visible",
+    scenario: "founder-archived legacy order stays in history",
     order: {
       id: "matrix-archived-active",
       status: "captured",
@@ -256,8 +257,8 @@ const cases: MatrixCase[] = [
       archived: true,
       rx: verifiedRx,
     },
-    expectedBucket: "resolve_exception",
-    expectedActionable: true,
+    expectedBucket: "history_archive",
+    expectedActionable: false,
   },
   {
     scenario: "unknown fulfillment state is flagged with a reason",
@@ -453,6 +454,37 @@ assert.ok(
     (issue) => issue.code === "PAYMENT_STATE_DRIFT",
   ),
   "captured Stripe payment with stale local state is surfaced as integrity drift",
+);
+
+assert.deepEqual(
+  getFounderRxAttention({
+    id: "matrix-alert-uploaded-rx",
+    status: "authorized",
+    payment_intent_id: "pi_alert_uploaded_rx",
+    stripe_payment_intent_status: "requires_capture",
+    verification_status: "pending",
+    rx_upload_path: "rx/matrix-alert-uploaded-rx/rx.png",
+  }),
+  {
+    type: "rx_review_required",
+    headline: "Prescription needs founder review",
+    detail: "An uploaded prescription is awaiting review in the secure Order Work Queue.",
+    dedupeSuffix: undefined,
+  },
+  "uploaded prescription review has a deduplicable founder alert classification",
+);
+assert.equal(
+  getFounderRxAttention({
+    id: "matrix-alert-complete",
+    status: "captured",
+    payment_intent_id: "pi_alert_complete",
+    stripe_payment_intent_status: "succeeded",
+    verification_status: "verified",
+    fulfillment_status: "review",
+    rx: verifiedRx,
+  }),
+  null,
+  "ready-to-place work does not create an Rx-attention alert",
 );
 assert.ok(
   historicalPaymentDriftOrder?.operational_queue.integrityIssues.some(

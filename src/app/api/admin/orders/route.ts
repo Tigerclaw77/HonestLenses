@@ -25,6 +25,8 @@ import {
   type PaymentLifecycleStatus,
 } from "@/lib/orders/paymentState";
 import { collectLatestVerificationAttempts } from "@/lib/orders/verificationAttempts";
+import { getFounderRxAttention } from "@/lib/orders/founderRxAttention";
+import { sendFounderOperationalAlert } from "@/lib/founderAlerts";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
@@ -444,6 +446,26 @@ export async function GET(req: Request) {
     }
 
     const groupedOrders = groupOperationalQueueOrders(orders);
+
+    // Reconcile notification coverage for legacy or partially completed
+    // workflows.  This is deliberately best-effort and has no order-state
+    // side effects; the alert ledger/provider idempotency prevents refresh
+    // loops from producing mail storms.
+    await mapWithConcurrency(orders, 5, async (order) => {
+        const attention = getFounderRxAttention(order);
+        if (!attention) return;
+        try {
+          await sendFounderOperationalAlert({
+            orderId: order.id,
+            ...attention,
+          });
+        } catch (alertError) {
+          console.error("Founder Rx-attention alert failed:", {
+            orderId: order.id,
+            error: alertError,
+          });
+        }
+      });
     const awaitingVerification: AdminOrderRow[] =
       groupedOrders.awaiting_verification;
     const founderReview: AdminOrderRow[] = groupedOrders.founder_review;

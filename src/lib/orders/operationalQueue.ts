@@ -274,6 +274,7 @@ function activityReasonForEvent(eventType: string): string {
   const knownReasons: Record<string, string> = {
     admin_fulfillment_override: "Fulfillment updated by admin",
     admin_order_archived: "Order archived",
+    founder_order_completed_archived: "Founder override: completed and archived",
     admin_verification_override: "Verification updated by admin",
     order_cancelled_by_customer: "Order cancelled by customer",
     verification_fax_attempted: "Prescriber fax attempted",
@@ -546,6 +547,13 @@ export function classifyOperationalQueue(
     );
   }
 
+  // A founder reconciliation is terminal by design.  It must take precedence
+  // over malformed legacy payment, fulfillment, or verification fields so a
+  // manually closed order never returns to an active queue on refresh.
+  if (order.archived || order.archived_at) {
+    return classify("history_archive", false, ["founder archived"], order);
+  }
+
   const founderActionReasons = explicitFounderActionReasons(order);
   if (founderActionReasons.length > 0) {
     return classify(
@@ -591,17 +599,6 @@ export function classifyOperationalQueue(
       "resolve_exception",
       true,
       uniqueReasons(exceptionReasons),
-      order,
-    );
-  }
-
-  if (order.archived || order.archived_at) {
-    return classify(
-      "resolve_exception",
-      true,
-      [
-        "This order was archived before fulfillment completed; restore or resolve it.",
-      ],
       order,
     );
   }

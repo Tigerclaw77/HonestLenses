@@ -1596,6 +1596,51 @@ function AuthorizationReviewBanner({ order }: { order: Order }) {
   );
 }
 
+function TotalBoxesStrip({
+  quantity,
+  isExpress,
+}: {
+  quantity: ReturnType<typeof getOperationalCardQuantity>;
+  isExpress: boolean;
+}) {
+  const totalBoxesLabel =
+    quantity.total === "—" ? "—" : formatBoxCount(Number(quantity.total));
+
+  return (
+    <div
+      data-testid="operational-quantity"
+      style={{
+        display: "flex",
+        alignItems: "baseline",
+        flexWrap: "wrap",
+        gap: "5px 13px",
+        padding: "7px 9px",
+        borderRadius: 6,
+        background: isExpress ? "#dc2626" : "rgba(14, 165, 233, 0.12)",
+        color: isExpress ? "#ffffff" : "#e0f2fe",
+      }}
+    >
+      <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.82 }}>
+        TOTAL BOXES
+      </span>
+      <strong style={{ fontSize: 15 }}>{totalBoxesLabel}</strong>
+      <span style={{ fontSize: 12, fontWeight: 800 }}>OD: {quantity.right}</span>
+      <span style={{ fontSize: 12, fontWeight: 800 }}>OS: {quantity.left}</span>
+      {isExpress && (
+        <strong
+          style={{
+            marginLeft: "auto",
+            fontSize: 13,
+            letterSpacing: "0.08em",
+          }}
+        >
+          EXPRESS
+        </strong>
+      )}
+    </div>
+  );
+}
+
 
 
 function ActiveOrderCard({
@@ -1610,6 +1655,7 @@ function ActiveOrderCard({
   onRecordVerificationAttempt,
   onAdvanceFulfillment,
   onVerifyPrescription,
+  onFounderCompleteArchive,
   verificationFailure,
 }: {
   order: Order;
@@ -1625,6 +1671,7 @@ function ActiveOrderCard({
   ) => void;
   onAdvanceFulfillment: (status: FulfillmentStatus) => void;
   onVerifyPrescription: () => void;
+  onFounderCompleteArchive: () => void;
   verificationFailure?: string | null;
 }) {
   const customerName = getCustomerName(order);
@@ -1638,8 +1685,7 @@ function ActiveOrderCard({
   const classification = getOrderOperationalClassification(order);
   const quantity = getOperationalCardQuantity(order);
   const isFounderReview = classification.bucket === "founder_review";
-  const totalBoxesLabel =
-    quantity.total === "—" ? "—" : formatBoxCount(Number(quantity.total));
+  const isExpress = order.shipping_method === "express";
   const processingPanelId = `order-processing-${order.id}`;
 
   return (
@@ -1725,26 +1771,8 @@ function ActiveOrderCard({
             <div style={{ opacity: 0.68, fontSize: 10 }}>{activity.detail}</div>
           </div>
 
-          <div
-            data-testid="operational-quantity"
-            style={{
-              gridColumn: "1 / -1",
-              display: "flex",
-              alignItems: "baseline",
-              flexWrap: "wrap",
-              gap: "5px 13px",
-              padding: "7px 9px",
-              borderRadius: 6,
-              background: "rgba(14, 165, 233, 0.12)",
-              color: "#e0f2fe",
-            }}
-          >
-            <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.76 }}>
-              TOTAL BOXES
-            </span>
-            <strong style={{ fontSize: 15 }}>{totalBoxesLabel}</strong>
-            <span style={{ fontSize: 12, fontWeight: 800 }}>OD: {quantity.right}</span>
-            <span style={{ fontSize: 12, fontWeight: 800 }}>OS: {quantity.left}</span>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <TotalBoxesStrip quantity={quantity} isExpress={isExpress} />
           </div>
 
           {classification.bucket === "resolve_exception" && (
@@ -1779,6 +1807,13 @@ function ActiveOrderCard({
             style={buttonStyle({ fontSize: 11, opacity: 0.8 })}
           >
             Details
+          </button>
+          <button
+            type="button"
+            onClick={onFounderCompleteArchive}
+            style={buttonStyle({ fontSize: 11, color: "#fbbf24" })}
+          >
+            Mark completed / archive
           </button>
         </div>
       </div>
@@ -1822,6 +1857,8 @@ function ActiveOrderCard({
             </div>
 
             <RxDetailsPanel order={order} heading="Prescription" />
+
+            <TotalBoxesStrip quantity={quantity} isExpress={isExpress} />
 
             <PrescriberVerificationTracker
               order={order}
@@ -2093,7 +2130,7 @@ function OrderDetailsModal({
   onOpenRxImage,
   onOpenNotes,
   onCopyOrder,
-  onArchive,
+  onFounderCompleteArchive,
   onAdjustQuantity,
   onAdjustCapture,
   onCorrectLens,
@@ -2103,7 +2140,7 @@ function OrderDetailsModal({
   onOpenRxImage: () => void;
   onOpenNotes: () => void;
   onCopyOrder: () => void;
-  onArchive: () => void;
+  onFounderCompleteArchive: () => void;
   onAdjustQuantity: () => void;
   onAdjustCapture: () => void;
   onCorrectLens: () => void;
@@ -2323,10 +2360,10 @@ function OrderDetailsModal({
           </button>
           <button
             type="button"
-            onClick={onArchive}
+            onClick={onFounderCompleteArchive}
             style={buttonStyle({ color: "#fbbf24" })}
           >
-            Archive
+            Mark completed / archive
           </button>
         </div>
       </section>
@@ -3287,30 +3324,31 @@ export default function AdminOrdersPage() {
   }
 
   async function archiveOrder(orderId: string) {
-    if (!confirm("Archive this order and hide it from the operational queue?")) {
+    if (!confirm(
+      "Mark this order completed / archive by founder override?\n\nThis removes it from active queues and preserves its payment, prescription, verification, supplier, and event history. It will not charge, refund, capture, submit, cancel, or email anyone.",
+    )) {
       return;
     }
 
     const snapshot = removeOrderOptimistically([orderId]);
     setAdminError(null);
-    setAdminNotice({ tone: "info", message: "Archiving order..." });
+    setAdminNotice({ tone: "info", message: "Applying founder complete/archive override..." });
 
     const res = await fetch(`/api/orders/${orderId}/archive`, {
       method: "POST",
       headers: await authHeaders(),
       credentials: "same-origin",
-      body: JSON.stringify({ archived: true }),
     });
     const json = await readAdminApiPayload(res);
 
     if (!res.ok) {
       restoreOrderAfterActionFailure(snapshot, [orderId]);
       setAdminNotice(null);
-      setAdminError(adminApiErrorMessage(json, "Archive failed."));
+      setAdminError(adminApiErrorMessage(json, "Founder complete/archive failed."));
       return;
     }
 
-    setAdminNotice({ tone: "success", message: "Order archived." });
+    setAdminNotice({ tone: "success", message: "Order completed / archived by founder override." });
   }
 
   async function runAbandonedAction(
@@ -3753,6 +3791,7 @@ export default function AdminOrdersPage() {
                     onVerifyPrescription={() =>
                       verifyUploadedPrescription(o)
                     }
+                    onFounderCompleteArchive={() => archiveOrder(o.id)}
                     verificationFailure={verificationFailures[o.id]}
                   />
                 ))}
@@ -4127,7 +4166,7 @@ export default function AdminOrdersPage() {
             openNotes(detailsOrder, getCustomerName(detailsOrder))
           }
           onCopyOrder={() => copyOrderText(detailsOrder, parseRx(detailsOrder))}
-          onArchive={() => {
+          onFounderCompleteArchive={() => {
             setDetailsOrderId(null);
             archiveOrder(detailsOrder.id);
           }}

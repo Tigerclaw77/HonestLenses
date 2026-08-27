@@ -33,6 +33,28 @@ const systemHealthPage = readFileSync(
   join(process.cwd(), "src", "app", "admin", "system-health", "page.tsx"),
   "utf8",
 );
+const archiveRoute = readFileSync(
+  join(
+    process.cwd(),
+    "src",
+    "app",
+    "api",
+    "orders",
+    "[id]",
+    "archive",
+    "route.ts",
+  ),
+  "utf8",
+);
+const founderArchiveMigration = readFileSync(
+  join(
+    process.cwd(),
+    "supabase",
+    "migrations",
+    "20260826010100_founder_order_complete_archive.sql",
+  ),
+  "utf8",
+);
 
 const cardStart = source.indexOf("function ActiveOrderCard");
 const detailsStart = source.indexOf("function OrderDetailsModal");
@@ -102,6 +124,30 @@ assert.ok(
   activeCard.indexOf('<RxDetailsPanel order={order} heading="Prescription" />') >
     expandedCardStart,
   "prescription processing renders inside the existing expanded card",
+);
+const prescriptionStart = activeCard.indexOf(
+  '<RxDetailsPanel order={order} heading="Prescription" />',
+);
+const secondQuantityStrip = activeCard.indexOf(
+  '<TotalBoxesStrip quantity={quantity} isExpress={isExpress} />',
+  prescriptionStart,
+);
+const prescriberTracker = activeCard.indexOf("<PrescriberVerificationTracker", prescriptionStart);
+assert.ok(
+  secondQuantityStrip > prescriptionStart && prescriberTracker > secondQuantityStrip,
+  "the shared Total Boxes strip appears directly between Prescription and prescriber verification",
+);
+assert.ok(
+  source.includes('background: isExpress ? "#dc2626"'),
+  "express Total Boxes strips use an unmistakable bright red warning background",
+);
+assert.ok(
+  source.includes('const isExpress = order.shipping_method === "express"'),
+  "express presentation uses the stored shipping method",
+);
+assert.ok(
+  source.includes("<TotalBoxesStrip quantity={quantity} isExpress={isExpress} />"),
+  "both strips receive one already-computed quantity object",
 );
 assert.equal(
   activeCard.includes("runPrimaryAction"),
@@ -317,7 +363,6 @@ for (const detailsOnlyControl of [
   "Adjust Capture",
   "Notes",
   "Copy Order",
-  "Archive",
 ]) {
   assert.equal(
     activeCard.includes(detailsOnlyControl),
@@ -330,6 +375,21 @@ for (const detailsOnlyControl of [
     `${detailsOnlyControl} remains available behind Details`,
   );
 }
+assert.ok(
+  activeCard.includes("Mark completed / archive") &&
+    detailsSurface.includes("Mark completed / archive"),
+  "every active card and its details surface expose the founder complete/archive control",
+);
+assert.match(archiveRoute, /requireAdminUser/);
+assert.match(archiveRoute, /founder_complete_archive_order/);
+assert.doesNotMatch(archiveRoute, /stripe|supplier|armory/i);
+assert.match(founderArchiveMigration, /insert into public\.order_events/i);
+assert.match(founderArchiveMigration, /archived = true/i);
+assert.doesNotMatch(
+  founderArchiveMigration,
+  /set\s+status\s*=/i,
+  "founder completion never manufactures a payment or fulfillment status",
+);
 
 for (const removedQueueRecordSignal of [
   "Payment",
