@@ -18,7 +18,7 @@ begin
   select jsonb_build_object(
     'status', o.status,
     'fulfillment_status', o.fulfillment_status,
-    'payment_status', o.payment_status,
+    'payment_intent_id', o.payment_intent_id,
     'verification_status', o.verification_status,
     'archived', o.archived,
     'archived_at', o.archived_at
@@ -41,7 +41,7 @@ begin
   returning jsonb_build_object(
     'status', o.status,
     'fulfillment_status', o.fulfillment_status,
-    'payment_status', o.payment_status,
+    'payment_intent_id', o.payment_intent_id,
     'verification_status', o.verification_status,
     'archived', o.archived,
     'archived_at', o.archived_at
