@@ -10,6 +10,11 @@ import {
   processResendDeliveryEvent,
   verifyResendWebhook,
 } from "@/lib/emailDelivery";
+import {
+  forwardInboundEmail,
+  type InboundEmailForwardInput,
+  type InboundEmailForwardResult,
+} from "@/lib/inboundEmailForwarding";
 
 type ResendWebhookDependencies = {
   webhookSecret?: string;
@@ -17,7 +22,41 @@ type ResendWebhookDependencies = {
   applyEvent?: (
     event: NormalizedResendDeliveryEvent,
   ) => Promise<DeliveryEventApplyResult>;
+  forwardInboundEmail?: (
+    input: InboundEmailForwardInput,
+  ) => Promise<InboundEmailForwardResult>;
 };
+
+function inboundEmailInput(
+  event: unknown,
+  svixId: string,
+): InboundEmailForwardInput | null {
+  if (
+    typeof event !== "object" ||
+    event === null ||
+    !("type" in event) ||
+    event.type !== "email.received" ||
+    !("data" in event) ||
+    typeof event.data !== "object" ||
+    event.data === null
+  ) {
+    return null;
+  }
+
+  const data = event.data as Record<string, unknown>;
+  const emailId = typeof data.email_id === "string" ? data.email_id.trim() : "";
+  const receivedAt = typeof data.created_at === "string" ? data.created_at.trim() : "";
+  const sender = typeof data.from === "string" ? data.from.trim() || null : null;
+  const recipient = Array.isArray(data.to) && typeof data.to[0] === "string"
+    ? data.to[0].trim() || null
+    : null;
+
+  if (!emailId || !receivedAt || Number.isNaN(new Date(receivedAt).getTime())) {
+    return null;
+  }
+
+  return { svixId, emailId, receivedAt, sender, recipient };
+}
 
 export async function handleResendWebhook(
   req: Request,
@@ -60,6 +99,12 @@ export async function handleResendWebhook(
 
   try {
     assertValidResendWebhookPayload(event, svixId);
+    const inbound = inboundEmailInput(event, svixId);
+    if (inbound) {
+      const result = await (dependencies.forwardInboundEmail ?? forwardInboundEmail)(inbound);
+      return NextResponse.json({ received: true, inbound: true, ...result });
+    }
+
     const applyEvent =
       dependencies.applyEvent ??
       (await import("@/lib/emailDeliveryServer")).applyResendDeliveryEvent;
