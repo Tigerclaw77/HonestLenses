@@ -68,6 +68,33 @@ function deriveFamily(coreId: string): string {
     .replace(/_VITALITY$/, "");
 }
 
+/**
+ * A few current prescription product names predate the catalog naming. Keep
+ * this alias deliberately narrow and require matching physical parameters so
+ * it cannot weaken general product resolution.
+ */
+function resolveKnownPrescriptionAlias(
+  input: ResolveInput,
+  candidates: readonly LensCore[],
+): LensCore | null {
+  const raw = normalize(input.rawString);
+  const isHydraLuxeOneDay =
+    raw.includes("acuvue oasys") &&
+    raw.includes("hydraluxe") &&
+    (raw.includes("1 day") || raw.includes("1-day"));
+  if (
+    !isHydraLuxeOneDay ||
+    input.hasCyl ||
+    input.hasAdd ||
+    input.bc !== 8.5 ||
+    input.dia !== 14.3
+  ) {
+    return null;
+  }
+
+  return candidates.find((lens) => lens.coreId === "OASYS_1D") ?? null;
+}
+
 /* ======================================================
    Daily Intent
 ====================================================== */
@@ -242,6 +269,23 @@ export function resolveBrand(
       score: 0,
       confidence: "low",
       reason: { stage: "no_candidates", candidateCount: 0 },
+    };
+  }
+
+  const knownAlias = resolveKnownPrescriptionAlias(input, candidates);
+  if (knownAlias) {
+    return {
+      lensId: knownAlias.coreId,
+      score: 200,
+      confidence: "high",
+      reason: {
+        stage: "scored",
+        family: deriveFamily(knownAlias.coreId),
+        candidateCount: 1,
+        bestScore: 200,
+        secondScore: 0,
+        gap: 200,
+      },
     };
   }
 

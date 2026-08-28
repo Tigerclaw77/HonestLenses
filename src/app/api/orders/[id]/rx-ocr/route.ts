@@ -16,91 +16,19 @@ import {
   enforceRateLimit,
   rateLimitErrorResponse,
 } from "@/lib/security/rateLimit";
+import {
+  mapPrescriptionInterpretationToRx,
+  type PrescriptionOcrInterpretation,
+  type ParsedPrescriptionRx,
+} from "@/lib/orders/prescriptionOcrParsing";
 
 /* =========================
    TYPES
 ========================= */
 
-type Eye = {
-  sphere: number | null;
-  cylinder: number | null;
-  axis: number | null;
-  add: string | null;
-  base_curve: number | null;
-  diameter: number | null;
-  brand_raw: string | null;
-};
+type Interpretation = PrescriptionOcrInterpretation;
 
-type Rx = {
-  right: Eye | null;
-  left: Eye | null;
-  expires: string | null;
-};
-
-type Interpretation = {
-  right?: {
-    sphere?: number | null;
-    cylinder?: number | null;
-    axis?: number | null;
-    add?: string | null;
-    baseCurve?: number | null;
-    diameter?: number | null;
-    brand_raw?: string | null;
-  } | null;
-  left?: {
-    sphere?: number | null;
-    cylinder?: number | null;
-    axis?: number | null;
-    add?: string | null;
-    baseCurve?: number | null;
-    diameter?: number | null;
-    brand_raw?: string | null;
-  } | null;
-  expirationDate?: string | null;
-  patient_name?: string | null;
-  doctor_name?: string | null;
-  prescriber_phone?: string | null;
-  brand_raw?: string | null;
-  confidence?: number;
-  looks_like_contact_lens_rx?: boolean;
-  notes?: string | null;
-};
-
-/* =========================
-   HELPERS
-========================= */
-
-function mapInterpretationToRx(interp: Interpretation): Rx {
-  return {
-    right: interp.right
-      ? {
-          sphere: interp.right.sphere ?? null,
-          cylinder: interp.right.cylinder ?? null,
-          axis: interp.right.axis ?? null,
-          add: interp.right.add ?? null,
-          base_curve: interp.right.baseCurve ?? null,
-          diameter: interp.right.diameter ?? null,
-          brand_raw: interp.right?.brand_raw ?? interp.brand_raw ?? null,
-        }
-      : null,
-
-    left: interp.left
-      ? {
-          sphere: interp.left.sphere ?? null,
-          cylinder: interp.left.cylinder ?? null,
-          axis: interp.left.axis ?? null,
-          add: interp.left.add ?? null,
-          base_curve: interp.left.baseCurve ?? null,
-          diameter: interp.left.diameter ?? null,
-          brand_raw: interp.left?.brand_raw ?? interp.brand_raw ?? null,
-        }
-      : null,
-
-    expires: interp.expirationDate ?? null,
-  };
-}
-
-function hasUsableRx(rx: Rx): boolean {
+function hasUsableRx(rx: ParsedPrescriptionRx): boolean {
   return (
     (rx.right?.sphere !== null || rx.left?.sphere !== null) &&
     rx.expires !== null
@@ -130,6 +58,8 @@ Examples:
 
 Rules:
 - Do NOT guess values not present
+- Preserve the printed sign on every power exactly. A leading "-" is a negative power; never convert it to a positive value.
+- "DS" means no cylinder (sphere only); it does not remove or change the sphere value.
 - Axis must be 1–180
 - BC and DIA are decimal values
 - Return expirationDate in YYYY-MM-DD format only
@@ -379,7 +309,7 @@ export async function POST(
       });
     }
 
-    const rx = mapInterpretationToRx(interpretation);
+    const rx = mapPrescriptionInterpretationToRx(interpretation);
     const usable = hasUsableRx(rx);
 
     const isLikelyRx =

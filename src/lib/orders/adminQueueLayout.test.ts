@@ -145,6 +145,16 @@ assert.match(
   /<CustomerInformationBlock[\s\S]*order={order}/,
   "order Details renders the shared persisted shipping method after reload",
 );
+assert.match(
+  activeCard,
+  /data-testid="admin-active-order-id"[\s\S]*Order # \{order\.id\}/,
+  "active order cards keep the persisted Order # beside the customer heading",
+);
+assert.match(
+  detailsSurface,
+  /data-testid="admin-details-order-id"[\s\S]*Order # \{order\.id\}/,
+  "Order Details keeps the same persisted Order # beside the customer heading",
+);
 const prescriptionStart = activeCard.indexOf(
   '<RxDetailsPanel order={order} heading="Prescription" />',
 );

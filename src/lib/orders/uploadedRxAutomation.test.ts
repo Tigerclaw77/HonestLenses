@@ -7,6 +7,7 @@ import {
   uploadedRxReviewStatus,
   type UploadedRxAutomationOrder,
 } from "./uploadedRxAutomation";
+import { mapPrescriptionInterpretationToRx } from "./prescriptionOcrParsing";
 
 const NOW = new Date("2026-08-11T12:00:00.000Z");
 
@@ -75,6 +76,57 @@ const valid = evaluateUploadedRxAutomation(
 );
 assert.equal(valid.autoVerify, true, "clean confirmed OCR evidence auto-verifies");
 assert.equal(valid.reason, "all_checks_passed");
+
+// Safe fixture equivalent to the reported HydraLuxe prescription. It avoids
+// patient and prescriber data while proving the parser and validation path.
+const hydraLuxeFixture = {
+  right: {
+    sphere: -4.25,
+    cylinder: null,
+    axis: null,
+    add: null,
+    baseCurve: 8.5,
+    diameter: 14.3,
+    brand_raw: "Acuvue Oasys HydraLuxe 1-Day 90pk",
+  },
+  left: {
+    sphere: -4.25,
+    cylinder: null,
+    axis: null,
+    add: null,
+    baseCurve: 8.5,
+    diameter: 14.3,
+    brand_raw: "Acuvue Oasys HydraLuxe 1-Day 90pk",
+  },
+  expirationDate: "2027-07-16",
+  confidence: 1,
+  looks_like_contact_lens_rx: true,
+  notes: "D.S. confirms spherical powers without cylinder.",
+};
+const hydraLuxeRx = mapPrescriptionInterpretationToRx(hydraLuxeFixture);
+assert.equal(hydraLuxeRx.right?.sphere, -4.25, "OCR parsing preserves the printed negative OD sphere");
+assert.equal(hydraLuxeRx.left?.sphere, -4.25, "OCR parsing preserves the printed negative OS sphere");
+assert.equal(hydraLuxeRx.right?.base_curve, 8.5);
+assert.equal(hydraLuxeRx.right?.diameter, 14.3);
+assert.equal(hydraLuxeRx.expires, "2027-07-16");
+assert.equal(
+  evaluateUploadedRxAutomation(
+    {
+      rx_upload_path: "rx/fixture/hydraluxe.png",
+      rx_status: "uploaded_customer_confirmed",
+      rx: {
+        expires: "2027-07-16",
+        right: { coreId: "OASYS_1D", sphere: -4.25, base_curve: 8.5 },
+        left: { coreId: "OASYS_1D", sphere: -4.25, base_curve: 8.5 },
+      },
+      rx_ocr_raw: hydraLuxeFixture,
+    },
+    "requires_capture",
+    NOW,
+  ).reason,
+  "all_checks_passed",
+  "the HydraLuxe fixture resolves the exact catalog product and extracted parameters",
+);
 
 assert.equal(
   evaluateUploadedRxAutomation(
@@ -309,6 +361,16 @@ async function runAutomationWorkflowTests() {
     confirmationPage,
     /<RxForm mode="ocr"[\s\S]*ocrExtract=/,
     "the confirmation UI preserves OCR provenance and extracted identity fields",
+  );
+
+  const ocrRoute = readFileSync(
+    join(process.cwd(), "src", "app", "api", "orders", "[id]", "rx-ocr", "route.ts"),
+    "utf8",
+  );
+  assert.match(
+    ocrRoute,
+    /Preserve the printed sign on every power exactly/,
+    "the vision instruction explicitly preserves negative prescription powers",
   );
 
   console.log("Uploaded-Rx automation gate tests passed.");

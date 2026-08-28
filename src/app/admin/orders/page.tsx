@@ -1751,6 +1751,12 @@ function ActiveOrderCard({
           <div>
             <div style={{ opacity: 0.56, fontSize: 10 }}>Customer</div>
             <div style={{ fontWeight: 850, fontSize: 13 }}>{customerName}</div>
+            <div
+              data-testid="admin-active-order-id"
+              style={{ marginTop: 3, color: "#bae6fd", fontFamily: "monospace", fontSize: 11, fontWeight: 800 }}
+            >
+              Order # {order.id}
+            </div>
           </div>
 
           <div>
@@ -2222,7 +2228,13 @@ function OrderDetailsModal({
           <div>
             <h2 style={{ fontSize: 18, margin: 0 }}>Order Details</h2>
             <div style={{ marginTop: 3, color: "#94a3b8", fontSize: 12 }}>
-              {customerName} · {order.id}
+              {customerName}
+            </div>
+            <div
+              data-testid="admin-details-order-id"
+              style={{ marginTop: 3, color: "#bae6fd", fontFamily: "monospace", fontSize: 13, fontWeight: 850 }}
+            >
+              Order # {order.id}
             </div>
             {flags.length > 0 && (
               <div
