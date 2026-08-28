@@ -1,3 +1,5 @@
+import type { PowerEvidenceByEye, PowerSignVerification } from "./powerSignVerification";
+
 export type PrescriptionOcrEye = {
   sphere?: number | null;
   cylinder?: number | null;
@@ -19,6 +21,8 @@ export type PrescriptionOcrInterpretation = {
   confidence?: number;
   looks_like_contact_lens_rx?: boolean;
   notes?: string | null;
+  power_evidence?: Partial<Record<"right" | "left", PowerEvidenceByEye | null>>;
+  power_sign_verification?: PowerSignVerification;
 };
 
 export type ParsedPrescriptionRx = {

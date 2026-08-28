@@ -1,5 +1,6 @@
 import { lenses } from "@/LensCore";
 import { resolveBrand } from "@/lib/resolveBrand";
+import { hasPowerSignManualReview } from "./powerSignVerification";
 
 export const UPLOADED_RX_AUTO_VERIFY_MIN_CONFIDENCE = 0.95;
 
@@ -10,6 +11,7 @@ export type UploadedRxExceptionReason =
   | "ocr_not_contact_lens_prescription"
   | "ocr_low_confidence"
   | "ocr_ambiguous"
+  | "ocr_power_sign_conflict"
   | "ocr_missing_required_fields"
   | "prescription_expired"
   | "expiration_mismatch"
@@ -349,6 +351,13 @@ export function evaluateUploadedRxAutomation(
     return review(
       "ocr_ambiguous",
       "OCR reported ambiguity or interpretive notes.",
+      evidence,
+    );
+  }
+  if (hasPowerSignManualReview(ocr.power_sign_verification)) {
+    return review(
+      "ocr_power_sign_conflict",
+      "At least one sphere or cylinder sign needs manual review.",
       evidence,
     );
   }

@@ -21,6 +21,10 @@ import {
   type PrescriptionOcrInterpretation,
   type ParsedPrescriptionRx,
 } from "@/lib/orders/prescriptionOcrParsing";
+import {
+  buildPowerSignVerification,
+  type PowerSignImageRecheck,
+} from "@/lib/orders/powerSignVerification";
 
 /* =========================
    TYPES
@@ -114,8 +118,25 @@ Return STRICT JSON:
   "brand_raw": string | null,
   "confidence": number,
   "looks_like_contact_lens_rx": boolean,
-  "notes": string | null
+  "notes": string | null,
+  "power_evidence": {
+    "right": {
+      "sphere": { "raw_text": string | null, "value": number | null },
+      "cylinder": { "raw_text": string | null, "value": number | null }
+    },
+    "left": {
+      "sphere": { "raw_text": string | null, "value": number | null },
+      "cylinder": { "raw_text": string | null, "value": number | null }
+    }
+  }
 }
+
+For every OD/OS SPHERE/CYLINDER field, power_evidence.raw_text MUST quote the
+nearby displayed text exactly, including the eye label and the original sign or
+dash glyph. Do not normalize, replace, or omit a printed minus/plus glyph.
+For a cylinder printed as DS/plano, set value to null and quote DS/plano in
+raw_text. A sphere such as "-4.25 DS" remains -4.25; DS applies only to the
+cylinder column.
 `;
 
   const imageUrl = `data:${mimeType};base64,${base64}`;
@@ -150,6 +171,60 @@ Return STRICT JSON:
   }
 
   return parsed as Interpretation;
+}
+
+async function runPowerSignImageRecheck(
+  base64: string,
+  mimeType: string,
+): Promise<PowerSignImageRecheck> {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) throw new Error("Prescription OCR is not configured");
+  const openai = new OpenAI({ apiKey });
+  const prompt = `
+Independently re-read only the OD/OS SPHERE and CYLINDER table cells in this
+contact-lens prescription image. Treat this as a separate image-region check;
+inspect each local cell and do not rely on another extraction.
+
+For each cell, quote nearby text exactly in raw_text, including OD/OS, SPH/CYL,
+and the printed sign glyph. Distinguish minus signs from table lines/noise and
+preserve hyphen-minus, Unicode minus, en/em dash, or plus exactly as seen.
+"DS" or "plano" in CYL means value null. Do not infer a positive sign when a
+minus glyph is unclear or missing; return raw_text null rather than guessing.
+
+Return STRICT JSON only:
+{
+  "right": {
+    "sphere": { "raw_text": string | null, "value": number | null },
+    "cylinder": { "raw_text": string | null, "value": number | null }
+  },
+  "left": {
+    "sphere": { "raw_text": string | null, "value": number | null },
+    "cylinder": { "raw_text": string | null, "value": number | null }
+  }
+}
+`;
+  const imageUrl = `data:${mimeType};base64,${base64}`;
+  const response = await openai.responses.create({
+    model: "gpt-4.1",
+    input: [
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: prompt },
+          { type: "input_image", image_url: imageUrl },
+        ] as unknown as string,
+      },
+    ],
+    temperature: 0,
+  });
+  const rawText =
+    typeof response.output_text === "string" ? response.output_text.trim() : "";
+  if (!rawText) throw new Error("Power-sign image recheck returned empty output");
+  try {
+    return JSON.parse(rawText) as PowerSignImageRecheck;
+  } catch {
+    throw new Error("Invalid JSON from power-sign image recheck");
+  }
 }
 
 /* =========================
@@ -309,15 +384,39 @@ export async function POST(
       });
     }
 
+    let imageRecheck: PowerSignImageRecheck | null = null;
+    try {
+      imageRecheck = await runPowerSignImageRecheck(
+        validated.buffer.toString("base64"),
+        validated.mimeType,
+      );
+    } catch (imageRecheckError) {
+      await captureServerException({
+        event: POSTHOG_EVENTS.OCR_FAILED,
+        error: imageRecheckError,
+        request: req,
+        properties: {
+          order_id: orderId,
+          reason: "power_sign_image_recheck_failed",
+        },
+      });
+    }
+    interpretation.power_sign_verification = buildPowerSignVerification(
+      interpretation,
+      imageRecheck,
+    );
+
     const rx = mapPrescriptionInterpretationToRx(interpretation);
     const usable = hasUsableRx(rx);
+    const powerSignNeedsManualReview =
+      interpretation.power_sign_verification.has_manual_review;
 
     const isLikelyRx =
       usable &&
       interpretation.looks_like_contact_lens_rx === true &&
       (interpretation.confidence ?? 0) > 0.85;
 
-    if (!usable || !isLikelyRx) {
+    if (!usable || !isLikelyRx || powerSignNeedsManualReview) {
       await captureServerEvent({
         event: POSTHOG_EVENTS.OCR_FAILED,
         request: req,
@@ -326,7 +425,11 @@ export async function POST(
           usable,
           is_likely_rx: isLikelyRx,
           confidence: interpretation.confidence ?? null,
-          reason: usable ? "low_confidence_or_not_contact_lens_rx" : "missing_required_rx_fields",
+          reason: !usable
+            ? "missing_required_rx_fields"
+            : powerSignNeedsManualReview
+              ? "power_sign_needs_manual_review"
+              : "low_confidence_or_not_contact_lens_rx",
         },
       });
     }
@@ -337,6 +440,8 @@ export async function POST(
         rx,
         rx_status: !usable
           ? "automation_review_ocr_missing_required_fields"
+          : powerSignNeedsManualReview
+            ? "automation_review_ocr_power_sign_conflict"
           : !isLikelyRx
             ? interpretation.looks_like_contact_lens_rx === true
               ? "automation_review_ocr_low_confidence"
@@ -359,7 +464,7 @@ export async function POST(
       ok: true,
       usable,
       confidence: interpretation.confidence ?? 0,
-      reviewRequired: !usable,
+      reviewRequired: !usable || powerSignNeedsManualReview,
     });
   } catch (err) {
     console.error("RX OCR ROUTE ERROR:", err);

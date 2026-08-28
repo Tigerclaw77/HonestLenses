@@ -8,6 +8,7 @@ import {
   type UploadedRxAutomationOrder,
 } from "./uploadedRxAutomation";
 import { mapPrescriptionInterpretationToRx } from "./prescriptionOcrParsing";
+import { buildPowerSignVerification } from "./powerSignVerification";
 
 const NOW = new Date("2026-08-11T12:00:00.000Z");
 
@@ -77,6 +78,67 @@ const valid = evaluateUploadedRxAutomation(
 assert.equal(valid.autoVerify, true, "clean confirmed OCR evidence auto-verifies");
 assert.equal(valid.reason, "all_checks_passed");
 
+function powerSignFixture(
+  candidate: number | null,
+  rawText: string,
+  imageRawText = rawText,
+  imageValue: number | null = candidate,
+  field: "sphere" | "cylinder" = "sphere",
+) {
+  return buildPowerSignVerification(
+    {
+      right: { [field]: candidate },
+      power_evidence: {
+        right: { [field]: { raw_text: rawText, value: candidate } },
+      },
+    },
+    {
+      right: { [field]: { raw_text: imageRawText, value: imageValue } },
+    },
+  );
+}
+
+for (const [candidate, rawText, description] of [
+  [-0.25, "OD SPH -0.25", "faint OCR hyphen-minus quarter diopter"],
+  [-0.5, "OD SPH −.50", "Unicode-minus half diopter"],
+  [-1, "OD SPH -1.00", "hyphen-minus one diopter"],
+  [-4.25, "OD | SPH | —4.25 |", "OCR dash with table-line interference"],
+  [0.5, "OD SPH +.50", "explicit positive half diopter"],
+  [2, "OD SPH +2.00", "explicit positive two diopters"],
+] as const) {
+  const verification = powerSignFixture(candidate, rawText);
+  assert.equal(
+    verification.has_manual_review,
+    false,
+    `${description} retains its signed power through all four checks`,
+  );
+}
+
+assert.equal(
+  powerSignFixture(null, "OD CYL PLANO", "OD CYL PLANO", null, "cylinder")
+    .has_manual_review,
+  false,
+  "plano is accepted as no cylinder, not a positive sphere",
+);
+assert.equal(
+  powerSignFixture(null, "OD CYL D.S.", "OD CYL D.S.", null, "cylinder")
+    .has_manual_review,
+  false,
+  "DS is accepted as no cylinder, not a positive sphere",
+);
+
+const conflictingSignVerification = powerSignFixture(
+  4.25,
+  "OD SPH -4.25",
+  "OD SPH -4.25",
+  -4.25,
+);
+assert.equal(
+  conflictingSignVerification.has_manual_review,
+  true,
+  "a dropped minus glyph cannot silently become a positive power",
+);
+
 // Safe fixture equivalent to the reported HydraLuxe prescription. It avoids
 // patient and prescriber data while proving the parser and validation path.
 const hydraLuxeFixture = {
@@ -102,6 +164,16 @@ const hydraLuxeFixture = {
   confidence: 1,
   looks_like_contact_lens_rx: true,
   notes: "D.S. confirms spherical powers without cylinder.",
+  power_evidence: {
+    right: {
+      sphere: { raw_text: "OD SPH -4.25", value: -4.25 },
+      cylinder: { raw_text: "OD CYL DS", value: null },
+    },
+    left: {
+      sphere: { raw_text: "OS SPH -4.25", value: -4.25 },
+      cylinder: { raw_text: "OS CYL DS", value: null },
+    },
+  },
 };
 const hydraLuxeRx = mapPrescriptionInterpretationToRx(hydraLuxeFixture);
 assert.equal(hydraLuxeRx.right?.sphere, -4.25, "OCR parsing preserves the printed negative OD sphere");
@@ -109,6 +181,29 @@ assert.equal(hydraLuxeRx.left?.sphere, -4.25, "OCR parsing preserves the printed
 assert.equal(hydraLuxeRx.right?.base_curve, 8.5);
 assert.equal(hydraLuxeRx.right?.diameter, 14.3);
 assert.equal(hydraLuxeRx.expires, "2027-07-16");
+const matthewRhodesPowerSignVerification = buildPowerSignVerification(
+  hydraLuxeFixture,
+  {
+    right: {
+      sphere: { raw_text: "OD SPH -4.25", value: -4.25 },
+      cylinder: { raw_text: "OD CYL DS", value: null },
+    },
+    left: {
+      sphere: { raw_text: "OS SPH -4.25", value: -4.25 },
+      cylinder: { raw_text: "OS CYL DS", value: null },
+    },
+  },
+);
+assert.equal(
+  matthewRhodesPowerSignVerification.has_manual_review,
+  false,
+  "the Matthew Rhodes equivalent fixture verifies OD/OS -4.25 DS",
+);
+assert.deepEqual(
+  [hydraLuxeRx.right?.sphere, hydraLuxeRx.left?.sphere],
+  [-4.25, -4.25],
+  "the Matthew Rhodes equivalent fixture remains -4.25 OU and cannot become +4.25",
+);
 assert.equal(
   evaluateUploadedRxAutomation(
     {
@@ -244,6 +339,18 @@ assert.equal(
 );
 
 assert.equal(
+  evaluateUploadedRxAutomation(
+    mutate((order) => {
+      order.rx_ocr_raw.power_sign_verification = conflictingSignVerification;
+    }),
+    "requires_capture",
+    NOW,
+  ).reason,
+  "ocr_power_sign_conflict",
+  "a persisted sign contradiction blocks automatic verification and capture",
+);
+
+assert.equal(
   uploadedRxReviewStatus("product_mismatch"),
   "automation_review_product_mismatch",
   "review state records a specific exception reason",
@@ -275,6 +382,20 @@ async function runAutomationWorkflowTests() {
 );
   assert.equal(blockedRun.decision.reason, "payment_not_capturable");
   assert.equal(captureCalls, 1, "non-capturable payment never invokes capture");
+
+  const conflictingSignRun = await runUploadedRxAutomation(
+    mutate((order) => {
+      order.rx_ocr_raw.power_sign_verification = conflictingSignVerification;
+    }),
+    "requires_capture",
+    async () => {
+      captureCalls += 1;
+      return { paymentIntentId: "pi_never", alreadyCaptured: false };
+    },
+    NOW,
+  );
+  assert.equal(conflictingSignRun.decision.reason, "ocr_power_sign_conflict");
+  assert.equal(captureCalls, 1, "a sign conflict never invokes capture");
 
   const retryRun = await runUploadedRxAutomation(
   validOrder(),
