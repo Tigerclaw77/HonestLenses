@@ -2059,6 +2059,23 @@ function CustomerInformationBlock({
   const phone = order.shipping_phone?.trim();
   const email = order.shipping_email?.trim();
   const hasLocality = Boolean(city || state || zip);
+  const shippingMethod = order.shipping_method === "express" ? "EXPRESS" : "STANDARD";
+  const shippingMethodStyle: CSSProperties =
+    shippingMethod === "EXPRESS"
+      ? {
+          background: "#dc2626",
+          color: "white",
+          fontWeight: "bold",
+          borderRadius: 4,
+          padding: "2px 6px",
+        }
+      : {
+          background: "rgba(14, 165, 233, 0.14)",
+          color: "#bae6fd",
+          fontWeight: 700,
+          borderRadius: 4,
+          padding: "2px 6px",
+        };
 
   return (
     <div style={mutedPanelStyle()}>
@@ -2066,6 +2083,9 @@ function CustomerInformationBlock({
       {patientName && (
         <div style={{ marginBottom: 8, fontSize: 12 }}>Patient: {patientName}</div>
       )}
+      <div style={{ marginTop: 8, fontWeight: 750, fontSize: 12 }}>
+        Shipping Address
+      </div>
       <address
         style={{
           fontStyle: "normal",
@@ -2120,6 +2140,9 @@ function CustomerInformationBlock({
           </div>
         )}
       </address>
+      <div data-testid="admin-order-shipping-method" style={{ marginTop: 8, fontSize: 12 }}>
+        Shipping: <span style={shippingMethodStyle}>{shippingMethod}</span>
+      </div>
     </div>
   );
 }

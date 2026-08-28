@@ -125,6 +125,26 @@ assert.ok(
     expandedCardStart,
   "prescription processing renders inside the existing expanded card",
 );
+assert.match(
+  source,
+  /Shipping Address[\s\S]*data-testid="admin-order-shipping-method"[\s\S]*Shipping:/,
+  "the shared customer/shipping component keeps the persisted shipping method directly beneath Shipping Address",
+);
+assert.match(
+  source,
+  /background: "#dc2626"[\s\S]*color: "white"[\s\S]*fontWeight: "bold"/,
+  "express shipping uses the required literal bright-red background with white bold text",
+);
+assert.match(
+  activeCard,
+  /<CustomerInformationBlock order={order} \/>/,
+  "active order cards render the shared persisted shipping method",
+);
+assert.match(
+  detailsSurface,
+  /<CustomerInformationBlock[\s\S]*order={order}/,
+  "order Details renders the shared persisted shipping method after reload",
+);
 const prescriptionStart = activeCard.indexOf(
   '<RxDetailsPanel order={order} heading="Prescription" />',
 );

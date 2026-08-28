@@ -2,6 +2,7 @@ import Stripe from "stripe";
 
 import { sendEmail, sendVerificationInformationNeededEmail } from "@/lib/email";
 import { sendFounderOperationalAlert } from "@/lib/founderAlerts";
+import { getFounderVerificationAttention } from "@/lib/orders/founderVerificationAttention";
 import { captureServerEvent } from "@/lib/posthog/server";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -43,6 +44,14 @@ function getString(o: UnknownRecord, key: string): string | null {
 function getCustomerEmail(order: UnknownRecord, fallback?: string | null) {
   const email = getString(order, "shipping_email");
   return email?.trim() ? email : fallback ?? null;
+}
+
+function getCustomerName(order: UnknownRecord): string | null {
+  const name = [getString(order, "shipping_first_name"), getString(order, "shipping_last_name")]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" ")
+    .trim();
+  return name || null;
 }
 
 function needsCustomerPrescriptionInformation(reason: string | null): boolean {
@@ -177,7 +186,36 @@ export async function finalizeCheckoutAuthorization({
       : "information_needed";
   const nextStatus = uploadedAutoVerified ? "captured" : "authorized";
 
+  const founderVerificationAttention = getFounderVerificationAttention({
+    orderId,
+    paymentStatus: nextStatus,
+    verificationStatus: nextVerificationStatus,
+    shippingMethod: getString(orderRaw, "shipping_method"),
+    customerName: getCustomerName(orderRaw),
+    customerEmail: getCustomerEmail(orderRaw, customerEmail),
+    type: uploadedNeedsFounderReview
+      ? needsPrescriberVerification(uploadedReviewReason)
+        ? "prescriber_verification_required"
+        : "rx_review_required"
+      : "verification_attention_required",
+    action: uploadedNeedsFounderReview
+      ? "Review the order in the secure Order Work Queue before placement."
+      : "Open the secure Order Work Queue to complete prescription verification.",
+  });
+
+  const sendFounderVerificationAttention = async () => {
+    if (!founderVerificationAttention) return;
+    try {
+      await sendFounderOperationalAlert({ orderId, ...founderVerificationAttention });
+    } catch (error) {
+      // The durable alert ledger records the attempt/error. A failed alert is
+      // never allowed to interrupt checkout, redirect return, or webhook work.
+      console.error("Founder verification-pending alert failed:", { orderId, error });
+    }
+  };
+
   if (orderStatus === nextStatus && verificationStatus === nextVerificationStatus) {
+    await sendFounderVerificationAttention();
     return {
       ok: true,
       orderId,
@@ -222,6 +260,7 @@ export async function finalizeCheckoutAuthorization({
       current?.status === nextStatus &&
       current.verification_status === nextVerificationStatus
     ) {
+      await sendFounderVerificationAttention();
       return {
         ok: true,
         orderId,
@@ -252,6 +291,11 @@ export async function finalizeCheckoutAuthorization({
       },
     });
   }
+
+  // Send immediately after the durable order transition, before optional
+  // analytics/customer messaging. This shared finalizer serves browser,
+  // redirect-return, and verified-webhook authorization paths.
+  await sendFounderVerificationAttention();
 
   await captureServerEvent({
     event: POSTHOG_EVENTS.PAYMENT_AUTHORIZED,
@@ -294,17 +338,6 @@ export async function finalizeCheckoutAuthorization({
         type: "ready_to_place",
         headline: "Order ready to place with manufacturer",
         detail: "Prescription evidence was auto-verified and payment is captured. Record the manufacturer/distributor order when placed.",
-      });
-    } else if (uploadedNeedsFounderReview) {
-      const prescriberVerification = needsPrescriberVerification(uploadedReviewReason);
-      await sendFounderOperationalAlert({
-        orderId,
-        type: prescriberVerification ? "prescriber_verification_required" : "rx_review_required",
-        headline: prescriberVerification ? "Prescriber verification required" : "Prescription needs founder review",
-        detail: prescriberVerification
-          ? "The uploaded prescription conflicts with the supplied prescriber information. Verify with the prescriber before placing the order."
-          : `OCR could not safely resolve the uploaded prescription (${uploadedReviewReason ?? "unknown_exception"}).`,
-        dedupeSuffix: uploadedReviewReason ?? undefined,
       });
     }
   } catch (error) {

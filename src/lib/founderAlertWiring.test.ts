@@ -53,6 +53,25 @@ assert.doesNotMatch(
   /sendFounderOperationalAlert/,
   "an upload alone is not founder work until automation classifies the evidence",
 );
+
+const checkoutFinalizer = source("src/lib/payments/checkoutAuthorizationFinalizer.ts");
+assert.match(
+  checkoutFinalizer,
+  /getFounderVerificationAttention[\s\S]*sendFounderVerificationAttention/,
+  "authorized or completed orders with incomplete verification use the shared founder alert path",
+);
+assert.match(
+  checkoutFinalizer,
+  /if \(orderStatus === nextStatus[\s\S]*await sendFounderVerificationAttention\(\)/,
+  "redirect and webhook retry replays retry the durable alert delivery without changing checkout state",
+);
+
+const founderAlerts = source("src/lib/founderAlerts.ts");
+assert.match(
+  founderAlerts,
+  /select\("resend_email_id, sent_at"\)[\s\S]*previous\?\.resend_email_id \|\| previous\?\.sent_at/,
+  "a successful audit row deduplicates alerts even if the provider does not return an email ID",
+);
 assert.doesNotMatch(
   source("src/app/api/orders/[id]/verify/route.ts"),
   /sendFounderOperationalAlert/,

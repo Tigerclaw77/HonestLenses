@@ -30,7 +30,7 @@ export async function sendFounderOperationalAlert(
   // reconciliation safe to run repeatedly.
   const { data: previous, error: previousError } = await supabaseServer
     .from("order_founder_alerts")
-    .select("resend_email_id")
+    .select("resend_email_id, sent_at")
     .eq("alert_key", alertKey)
     .maybeSingle();
   if (previousError) {
@@ -41,7 +41,7 @@ export async function sendFounderOperationalAlert(
       error: previousError.message,
     });
   }
-  if (previous?.resend_email_id) {
+  if (previous?.resend_email_id || previous?.sent_at) {
     return { emailId: previous.resend_email_id, recipient };
   }
 
