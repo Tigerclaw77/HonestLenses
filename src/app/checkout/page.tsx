@@ -32,6 +32,11 @@ import {
   getCurrentOrderRecovery,
   isOrderId,
 } from "@/lib/orderRecoveryClient";
+import {
+  OTHER_VISION_CARRIER,
+  VISION_CARRIERS,
+  type VisionCarrierValue,
+} from "@/lib/visionBenefits";
 
 let stripePromise: ReturnType<typeof loadStripe> | null = null;
 
@@ -85,6 +90,7 @@ type Order = {
   rx_upload_path?: string | null;
   rx_source?: string | null;
   verification_status?: string | null;
+  vision_insurance_carrier?: VisionCarrierValue | null;
 };
 
 type CheckoutPayResponse = {
@@ -170,6 +176,9 @@ function CheckoutForm({
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [visionCarrier, setVisionCarrier] = useState<
+    VisionCarrierValue | ""
+  >(order.vision_insurance_carrier ?? "");
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -184,6 +193,25 @@ function CheckoutForm({
       const {
         data: { session },
       } = await supabase.auth.getSession();
+      const carrierRes = await fetch(
+        `/api/orders/${order.id}/vision-carrier`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.access_token
+              ? { Authorization: `Bearer ${session.access_token}` }
+              : {}),
+          },
+          body: JSON.stringify({ carrier: visionCarrier || null }),
+        },
+      );
+      const carrierBody = await carrierRes.json().catch(() => ({}));
+      if (!carrierRes.ok) {
+        throw new Error(
+          carrierBody.error || "Unable to save vision plan selection.",
+        );
+      }
       const quoteRes = await fetch("/api/checkout/pay", {
         method: "POST",
         headers: {
@@ -375,6 +403,80 @@ function CheckoutForm({
           borderRadius: 12,
         }}
       >
+        <section
+          style={{
+            marginBottom: 24,
+            paddingBottom: 24,
+            borderBottom: "1px solid #e2e8f0",
+            color: "#0f172a",
+          }}
+        >
+          <h2 style={{ margin: "0 0 8px", fontSize: 20 }}>
+            Have vision insurance?
+          </h2>
+          <p style={{ margin: "0 0 14px", lineHeight: 1.55 }}>
+            You may be eligible for out-of-network reimbursement. Honest Lenses
+            provides an itemized receipt you can submit to your vision plan.
+            Reimbursement varies by plan.
+          </p>
+          <label
+            htmlFor="vision-carrier"
+            style={{ display: "block", marginBottom: 6, fontWeight: 700 }}
+          >
+            Vision plan (optional)
+          </label>
+          <select
+            id="vision-carrier"
+            value={visionCarrier}
+            onChange={(event) =>
+              setVisionCarrier(event.target.value as VisionCarrierValue | "")
+            }
+            style={{
+              width: "100%",
+              minHeight: 44,
+              padding: "9px 12px",
+              border: "1px solid #cbd5e1",
+              borderRadius: 8,
+              background: "#fff",
+              color: "#0f172a",
+              font: "inherit",
+            }}
+          >
+            <option value="">No vision insurance / skip</option>
+            {VISION_CARRIERS.map((carrier) => (
+              <option key={carrier.value} value={carrier.value}>
+                {carrier.label}
+              </option>
+            ))}
+            <option value={OTHER_VISION_CARRIER.value}>
+              {OTHER_VISION_CARRIER.label}
+            </option>
+          </select>
+          <p
+            style={{
+              margin: "10px 0 0",
+              color: "#475569",
+              fontSize: 13,
+              lineHeight: 1.55,
+            }}
+          >
+            This selection does not check eligibility or contact your carrier.
+            Check your insurer/member portal before ordering if you want to know
+            your remaining allowance.
+          </p>
+          <p
+            style={{
+              margin: "10px 0 0",
+              color: "#475569",
+              fontSize: 13,
+              lineHeight: 1.55,
+            }}
+          >
+            Eligible contact lens purchases can generally be paid with HSA/FSA
+            funds, subject to your plan rules. FSA deadlines and carryover rules
+            vary; HSA funds do not expire annually.
+          </p>
+        </section>
         <PaymentElement options={paymentElementOptions} />
         <div
           aria-label="Payments powered by Stripe"
@@ -543,6 +645,8 @@ function CheckoutInner() {
           rx_upload_path: orderData.rx_upload_path ?? null,
           rx_source: orderData.rx_source ?? null,
           verification_status: orderData.verification_status ?? null,
+          vision_insurance_carrier:
+            orderData.vision_insurance_carrier ?? null,
         });
 
         setMode(isUploadedVerificationOrder(orderData) ? "uploaded" : "passive");

@@ -25,11 +25,13 @@ const order: CustomerOrder = {
   total_amount_cents: 12198,
   feedback_credit_cents: 0,
   capture_amount_cents: 12198,
+  shipping_cents: 999,
   currency: "USD",
   verification_status: "verified",
   fulfillment_status: "ordered",
   shipping_first_name: "Guest",
   shipping_last_name: "Customer",
+  vision_insurance_carrier: "vsp",
 };
 
 assert.equal(isCustomerOrderId(ORDER_ID), true);
@@ -74,7 +76,10 @@ const receipt = buildCustomerReceiptHtml({
 });
 assert.doesNotMatch(receipt, /<script>/);
 assert.match(receipt, /&lt;script&gt;/);
-assert.match(receipt, /Right eye<\/td><td>1/);
-assert.match(receipt, /Order amount: \$121\.98/);
+assert.match(receipt, /Right eye: 1 box/);
+assert.match(receipt, /Left eye: 1 box/);
+assert.match(receipt, /Total paid\/captured: \$121\.98/);
+assert.match(receipt, /HCPCS S0500/);
+assert.match(receipt, /Vision plan selected by customer:<\/strong> VSP/);
 
 console.log("Guest order access matrix passed");

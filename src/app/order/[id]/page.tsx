@@ -16,8 +16,10 @@ import {
   getCustomerPaymentStatus,
   getCustomerVerificationStatus,
   isCustomerOrderId,
+  isCustomerReceiptAvailable,
   type CustomerOrder,
 } from "@/lib/orders/customerOrder";
+import { getVisionCarrier } from "@/lib/visionBenefits";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -54,6 +56,8 @@ export default async function OrderPage({ params }: PageProps) {
     getCustomerAmountCents(order),
     order.currency ?? "USD",
   );
+  const receiptAvailable = isCustomerReceiptAvailable(order);
+  const visionCarrier = getVisionCarrier(order.vision_insurance_carrier);
 
   return (
     <main style={{ padding: "40px 20px 64px" }}>
@@ -103,12 +107,16 @@ export default async function OrderPage({ params }: PageProps) {
         </section>
 
         <section className="order-card">
-          <h2 style={{ fontSize: 20, marginTop: 0 }}>Receipt</h2>
+          <h2 style={{ fontSize: 20, marginTop: 0 }}>
+            Vision plan / HSA-FSA receipt
+          </h2>
           <p style={{ color: "#cbd5e1", lineHeight: 1.6 }}>
-            View or download the receipt generated from your current order
-            confirmation information.
+            {receiptAvailable
+              ? "Your itemized paid receipt is ready to view or download."
+              : "Your itemized receipt will be available here after payment is successfully captured."}
           </p>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          {receiptAvailable ? (
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <a className="primary-btn" href={`/order/${order.id}/receipt`}>
               View receipt
             </a>
@@ -123,7 +131,35 @@ export default async function OrderPage({ params }: PageProps) {
             >
               Download receipt
             </a>
-          </div>
+            </div>
+          ) : null}
+          {receiptAvailable && visionCarrier && "helpUrl" in visionCarrier ? (
+            <div style={{ marginTop: 24 }}>
+              <h3 style={{ fontSize: 16, marginBottom: 8 }}>
+                Submit to {visionCarrier.label}
+              </h3>
+              <p style={{ color: "#cbd5e1", lineHeight: 1.6 }}>
+                {visionCarrier.helpText} Benefits vary by plan; check your member
+                portal for your allowance and filing requirements.
+              </p>
+              <a
+                href={visionCarrier.helpUrl}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: "#93c5fd", fontWeight: 700 }}
+              >
+                Official {visionCarrier.label} reimbursement help
+              </a>
+            </div>
+          ) : null}
+          {receiptAvailable ? (
+            <p style={{ color: "#94a3b8", marginTop: 22, lineHeight: 1.6 }}>
+              Eligible contact lens purchases can generally be paid or reimbursed
+              with HSA/FSA funds, subject to your plan rules. FSA deadlines and
+              carryover rules vary by employer plan; HSA funds do not expire
+              annually.
+            </p>
+          ) : null}
         </section>
 
         <p style={{ color: "#94a3b8", marginTop: 24, lineHeight: 1.6 }}>
