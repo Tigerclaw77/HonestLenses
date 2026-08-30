@@ -163,7 +163,7 @@ export const commercialContactPages = {
     intro:
       "Daily disposable contact lenses are worn for one day and replaced with a fresh pair, but the right daily lens still has to match your contact lens prescription.",
     primaryCta: {
-      href: "/browse",
+      href: "/browse?category=daily",
       label: "Browse daily lenses",
     },
     secondaryCta: {
@@ -398,7 +398,7 @@ export const commercialContactPages = {
     intro:
       "Toric contact lenses are designed for prescriptions that include astigmatism correction. Your order must match the lens brand, cylinder, axis, and other prescribed parameters.",
     primaryCta: {
-      href: "/browse",
+      href: "/browse?category=astigmatism",
       label: "Browse toric lenses",
     },
     secondaryCta: {

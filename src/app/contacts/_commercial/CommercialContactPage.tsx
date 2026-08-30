@@ -123,7 +123,7 @@ export default function CommercialContactPage({ page }: Props) {
   return (
     <>
       <ProductItemListJsonLd page={page} products={visibleProducts} />
-      <Header variant="content" />
+      <Header variant="commercial" />
 
       <main className={styles.shell}>
         <section className={styles.hero}>

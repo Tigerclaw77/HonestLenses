@@ -27,6 +27,7 @@ type LensSelection = {
 };
 
 type LensImageVariant = "card" | "modal";
+type LensCategory = "all" | "daily" | "astigmatism" | "multifocal";
 
 const FALLBACK_LENS_IMAGE_SRC = "/lens-images/placeholder.png";
 
@@ -145,11 +146,13 @@ export default function BrowsePage() {
   );
   const [search, setSearch] = useState("");
   const [manufacturerFilter, setManufacturerFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState<LensCategory>("all");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const query = params.get("search");
     const manufacturer = params.get("manufacturer");
+    const category = params.get("category");
 
     if (query) setSearch(query);
 
@@ -160,6 +163,13 @@ export default function BrowsePage() {
       )
     ) {
       setManufacturerFilter(manufacturer);
+    }
+
+    if (
+      category &&
+      ["daily", "astigmatism", "multifocal"].includes(category)
+    ) {
+      setCategoryFilter(category as LensCategory);
     }
   }, []);
 
@@ -206,7 +216,13 @@ export default function BrowsePage() {
         manufacturerFilter === "all" ||
         lens.manufacturer === manufacturerFilter;
 
-      return matchesSearch && matchesManufacturer;
+      const matchesCategory =
+        categoryFilter === "all" ||
+        (categoryFilter === "daily" && lens.replacement === "DD") ||
+        (categoryFilter === "astigmatism" && lens.type.toric) ||
+        (categoryFilter === "multifocal" && lens.type.multifocal);
+
+      return matchesSearch && matchesManufacturer && matchesCategory;
     })
     .sort((a, b) => {
       const diff = getPopularityRank(a.coreId) - getPopularityRank(b.coreId);
@@ -294,6 +310,32 @@ export default function BrowsePage() {
               paddingRight: "1rem",
             }}
           >
+            <h3 className="upper">Lens type</h3>
+
+            <div className="browse-manufacturer-options">
+              {[
+                ["all", "All lenses"],
+                ["daily", "Daily lenses"],
+                ["astigmatism", "Astigmatism lenses"],
+                ["multifocal", "Multifocal lenses"],
+              ].map(([value, label]) => (
+                <div key={value}>
+                  <label>
+                    <input
+                      type="radio"
+                      name="category"
+                      value={value}
+                      checked={categoryFilter === value}
+                      onChange={(e) =>
+                        setCategoryFilter(e.target.value as LensCategory)
+                      }
+                    />
+                    {label}
+                  </label>
+                </div>
+              ))}
+            </div>
+
             <h3 className="upper">Search</h3>
 
             <input

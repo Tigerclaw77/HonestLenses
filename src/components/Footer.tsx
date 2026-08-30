@@ -16,9 +16,9 @@ export default function Footer({ variant = "default" }: { variant?: "default" | 
           <nav aria-label="Shop">
             <h2>Shop</h2>
             <Link href="/browse">All contact lenses</Link>
-            <Link href="/contacts/daily-contact-lenses">Daily lenses</Link>
-            <Link href="/contacts/toric-contact-lenses">Astigmatism lenses</Link>
-            <Link href="/contacts/annual-supply-contact-lenses">Annual supply</Link>
+            <Link href="/browse?category=daily">Daily lenses</Link>
+            <Link href="/browse?category=astigmatism">Astigmatism lenses</Link>
+            <Link href="/browse?category=multifocal">Multifocal lenses</Link>
           </nav>
           <nav aria-label="Help">
             <h2>Help</h2>
