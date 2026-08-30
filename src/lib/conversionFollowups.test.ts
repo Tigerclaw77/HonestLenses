@@ -20,7 +20,9 @@ assert.match(browsePage, /className="browse-layout"/);
 assert.match(browsePage, /className="browse-filters"/);
 assert.match(browsePage, /className="browse-manufacturer-options"/);
 assert.equal((browsePage.match(/placeholder="Lens name\.\.\."/g) ?? []).length, 1);
-assert.equal((browsePage.match(/setManufacturerFilter/g) ?? []).length, 2);
+assert.equal((browsePage.match(/setManufacturerFilter/g) ?? []).length, 3);
+assert.match(browsePage, /params\.get\("manufacturer"\)/);
+assert.match(browsePage, /VISTAKON:\s*"ACUVUE"/);
 
 assert.match(
   globalStyles,
