@@ -67,11 +67,13 @@ const order: CustomerOrder = {
   total_amount_cents: adjustedQuote.totalAmountCents,
   feedback_credit_cents: feedbackCreditCents,
   capture_amount_cents: amountDueCents,
+  shipping_cents: 0,
   currency: "USD",
   verification_status: "verified",
   fulfillment_status: "ready_to_order",
   shipping_first_name: "Integrity",
   shipping_last_name: "Test",
+  vision_insurance_carrier: null,
 };
 
 const commerce = projectOrderCommerce(order);
@@ -91,11 +93,11 @@ assert.equal(getCustomerAmountCents(order), amountDueCents);
 assert.equal(getCaptureAmountCents(order), amountDueCents);
 
 const receipt = buildCustomerReceiptHtml(order);
-assert.match(receipt, /Right eye<\/td><td>1/);
-assert.match(receipt, /Left eye<\/td><td>1/);
+assert.match(receipt, /Right eye: 1 box/);
+assert.match(receipt, /Left eye: 1 box/);
 assert.match(
   receipt,
-  new RegExp(`Order amount: \\$${(amountDueCents / 100).toFixed(2)}`),
+  new RegExp(`Total paid/captured: \\$${(amountDueCents / 100).toFixed(2)}`),
   "receipt must show the adjusted billing amount",
 );
 

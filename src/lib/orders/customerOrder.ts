@@ -1,4 +1,8 @@
 import { projectOrderCommerce } from "@/lib/orders/orderCommerce";
+import { lenses } from "@/LensCore";
+import { getLensSkus } from "@/lib/pricing/getLensSkus";
+import { getPackSizeFromSku } from "@/lib/cart/skuPackSize";
+import { getVisionCarrier } from "@/lib/visionBenefits";
 
 export const CUSTOMER_ORDER_SELECT = `
   id,
@@ -16,11 +20,13 @@ export const CUSTOMER_ORDER_SELECT = `
   total_amount_cents,
   feedback_credit_cents,
   capture_amount_cents,
+  shipping_cents,
   currency,
   verification_status,
   fulfillment_status,
   shipping_first_name,
-  shipping_last_name
+  shipping_last_name,
+  vision_insurance_carrier
 `;
 
 export type CustomerOrder = {
@@ -39,11 +45,13 @@ export type CustomerOrder = {
   total_amount_cents: number | null;
   feedback_credit_cents: number | null;
   capture_amount_cents: number | null;
+  shipping_cents: number | null;
   currency: string | null;
   verification_status: string | null;
   fulfillment_status: string | null;
   shipping_first_name: string | null;
   shipping_last_name: string | null;
+  vision_insurance_carrier: string | null;
 };
 
 export type CustomerOrderQuantities = {
@@ -75,6 +83,11 @@ export function getCustomerPaymentStatus(order: CustomerOrder): string {
   if (status === "cancelled" || status === "canceled") return "Cancelled";
   if (status === "refunded") return "Refunded";
   return "Awaiting payment";
+}
+
+export function isCustomerReceiptAvailable(order: CustomerOrder): boolean {
+  const status = order.status.trim().toLowerCase();
+  return ["captured", "paid", "shipped", "completed"].includes(status);
 }
 
 export function getCustomerVerificationStatus(order: CustomerOrder): string {
@@ -195,7 +208,6 @@ function escapeHtml(value: string): string {
 export function buildCustomerReceiptHtml(order: CustomerOrder): string {
   const quantities = getCustomerOrderQuantities(order);
   const currency = order.currency ?? "USD";
-  const amount = formatCustomerMoney(getCustomerAmountCents(order), currency);
   const created = new Intl.DateTimeFormat("en-US", {
     dateStyle: "long",
     timeZone: "UTC",
@@ -203,6 +215,30 @@ export function buildCustomerReceiptHtml(order: CustomerOrder): string {
   const customerName = [order.shipping_first_name, order.shipping_last_name]
     .filter(Boolean)
     .join(" ");
+  const lens = order.sku
+    ? lenses.find((candidate) => getLensSkus(candidate).includes(order.sku!))
+    : null;
+  const productName = lens?.displayName ?? order.sku ?? "Contact lenses";
+  const packSize = order.sku ? getPackSizeFromSku(order.sku) : null;
+  const capturedAmountCents = Math.max(
+    0,
+    order.capture_amount_cents ?? getCustomerAmountCents(order),
+  );
+  const shippingCents = Math.min(
+    capturedAmountCents,
+    Math.max(0, order.shipping_cents ?? 0),
+  );
+  const lensAmountCents = capturedAmountCents - shippingCents;
+  const carrier = getVisionCarrier(order.vision_insurance_carrier);
+  const formatBoxQuantity = (boxes: number) =>
+    `${boxes} ${boxes === 1 ? "box" : "boxes"}`;
+  const rightQuantity = packSize
+    ? `${formatBoxQuantity(quantities.right)} (${quantities.right * packSize} lenses)`
+    : formatBoxQuantity(quantities.right);
+  const leftQuantity = packSize
+    ? `${formatBoxQuantity(quantities.left)} (${quantities.left * packSize} lenses)`
+    : formatBoxQuantity(quantities.left);
+  const itemQuantity = `Right eye: ${rightQuantity}; Left eye: ${leftQuantity}`;
 
   return `<!doctype html>
 <html lang="en">
@@ -220,24 +256,33 @@ export function buildCustomerReceiptHtml(order: CustomerOrder): string {
       th:last-child, td:last-child { text-align: right; }
       .total { font-size: 20px; font-weight: 700; }
       .muted { color: #5d6677; }
+      .store { margin: 20px 0; }
     </style>
   </head>
   <body>
     <main>
       <h1>Honest Lenses Receipt</h1>
-      <p class="muted">Order ${escapeHtml(order.id)} | ${escapeHtml(created)}</p>
-      ${customerName ? `<p>Customer: ${escapeHtml(customerName)}</p>` : ""}
+      <p class="muted">Itemized receipt for vision-plan or HSA/FSA reimbursement</p>
+      <div class="store">
+        <strong>Honest Lenses</strong><br />
+        honestlenses.com<br />
+        support@honestlenses.com
+      </div>
+      <p><strong>Order number:</strong> ${escapeHtml(order.id)}</p>
+      <p><strong>Purchase/service date:</strong> ${escapeHtml(created)}</p>
+      ${customerName ? `<p><strong>Patient/customer:</strong> ${escapeHtml(customerName)}</p>` : ""}
+      ${carrier ? `<p><strong>Vision plan selected by customer:</strong> ${escapeHtml(carrier.label)}</p>` : ""}
       <table>
-        <thead><tr><th>Item</th><th>Boxes</th></tr></thead>
+        <thead><tr><th>Item</th><th>Quantity</th><th>Amount</th></tr></thead>
         <tbody>
-          <tr><td>${escapeHtml(order.sku ?? "Contact lenses")} - Right eye</td><td>${quantities.right}</td></tr>
-          <tr><td>${escapeHtml(order.sku ?? "Contact lenses")} - Left eye</td><td>${quantities.left}</td></tr>
+          <tr><td>${escapeHtml(productName)}</td><td>${escapeHtml(itemQuantity)}</td><td>${escapeHtml(formatCustomerMoney(lensAmountCents, currency))}</td></tr>
+          ${shippingCents > 0 ? `<tr><td>Shipping</td><td>1</td><td>${escapeHtml(formatCustomerMoney(shippingCents, currency))}</td></tr>` : ""}
         </tbody>
       </table>
-      <p>Payment status: <strong>${escapeHtml(getCustomerPaymentStatus(order))}</strong></p>
-      <p>Prescription status: <strong>${escapeHtml(getCustomerVerificationStatus(order))}</strong></p>
-      <p class="total">Order amount: ${escapeHtml(amount)}</p>
-      <p class="muted">This receipt reflects the order information currently recorded by Honest Lenses.</p>
+      <p>Payment status: <strong>Paid</strong></p>
+      <p class="total">Total paid/captured: ${escapeHtml(formatCustomerMoney(capturedAmountCents, currency))}</p>
+      <p><strong>Claim reference:</strong> HCPCS S0500 — disposable contact lens, per lens.</p>
+      <p class="muted">Benefits and reimbursement vary by plan. This receipt documents the purchase; it is not a guarantee of coverage or reimbursement.</p>
     </main>
   </body>
 </html>`;
