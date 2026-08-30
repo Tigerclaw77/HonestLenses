@@ -3,6 +3,7 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useRef, useState, Suspense } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { loadStripe } from "@stripe/stripe-js";
 import type { StripePaymentElementOptions } from "@stripe/stripe-js";
@@ -28,6 +29,11 @@ import {
   normalizeFeedbackCreditCents,
 } from "@/lib/abandonmentFeedback";
 import styles from "./checkout.module.css";
+import {
+  OTHER_VISION_CARRIER,
+  VISION_CARRIERS,
+  type VisionCarrierValue,
+} from "@/lib/visionBenefits";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!,
@@ -78,6 +84,7 @@ type Order = {
   rx_upload_path?: string | null;
   rx_source?: string | null;
   verification_status?: string | null;
+  vision_insurance_carrier?: VisionCarrierValue | null;
 };
 
 type CheckoutPayResponse = {
@@ -162,6 +169,9 @@ function CheckoutForm({
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [visionCarrier, setVisionCarrier] = useState<
+    VisionCarrierValue | ""
+  >(order.vision_insurance_carrier ?? "");
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -176,6 +186,25 @@ function CheckoutForm({
       const {
         data: { session },
       } = await supabase.auth.getSession();
+      const carrierRes = await fetch(
+        `/api/orders/${order.id}/vision-carrier`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.access_token
+              ? { Authorization: `Bearer ${session.access_token}` }
+              : {}),
+          },
+          body: JSON.stringify({ carrier: visionCarrier || null }),
+        },
+      );
+      const carrierBody = await carrierRes.json().catch(() => ({}));
+      if (!carrierRes.ok) {
+        throw new Error(
+          carrierBody.error || "Unable to save vision plan selection.",
+        );
+      }
       const quoteRes = await fetch("/api/checkout/pay", {
         method: "POST",
         headers: {
@@ -351,6 +380,45 @@ function CheckoutForm({
   return (
     <form className={styles.paymentForm} onSubmit={handleSubmit}>
       <div className={styles.paymentSurface}>
+        <section className={styles.benefitsSection}>
+          <h2>Have vision insurance?</h2>
+          <p>
+            You may be eligible for out-of-network reimbursement. Honest Lenses
+            provides an itemized receipt you can submit to your vision plan.
+            Reimbursement varies by plan.
+          </p>
+          <label htmlFor="vision-carrier">Vision plan (optional)</label>
+          <select
+            id="vision-carrier"
+            value={visionCarrier}
+            onChange={(event) =>
+              setVisionCarrier(event.target.value as VisionCarrierValue | "")
+            }
+          >
+            <option value="">No vision insurance / skip</option>
+            {VISION_CARRIERS.map((carrier) => (
+              <option key={carrier.value} value={carrier.value}>
+                {carrier.label}
+              </option>
+            ))}
+            <option value={OTHER_VISION_CARRIER.value}>
+              {OTHER_VISION_CARRIER.label}
+            </option>
+          </select>
+          <p className={styles.benefitsNote}>
+            This selection does not check eligibility or contact your carrier.
+            Check your insurer/member portal before ordering if you want to know
+            your remaining allowance.
+          </p>
+          <p className={styles.benefitsNote}>
+            Eligible contact lens purchases can generally be paid with HSA/FSA
+            funds, subject to your plan rules. FSA deadlines and carryover rules
+            vary; HSA funds do not expire annually.
+          </p>
+          <Link href="/vision-benefits" className={styles.benefitsLink}>
+            Vision insurance and HSA/FSA details
+          </Link>
+        </section>
         <PaymentElement options={paymentElementOptions} />
         <div
           aria-label="Payments powered by Stripe"
@@ -492,6 +560,8 @@ function CheckoutInner() {
           rx_upload_path: orderData.rx_upload_path ?? null,
           rx_source: orderData.rx_source ?? null,
           verification_status: orderData.verification_status ?? null,
+          vision_insurance_carrier:
+            orderData.vision_insurance_carrier ?? null,
         });
 
         setMode(isUploadedVerificationOrder(orderData) ? "uploaded" : "passive");

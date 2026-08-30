@@ -9,6 +9,7 @@ import {
   buildCustomerReceiptHtml,
   CUSTOMER_ORDER_SELECT,
   isCustomerOrderId,
+  isCustomerReceiptAvailable,
   type CustomerOrder,
 } from "@/lib/orders/customerOrder";
 
@@ -37,6 +38,13 @@ export async function GET(
 
   if (error || !order || !canAccessOrder(access, order)) {
     return new Response("Receipt not found.", { status: 404 });
+  }
+
+  if (!isCustomerReceiptAvailable(order)) {
+    return new Response("Receipt is available after payment is captured.", {
+      status: 409,
+      headers: { "Cache-Control": "private, no-store, max-age=0" },
+    });
   }
 
   const download = request.nextUrl.searchParams.get("download") === "1";

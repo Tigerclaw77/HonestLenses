@@ -60,6 +60,53 @@
   max-width: 100% !important;
 }
 
+.benefitsSection {
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #0f172a;
+}
+
+.benefitsSection h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.benefitsSection p {
+  margin: 0 0 14px;
+  line-height: 1.55;
+}
+
+.benefitsSection label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.benefitsSection select {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+}
+
+.benefitsNote {
+  margin-top: 10px !important;
+  color: #475569;
+  font-size: 13px;
+}
+
+.benefitsLink {
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 @media (max-width: 600px) {
   .shell {
     padding: 3.75rem 16px 3rem;

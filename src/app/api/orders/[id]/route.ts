@@ -35,6 +35,7 @@ type OrderRow = {
   shipping_city: string | null;
   shipping_state: string | null;
   shipping_zip: string | null;
+  vision_insurance_carrier: string | null;
 };
 
 export async function GET(
@@ -93,7 +94,8 @@ export async function GET(
       shipping_address2,
       shipping_city,
       shipping_state,
-      shipping_zip
+      shipping_zip,
+      vision_insurance_carrier
     `
     )
     .eq("id", orderId)
@@ -137,6 +139,7 @@ export async function GET(
       shipping_city: order.shipping_city,
       shipping_state: order.shipping_state,
       shipping_zip: order.shipping_zip,
+      vision_insurance_carrier: order.vision_insurance_carrier,
     },
   });
 }

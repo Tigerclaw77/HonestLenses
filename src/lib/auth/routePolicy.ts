@@ -129,6 +129,10 @@ export const ROUTE_AUTHORIZATION_POLICY: Record<string, RoutePolicy> = {
     access: "admin",
     guard: "requireAdmin",
   },
+  "src/app/api/orders/[id]/vision-carrier/route.ts": {
+    access: "customer-owned",
+    guard: "requireOrderAccess",
+  },
   "src/app/api/orders/list/route.ts": {
     access: "authenticated",
     guard: "requireUser",
