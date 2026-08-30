@@ -27,6 +27,7 @@ type SendEmailParams = {
   text?: string;
   tracking?: TransactionalEmailTracking;
   idempotencyKey?: string;
+  trackingRequired?: boolean;
 };
 
 /* ======================================
@@ -40,6 +41,7 @@ export async function sendEmail({
   text,
   tracking,
   idempotencyKey,
+  trackingRequired = false,
 }: SendEmailParams) {
   const result = await resend.emails.send(
     {
@@ -79,6 +81,7 @@ export async function sendEmail({
         emailId: result.data.id,
         error: trackingError,
       });
+      if (trackingRequired) throw trackingError;
     }
   }
 
@@ -95,6 +98,8 @@ export async function sendVerificationEmail({
   html,
   text,
   tracking,
+  idempotencyKey,
+  trackingRequired,
 }: SendEmailParams) {
   return await sendEmail({
     to,
@@ -102,6 +107,8 @@ export async function sendVerificationEmail({
     html,
     text,
     tracking,
+    idempotencyKey,
+    trackingRequired,
   });
 }
 

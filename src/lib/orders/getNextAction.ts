@@ -2,6 +2,7 @@ import {
   projectPaymentState,
   type PaymentLifecycleStatus,
 } from "./paymentState";
+import type { EmailDeliveryIssue } from "./emailDeliveryIssue";
 
 export type NextActionSeverity = "info" | "warning" | "success";
 
@@ -45,6 +46,7 @@ export type Order = {
   stripe_payment_intent_status?: string | null;
   email_delivery_status?: string | null;
   email_delivery_requires_attention?: boolean | null;
+  email_delivery_issue?: EmailDeliveryIssue | null;
 };
 
 export type VerificationLifecycleStatus =
@@ -407,7 +409,11 @@ export function getNextAction(order: Order): NextAction {
     return { label: "Archived", severity: "success" };
   }
 
-  if (hasEmailDeliveryAttention(order)) {
+  if (order.email_delivery_issue?.kind === "prescriber") {
+    return { label: "Correct prescriber email", severity: "warning" };
+  }
+
+  if (order.email_delivery_issue?.kind === "customer" || hasEmailDeliveryAttention(order)) {
     return { label: "Correct customer email", severity: "warning" };
   }
 
@@ -506,6 +512,9 @@ const EMAIL_ATTENTION_STATUSES = new Set([
 ]);
 
 export function hasEmailDeliveryAttention(order: Order): boolean {
+  if (order.email_delivery_issue !== undefined) {
+    return order.email_delivery_issue !== null;
+  }
   return Boolean(
     order.email_delivery_requires_attention ||
       EMAIL_ATTENTION_STATUSES.has(

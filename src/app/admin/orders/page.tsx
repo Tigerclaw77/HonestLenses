@@ -1480,11 +1480,17 @@ function PrescriberVerificationTracker({
   order,
   savingAttempt,
   onRecordAttempt,
+  savingResend,
+  onResend,
 }: {
   order: Order;
   savingAttempt: string | null;
   onRecordAttempt: (method: ManualVerificationAttemptMethod) => void;
+  savingResend: boolean;
+  onResend: (email: string) => void;
 }) {
+  const [prescriberEmail, setPrescriberEmail] = useState(order.prescriber_email ?? "");
+
   return (
     <div style={mutedPanelStyle()}>
       <div
@@ -1498,7 +1504,24 @@ function PrescriberVerificationTracker({
         <div>Name: {order.prescriber_name ?? "-"}</div>
         <div>Phone: {order.prescriber_phone ?? "-"}</div>
         <div>Fax: {order.prescriber_fax ?? "-"}</div>
-        <div>Email: {order.prescriber_email ?? "-"}</div>
+        <label style={{ display: "grid", gap: 3 }}>
+          <span>Email</span>
+          <input
+            type="email"
+            value={prescriberEmail}
+            onChange={(event) => setPrescriberEmail(event.target.value)}
+            aria-label={`Prescriber email for order ${order.id}`}
+            style={{
+              minWidth: 0,
+              border: "1px solid rgba(148,163,184,0.35)",
+              borderRadius: 5,
+              padding: "5px 7px",
+              background: "rgba(15,23,42,0.7)",
+              color: "inherit",
+              fontSize: 12,
+            }}
+          />
+        </label>
       </div>
 
       <div
@@ -1537,6 +1560,19 @@ function PrescriberVerificationTracker({
           saving={savingAttempt === `${order.id}:fax`}
           onRecord={onRecordAttempt}
         />
+        <button
+          type="button"
+          onClick={() => onResend(prescriberEmail)}
+          disabled={savingResend || !prescriberEmail.trim()}
+          style={buttonStyle({
+            gridColumn: "2 / -1",
+            justifySelf: "start",
+            fontSize: 11,
+            opacity: savingResend || !prescriberEmail.trim() ? 0.5 : 1,
+          })}
+        >
+          {savingResend ? "Sending..." : "Save email & resend verification"}
+        </button>
       </div>
     </div>
   );
@@ -1653,6 +1689,8 @@ function ActiveOrderCard({
   onOpenDetails,
   onOpenRxImage,
   onRecordVerificationAttempt,
+  onResendVerification,
+  savingVerificationResend,
   onAdvanceFulfillment,
   onVerifyPrescription,
   onFounderCompleteArchive,
@@ -1669,6 +1707,8 @@ function ActiveOrderCard({
   onRecordVerificationAttempt: (
     method: ManualVerificationAttemptMethod,
   ) => void;
+  onResendVerification: (email: string) => void;
+  savingVerificationResend: boolean;
   onAdvanceFulfillment: (status: FulfillmentStatus) => void;
   onVerifyPrescription: () => void;
   onFounderCompleteArchive: () => void;
@@ -1870,6 +1910,8 @@ function ActiveOrderCard({
               order={order}
               savingAttempt={savingVerificationAttempt}
               onRecordAttempt={onRecordVerificationAttempt}
+              savingResend={savingVerificationResend}
+              onResend={onResendVerification}
             />
           </div>
 
@@ -2440,6 +2482,7 @@ export default function AdminOrdersPage() {
   const [savingVerificationAttempt, setSavingVerificationAttempt] = useState<
     string | null
   >(null);
+  const [savingVerificationResend, setSavingVerificationResend] = useState<string | null>(null);
   const [highlightedOrderIds, setHighlightedOrderIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -2878,6 +2921,31 @@ export default function AdminOrdersPage() {
       });
     } finally {
       setSavingVerificationAttempt(null);
+    }
+  }
+
+  async function resendVerificationEmail(orderId: string, prescriberEmail: string) {
+    setSavingVerificationResend(orderId);
+    setAdminError(null);
+    try {
+      const response = await fetch(`/api/admin/orders/${orderId}/verification-email`, {
+        method: "POST",
+        headers: await authHeaders(),
+        credentials: "same-origin",
+        body: JSON.stringify({ prescriberEmail }),
+      });
+      const payload = await readAdminApiPayload(response);
+      if (!response.ok) {
+        setAdminError(adminApiErrorMessage(payload, "Unable to resend the verification email."));
+        return;
+      }
+      await fetchData();
+      setAdminNotice({
+        tone: "success",
+        message: `Prescription verification request resent to ${prescriberEmail.trim().toLowerCase()}.`,
+      });
+    } finally {
+      setSavingVerificationResend(null);
     }
   }
 
@@ -3820,6 +3888,10 @@ export default function AdminOrdersPage() {
                     onRecordVerificationAttempt={(method) =>
                       recordVerificationAttempt(o.id, method)
                     }
+                    onResendVerification={(email) =>
+                      resendVerificationEmail(o.id, email)
+                    }
+                    savingVerificationResend={savingVerificationResend === o.id}
                     onAdvanceFulfillment={(status) =>
                       updateFulfillmentStatus(o, status)
                     }

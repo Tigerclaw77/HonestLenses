@@ -11,6 +11,7 @@ import {
   isCustomerBlockedPaymentIntentStatus,
   isPaymentAuthorizedOrCaptured,
 } from "./paymentState";
+import { emailDeliveryIssueReason } from "./emailDeliveryIssue";
 
 export type OperationalQueueBucket =
   | "awaiting_verification"
@@ -572,13 +573,13 @@ export function classifyOperationalQueue(
     return classify("history_archive", false, ["terminal"], order);
   }
 
-  if (hasEmailDeliveryAttention(order)) {
+  if (order.email_delivery_issue || hasEmailDeliveryAttention(order)) {
     return classify(
       "resolve_exception",
       true,
-      [
-        "Customer email could not be delivered; confirm or correct the email address.",
-      ],
+      [order.email_delivery_issue
+        ? emailDeliveryIssueReason(order.email_delivery_issue)
+        : "Customer email could not be delivered; confirm or correct the email address."],
       order,
     );
   }

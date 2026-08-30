@@ -27,6 +27,10 @@ import {
 import { collectLatestVerificationAttempts } from "@/lib/orders/verificationAttempts";
 import { getFounderRxAttention } from "@/lib/orders/founderRxAttention";
 import { sendFounderOperationalAlert } from "@/lib/founderAlerts";
+import {
+  getCurrentEmailDeliveryIssue,
+  type EmailDeliveryAttempt,
+} from "@/lib/orders/emailDeliveryIssue";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
@@ -360,6 +364,26 @@ export async function GET(req: Request) {
         rx: normalizeRx(o.rx ?? null),
       }));
 
+    const { data: deliveryData, error: deliveryError } = await supabaseServer
+      .from("order_email_deliveries")
+      .select("order_id, email_type, recipient, delivery_status, last_event_at, sent_at, failure_reason")
+      .order("last_event_at", { ascending: false });
+
+    if (deliveryError) {
+      console.error("Admin email-delivery tracking fetch failed:", deliveryError);
+      return NextResponse.json(
+        { error: "Failed to classify email delivery issues", code: "EMAIL_DELIVERY_FETCH_FAILED" },
+        { status: 500 },
+      );
+    }
+
+    const deliveriesByOrder = new Map<string, EmailDeliveryAttempt[]>();
+    for (const attempt of (deliveryData ?? []) as EmailDeliveryAttempt[]) {
+      const attempts = deliveriesByOrder.get(attempt.order_id) ?? [];
+      attempts.push(attempt);
+      deliveriesByOrder.set(attempt.order_id, attempts);
+    }
+
     const { data: eventData, error: eventError } = await supabaseServer
       .from("order_events")
       .select("order_id, event_type, created_at")
@@ -388,6 +412,9 @@ export async function GET(req: Request) {
       const verificationAttempts = verificationAttemptsByOrder.get(order.id);
       return {
         ...order,
+        email_delivery_issue: getCurrentEmailDeliveryIssue(
+          deliveriesByOrder.get(order.id) ?? [],
+        ),
         verification_phone_attempted_at:
           verificationAttempts?.phoneAttemptedAt ?? null,
         verification_fax_attempted_at:
