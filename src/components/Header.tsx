@@ -86,7 +86,17 @@ export default function Header({
 
   return (
     <>
-      <header className="header">
+      <header className={`header ${isHome ? "header-home" : ""}`}>
+        {isHome && (
+          <div className="home-utility-bar">
+            <p>Authentic contact lenses. Valid prescription required.</p>
+            <nav aria-label="Helpful links">
+              <Link href="/guides">Lens guides</Link>
+              <Link href="/verification">Prescription help</Link>
+              <Link href="/contact">Contact</Link>
+            </nav>
+          </div>
+        )}
         <div className="header-inner">
           {/* LOGO */}
           <Link href="/" className="logo-link">
@@ -98,8 +108,12 @@ export default function Header({
 
           <div className="header-actions">
             {isHome && (
-              <button className="nav-toggle" onClick={() => setIsNavOpen(true)}>
-                ☰
+              <button
+                className="nav-toggle"
+                onClick={() => setIsNavOpen(true)}
+                aria-label="Open navigation"
+              >
+                <span aria-hidden="true">☰</span>
               </button>
             )}
 
@@ -113,9 +127,11 @@ export default function Header({
             <nav className="header-nav">
               {showShop && (
                 <a href="/browse" onClick={handleShopClick}>
-                  Browse
+                  Shop lenses
                 </a>
               )}
+              {isHome && <Link href="/contacts/daily-contact-lenses">Daily lenses</Link>}
+              {isHome && <Link href="/contacts/toric-contact-lenses">Astigmatism</Link>}
               {showAbout && <Link href="/about">About</Link>}
             </nav>
 

@@ -146,10 +146,27 @@ export default function BrowsePage() {
   const [search, setSearch] = useState("");
   const [manufacturerFilter, setManufacturerFilter] = useState("all");
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const query = params.get("search");
+    const manufacturer = params.get("manufacturer");
+
+    if (query) setSearch(query);
+
+    if (
+      manufacturer &&
+      ["VISTAKON", "ALCON", "BAUSCH + LOMB", "COOPERVISION"].includes(
+        manufacturer,
+      )
+    ) {
+      setManufacturerFilter(manufacturer);
+    }
+  }, []);
+
   const [selection, setSelection] = useState<LensSelection>({});
 
   const manufacturerLabels = {
-    VISTAKON: "Vistakon",
+    VISTAKON: "ACUVUE",
     ALCON: "Alcon",
     "BAUSCH + LOMB": "Bausch + Lomb",
     COOPERVISION: "CooperVision",
