@@ -1,5 +1,5 @@
 .shell {
-  background: #0b0b0b;
+  background: var(--home-navy);
   color: #f5f5f5;
 }
 
@@ -11,7 +11,7 @@
 
 .eyebrow {
   margin: 0 0 0.75rem;
-  color: rgba(221, 214, 254, 0.72);
+  color: #63aefb;
   font-size: 0.74rem;
   font-weight: 800;
   letter-spacing: 0.16em;

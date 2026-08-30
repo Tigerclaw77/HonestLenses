@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase-client";
 import type { User } from "@supabase/supabase-js";
 import { clearSessionState } from "@/lib/clearSessionState";
 
-type HeaderVariant = "home" | "shop" | "about" | "content";
+type HeaderVariant = "home" | "shop" | "about" | "content" | "commercial";
 
 type HeaderProps = {
   variant?: HeaderVariant;
@@ -25,6 +25,7 @@ export default function Header({
   const [user, setUser] = useState<User | null>(null);
 
   const isHome = variant === "home";
+  const isCommercial = variant === "commercial";
   const showShop = variant !== "shop";
   const showAbout = variant !== "about";
 
@@ -86,7 +87,11 @@ export default function Header({
 
   return (
     <>
-      <header className={`header ${isHome ? "header-home" : ""}`}>
+      <header
+        className={`header ${isHome ? "header-home" : ""} ${
+          isCommercial ? "header-commercial" : ""
+        }`}
+      >
         {isHome && (
           <div className="home-utility-bar">
             <p>Authentic contact lenses. Valid prescription required.</p>
@@ -130,8 +135,9 @@ export default function Header({
                   Shop lenses
                 </a>
               )}
-              {isHome && <Link href="/contacts/daily-contact-lenses">Daily lenses</Link>}
-              {isHome && <Link href="/contacts/toric-contact-lenses">Astigmatism</Link>}
+              {isHome && <Link href="/browse?category=daily">Daily lenses</Link>}
+              {isHome && <Link href="/browse?category=astigmatism">Astigmatism</Link>}
+              {isHome && <Link href="/browse?category=multifocal">Multifocal</Link>}
               {showAbout && <Link href="/about">About</Link>}
             </nav>
 
@@ -203,6 +209,9 @@ export default function Header({
               <a href="/browse" onClick={handleShopClick}>
                 Shop
               </a>
+              <Link href="/browse?category=daily">Daily lenses</Link>
+              <Link href="/browse?category=astigmatism">Astigmatism lenses</Link>
+              <Link href="/browse?category=multifocal">Multifocal lenses</Link>
               <Link href="/about">About</Link>
             </nav>
 
