@@ -1,0 +1,45 @@
+{
+  "siteUrl": "https://honestlenses.com",
+  "sitemapUrl": "https://honestlenses.com/sitemap.xml",
+  "robotsUrl": "https://honestlenses.com/robots.txt",
+  "searchConsoleSiteUrl": "sc-domain:honestlenses.com",
+  "repository": "Tigerclaw77/HonestLenses",
+  "deploymentStatusContext": "Vercel – honest-lenses",
+  "intendedBranch": "codex/buying-contact-lenses-pillar",
+  "knownProductionCommit": "c2789f4fd31a1227bed34856a795500c3c672aed",
+  "runtimeDirectory": ".watchdog",
+  "sourceAgeHours": 24,
+  "deploymentStaleHours": 6,
+  "searchStaleHours": 48,
+  "sitemapChangeRatio": 0.25,
+  "sitemapChangeAbsolute": 25,
+  "deepSampleSize": 12,
+  "statusConcurrency": 4,
+  "requestTimeoutMs": 15000,
+  "overallTimeoutMs": 600000,
+  "alertRepeatHours": 72,
+  "priorityUrls": [
+    "https://honestlenses.com/",
+    "https://honestlenses.com/contacts/acuvue-oasys-max-1-day",
+    "https://honestlenses.com/guides/buying-contact-lenses-online",
+    "https://honestlenses.com/contacts/daily-contact-lenses",
+    "https://honestlenses.com/guides/how-contact-lens-prescription-verification-works",
+    "https://honestlenses.com/verification",
+    "https://honestlenses.com/vision-benefits"
+  ],
+  "expectedSchema": {
+    "https://honestlenses.com/": ["WebSite", "Organization"],
+    "https://honestlenses.com/contacts/acuvue-oasys-max-1-day": ["Product", "Offer", "BreadcrumbList"],
+    "https://honestlenses.com/guides/buying-contact-lenses-online": ["Article", "BreadcrumbList"],
+    "https://honestlenses.com/contacts/daily-contact-lenses": ["ItemList"],
+    "https://honestlenses.com/guides/how-contact-lens-prescription-verification-works": ["FAQPage"]
+  },
+  "meaningfulExtensions": [
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".css", ".scss",
+    ".md", ".sql", ".yml", ".yaml", ".toml", ".ps1", ".sh", ".html"
+  ],
+  "excludedPathPrefixes": [
+    "artifacts/", "output/", ".next/", "node_modules/", "coverage/", "supabase/.temp/"
+  ],
+  "excludedExtensions": [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".pdf", ".zip", ".log", ".tmp"]
+}
