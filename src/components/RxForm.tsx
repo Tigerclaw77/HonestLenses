@@ -357,6 +357,15 @@ export default function RxForm({
 
   const rightLens = lenses.find((l) => l.coreId === rightcoreId);
   const leftLens = lenses.find((l) => l.coreId === leftcoreId);
+  const uploadPrescriptionHref = useMemo(() => {
+    const params = new URLSearchParams();
+
+    if (rightcoreId) params.set("right", rightcoreId);
+    if (leftcoreId) params.set("left", leftcoreId);
+
+    const query = params.toString();
+    return query ? `/upload-prescription?${query}` : "/upload-prescription";
+  }, [leftcoreId, rightcoreId]);
   const rightEffectiveBC = resolveEffectiveNumberOption(
     rightBC,
     rightLens?.parameters.baseCurve,
@@ -1293,6 +1302,24 @@ export default function RxForm({
             : "Enter the contact lens prescription exactly as written. If anything needs clinical or prescriber confirmation, we will verify it before fulfillment."}
         </div>
 
+        {mode === "manual" && (
+          <div className="rx-upload-priority">
+            <Link
+              href={uploadPrescriptionHref}
+              className="rx-upload-priority-cta"
+              onClick={() => {
+                recordRecentUserAction("rx_upload_priority_click", {
+                  has_right_lens: Boolean(rightcoreId),
+                  has_left_lens: Boolean(leftcoreId),
+                });
+              }}
+            >
+              Upload my prescription
+            </Link>
+            <p>Fastest option — we’ll read it for you.</p>
+          </div>
+        )}
+
         {mode === "ocr" && (
           <div
             className="order-card rx-meta-section"
@@ -2196,13 +2223,6 @@ export default function RxForm({
           </div>
         </div>
 
-        {mode === "manual" && (
-          <div className="order-actions">
-            <Link href="/upload-prescription" className="ghost-link">
-              Upload prescription instead
-            </Link>
-          </div>
-        )}
       </section>
     </main>
   );

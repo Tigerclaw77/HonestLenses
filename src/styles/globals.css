@@ -2167,6 +2167,60 @@ h1.content-title {
   color: rgba(255, 255, 255, 0.92);
 }
 
+.rx-upload-priority {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(167, 139, 250, 0.34);
+  border-radius: 8px;
+  background: rgba(17, 12, 32, 0.78);
+}
+
+.rx-upload-priority-cta {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 9px 16px;
+  border: 1px solid var(--hl-primary-cta-border);
+  border-radius: 6px;
+  background: var(--hl-primary-cta-bg);
+  color: #fff;
+  font-size: 0.92rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.rx-upload-priority-cta:hover {
+  background: var(--hl-primary-cta-bg-hover);
+}
+
+.rx-upload-priority p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 600px) {
+  .rx-upload-priority {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .rx-upload-priority-cta {
+    width: 100%;
+  }
+
+  .rx-upload-priority p {
+    text-align: center;
+  }
+}
+
 .btn-disabled {
   opacity: 0.55;
   cursor: not-allowed;
