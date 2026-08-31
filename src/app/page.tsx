@@ -28,6 +28,16 @@ const FEATURED_PRODUCT_IDS = [
   "INFUSE_1D",
 ] as const;
 
+const HERO_SHOWCASE_PRODUCT_IDS = [
+  "OASYS_MAX_1D",
+  "DT1",
+  "PRECISION1",
+] as const;
+
+const HERO_SHOWCASE_LENSES = HERO_SHOWCASE_PRODUCT_IDS
+  .map((coreId) => lenses.find((lens) => lens.coreId === coreId))
+  .filter((lens): lens is LensCore => Boolean(lens));
+
 const FEATURED_LENSES = FEATURED_PRODUCT_IDS
   .map((coreId) => lenses.find((lens) => lens.coreId === coreId))
   .filter((lens): lens is LensCore => Boolean(lens))
@@ -56,6 +66,9 @@ export default function HomePage() {
   const [isFindDoctorOpen, setIsFindDoctorOpen] = useState(false);
   const [isShopIntentOpen, setIsShopIntentOpen] = useState(false);
   const [lensSearch, setLensSearch] = useState("");
+  const [heroProductIndex, setHeroProductIndex] = useState(0);
+  const [isHeroRotationPaused, setIsHeroRotationPaused] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   // Lock body scroll when ANY modal is open
   useEffect(() => {
@@ -72,6 +85,30 @@ export default function HomePage() {
       source: "homepage",
     });
   }, []);
+
+  useEffect(() => {
+    const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updateMotionPreference = () => {
+      setPrefersReducedMotion(motionQuery.matches);
+      if (motionQuery.matches) setHeroProductIndex(0);
+    };
+
+    updateMotionPreference();
+    motionQuery.addEventListener("change", updateMotionPreference);
+    return () => motionQuery.removeEventListener("change", updateMotionPreference);
+  }, []);
+
+  useEffect(() => {
+    if (prefersReducedMotion || isHeroRotationPaused) return;
+
+    const rotation = window.setInterval(() => {
+      setHeroProductIndex(
+        (current) => (current + 1) % HERO_SHOWCASE_LENSES.length,
+      );
+    }, 3500);
+
+    return () => window.clearInterval(rotation);
+  }, [isHeroRotationPaused, prefersReducedMotion]);
 
   return (
     <main>
@@ -133,26 +170,35 @@ export default function HomePage() {
           </div>
           <div
             className="home-hero-visual"
-            aria-label="Featured premium daily contact lenses"
+            aria-label="Featured contact lenses"
+            onFocusCapture={() => setIsHeroRotationPaused(true)}
+            onBlurCapture={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) {
+                setIsHeroRotationPaused(false);
+              }
+            }}
           >
-            {FEATURED_LENSES.map((lens, index) => (
-              <Link
-                className={`home-hero-product home-hero-product-${index + 1}`}
-                href={`/contacts/${getLensSlug(lens)}`}
-                key={lens.coreId}
-              >
-                <span className="home-hero-product-image">
+            {HERO_SHOWCASE_LENSES.map((lens, index) => {
+              const isActive = index === heroProductIndex;
+
+              return (
+                <Link
+                  className={`home-showcase-product home-showcase-product-${index + 1}${isActive ? " is-active" : ""}`}
+                  href={`/contacts/${getLensSlug(lens)}`}
+                  aria-hidden={!isActive}
+                  tabIndex={isActive ? 0 : -1}
+                  key={lens.coreId}
+                >
                   <Image
                     src={getLensImage(lens.coreId)}
                     alt={`${lens.displayName} contact lens box`}
                     fill
-                    loading="eager"
-                    sizes="(max-width: 760px) 42vw, (max-width: 1100px) 24vw, 22vw"
+                    priority={index === 0}
+                    sizes="(max-width: 1100px) 46vw, 620px"
                   />
-                </span>
-                <span className="home-hero-product-label">{lens.displayName}</span>
-              </Link>
-            ))}
+                </Link>
+              );
+            })}
           </div>
         </div>
       </section>
