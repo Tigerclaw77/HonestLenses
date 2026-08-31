@@ -147,6 +147,10 @@ export const commercialContactPages = {
         href: "/contacts/toric-contact-lenses",
         label: "Toric contact lenses",
       },
+      {
+        href: "/contacts/multifocal-contact-lenses",
+        label: "Multifocal contact lenses",
+      },
     ],
     canonicalUrl: `${SITE_URL}/contacts/order-contact-lenses-online`,
   },
@@ -219,6 +223,10 @@ export const commercialContactPages = {
       {
         href: "/contacts/toric-contact-lenses",
         label: "Toric contact lenses",
+      },
+      {
+        href: "/contacts/multifocal-contact-lenses",
+        label: "Multifocal contact lenses",
       },
       {
         href: "/contacts/acuvue-contact-lenses",
@@ -385,6 +393,85 @@ export const commercialContactPages = {
     ],
     canonicalUrl: `${SITE_URL}/contacts/annual-supply-contact-lenses`,
   },
+  multifocalContactLenses: {
+    slug: "multifocal-contact-lenses",
+    primaryIntent: "Shop the multifocal contact lens named on a prescription.",
+    primaryConversionGoal:
+      "Help shoppers with a multifocal prescription find the exact prescribed product without implying clinical product selection.",
+    title: "Multifocal Contact Lenses",
+    metaDescription:
+      "Browse multifocal contact lenses by exact prescribed product, manufacturer, replacement schedule, pack size, and current catalog price.",
+    h1: "Multifocal Contact Lenses",
+    eyebrow: "Multifocal Contact Lens Catalog",
+    intro:
+      "Multifocal contact lens prescriptions name a specific product and add designation. Honest Lenses fills the prescribed product and does not select or substitute a lens.",
+    primaryCta: {
+      href: "/browse?category=multifocal",
+      label: "Browse multifocal lenses",
+    },
+    secondaryCta: {
+      href: "/upload-prescription",
+      label: "Upload multifocal prescription",
+    },
+    productCoreIds: [
+      "OASYS_MAX_1D_MF",
+      "OASYS_2W_MF",
+      "MOIST_MF",
+      "DT1_MF",
+      "TOTAL30_MF",
+      "DACP_MF",
+      "MYDAY_MF",
+      "BIOFINITY_MF",
+      "CLARITI_1D_MF",
+      "INFUSE_1D_MF",
+      "BIOTRUE_1D_MF",
+      "ULTRA_MF",
+    ],
+    productSelectionLogic:
+      "This page surfaces multifocal products already present in the Honest Lenses catalog. Product choice remains controlled by the contact lens prescription.",
+    sections: [
+      {
+        heading: "Match the complete multifocal product name",
+        body: [
+          "A multifocal version is not interchangeable with a spherical or toric version from the same product family. Match the complete product name and every prescribed parameter.",
+          "If you want a different brand, design, or replacement schedule, ask your eye care professional to evaluate and prescribe that change before ordering.",
+        ],
+      },
+      {
+        heading: "Check the multifocal prescription fields",
+        body: [
+          "Multifocal prescriptions commonly include an add designation in addition to the product name and eye-specific power. Some products use product-specific add labels.",
+          "Use only the options shown on the current contact lens prescription. Honest Lenses does not convert a glasses prescription or choose an add designation.",
+        ],
+      },
+      {
+        heading: "Pack size, price, and verification",
+        body: [
+          "After matching the exact product, compare the available pack sizes and per-box prices on its product page. The order is fulfilled only after the prescription is obtained or verified.",
+        ],
+      },
+    ],
+    relatedGuides: [verificationGuide, glassesGuide, rejectedGuide, pricingGuide],
+    relatedPages: [
+      {
+        href: "/contacts/daily-contact-lenses",
+        label: "Daily contact lenses",
+      },
+      {
+        href: "/contacts/toric-contact-lenses",
+        label: "Toric contact lenses",
+      },
+      {
+        href: "/contacts/annual-supply-contact-lenses",
+        label: "Annual supply contact lenses",
+      },
+      {
+        href: "/contacts/order-contact-lenses-online",
+        label: "Order contact lenses online",
+      },
+    ],
+    canonicalUrl: `${SITE_URL}/contacts/multifocal-contact-lenses`,
+  },
   toricContactLenses: {
     slug: "toric-contact-lenses",
     primaryIntent: "Shop toric contact lenses for astigmatism prescriptions.",
@@ -461,6 +548,10 @@ export const commercialContactPages = {
       {
         href: "/contacts/order-contact-lenses-online",
         label: "Order contact lenses online",
+      },
+      {
+        href: "/contacts/multifocal-contact-lenses",
+        label: "Multifocal contact lenses",
       },
     ],
     canonicalUrl: `${SITE_URL}/contacts/toric-contact-lenses`,

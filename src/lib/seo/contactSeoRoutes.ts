@@ -19,6 +19,10 @@ export function getLensSlug(lens: LensCore) {
   return slugifyLens(lens.displayName);
 }
 
+export function isPublicCatalogLens(lens: LensCore) {
+  return !lens.coreId.includes("_XR");
+}
+
 export function findLensBySlug(lenses: LensCore[], slug: string) {
   return lenses.find((lens) => getLensSlug(lens) === slug) ?? null;
 }

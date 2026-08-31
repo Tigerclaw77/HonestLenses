@@ -5,6 +5,7 @@ import {
   POSTHOG_EVENTS,
   errorToAnalyticsProperties,
   sanitizeAnalyticsProperties,
+  sanitizeAnalyticsPath,
   type AnalyticsProperties,
   type PostHogEventName,
 } from "./events";
@@ -61,7 +62,7 @@ export function track(
   posthog.capture(event, {
     ...sanitizeAnalyticsProperties(properties),
     device_type: getDeviceType(),
-    page_path: window.location.pathname,
+    page_path: sanitizeAnalyticsPath(window.location.pathname),
   });
 }
 
@@ -97,7 +98,7 @@ export function captureClientException(
     ...properties,
     ...errorToAnalyticsProperties(error),
     device_type: getDeviceType(),
-    page_path: window.location.pathname,
+    page_path: sanitizeAnalyticsPath(window.location.pathname),
   });
 
   posthog.captureException(error, safeProperties);

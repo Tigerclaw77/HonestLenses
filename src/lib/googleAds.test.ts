@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   buildGoogleAdsPurchaseConversion,
+  buildGoogleAdsTransactionId,
   hasRecordedGoogleAdsPurchase,
   recordGoogleAdsPurchase,
 } from "./googleAds";
@@ -18,8 +19,19 @@ assert.deepEqual(buildGoogleAdsPurchaseConversion(successfulOrder), {
   send_to: "AW-18375463747/7903CKX6sd0cEMOmjbpE",
   value: 339.99,
   currency: "USD",
-  transaction_id: "order-123",
+  transaction_id: buildGoogleAdsTransactionId("order-123"),
 });
+
+assert.notEqual(
+  buildGoogleAdsTransactionId("order-123"),
+  "order-123",
+  "Google Ads must not receive a full internal order identifier",
+);
+assert.equal(
+  buildGoogleAdsTransactionId("order-123"),
+  buildGoogleAdsTransactionId("order-123"),
+  "conversion identifiers remain stable for deduplication",
+);
 
 assert.equal(
   buildGoogleAdsPurchaseConversion({ ...successfulOrder, status: "draft" }),

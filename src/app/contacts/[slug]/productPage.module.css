@@ -5,11 +5,25 @@
 }
 
 .hero,
-.contentGrid {
+.contentGrid,
+.breadcrumbs {
   width: min(1120px, 100%);
   margin: 0 auto;
   padding-left: 1.25rem;
   padding-right: 1.25rem;
+}
+
+.breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding-top: 1.25rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.82rem;
+}
+
+.breadcrumbs a {
+  color: rgba(221, 214, 254, 0.92);
 }
 
 .hero {
@@ -128,6 +142,51 @@
   background: rgba(255, 255, 255, 0.03);
 }
 
+.priceList li > span {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.priceList small {
+  color: rgba(255, 255, 255, 0.62);
+  line-height: 1.45;
+}
+
+.parameterList {
+  display: grid;
+  gap: 0.65rem;
+  margin: 1rem 0 0;
+}
+
+.parameterList > div {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.3fr) minmax(0, 1fr);
+  gap: 1rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.parameterList dt {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.parameterList dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.resourceLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+}
+
+.resourceLinks a {
+  color: rgba(221, 214, 254, 0.92);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
 .finePrint {
   margin: 0.75rem 0 0;
   color: rgba(255, 255, 255, 0.58) !important;
@@ -176,6 +235,11 @@
   .priceList li {
     align-items: flex-start;
     flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .parameterList > div {
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.25rem;
   }
 }

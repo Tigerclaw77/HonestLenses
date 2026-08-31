@@ -12,7 +12,7 @@ import {
   resetPostHogUser,
 } from "./client";
 import { getPublicPostHogConfig } from "./config";
-import { isSensitiveAnalyticsKey } from "./events";
+import { isSensitiveAnalyticsKey, sanitizeAnalyticsPath } from "./events";
 import {
   captureClientError,
   installGlobalClientErrorHandlers,
@@ -110,9 +110,10 @@ function PageviewTracker() {
     if (!posthogKey || !posthog.__loaded) return;
     ensureFunnelSessionId();
 
+    const safePath = sanitizeAnalyticsPath(pathname);
     posthog.capture("$pageview", {
-      path: pathname,
-      url: window.location.origin + pathname,
+      path: safePath,
+      url: window.location.origin + safePath,
     });
   }, [pathname]);
 

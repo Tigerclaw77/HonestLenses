@@ -47,6 +47,7 @@ export async function generateMetadata({ params }: Props) {
     alternates: {
       canonical: `${SITE_URL}/contacts/${slug}/parameters`,
     },
+    robots: { index: false, follow: true },
   };
 }
 

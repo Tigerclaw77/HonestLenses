@@ -27,6 +27,18 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+export function buildGoogleAdsTransactionId(orderId: string): string {
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (const character of orderId) {
+    const code = character.codePointAt(0) ?? 0;
+    first = Math.imul(first ^ code, 0x01000193);
+    second = Math.imul(second ^ code, 0x85ebca6b);
+  }
+  const hex = (value: number) => (value >>> 0).toString(16).padStart(8, "0");
+  return `hl_${hex(first)}${hex(second)}`;
+}
+
 /**
  * A conversion is only eligible after the authenticated order read confirms
  * the server has recorded a Stripe-backed authorization (or later capture).
@@ -63,7 +75,7 @@ export function buildGoogleAdsPurchaseConversion(
       send_to: GOOGLE_ADS_PURCHASE_DESTINATION,
       value: Number((amountCents / 100).toFixed(2)),
       currency: "USD",
-      transaction_id: transactionId,
+      transaction_id: buildGoogleAdsTransactionId(transactionId),
     };
   } catch {
     return null;

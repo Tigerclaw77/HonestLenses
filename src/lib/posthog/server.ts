@@ -1,10 +1,12 @@
 import {
   errorToAnalyticsProperties,
   sanitizeAnalyticsProperties,
+  sanitizeAnalyticsPath,
   type AnalyticsProperties,
   type PostHogEventName,
 } from "./events";
 import { DEFAULT_POSTHOG_HOST, normalizePostHogHost } from "./config";
+import { createHash } from "node:crypto";
 
 type CaptureServerEventInput = {
   event: PostHogEventName;
@@ -59,14 +61,21 @@ function getRequestProperties(req?: Request): AnalyticsProperties {
   })();
 
   return {
-    route: url.pathname,
-    route_path: url.pathname,
+    route: sanitizeAnalyticsPath(url.pathname),
+    route_path: sanitizeAnalyticsPath(url.pathname),
     method: req.method,
     referrer_host: referrerHost,
     utm_source: url.searchParams.get("utm_source"),
     utm_medium: url.searchParams.get("utm_medium"),
     utm_campaign: url.searchParams.get("utm_campaign"),
   };
+}
+
+function sanitizeDistinctId(distinctId?: string | null): string {
+  if (!distinctId) return "server";
+  if (!distinctId.startsWith("guest:")) return distinctId;
+
+  return `guest:${createHash("sha256").update(distinctId).digest("hex").slice(0, 24)}`;
 }
 
 export async function captureServerEvent({
@@ -99,7 +108,7 @@ export async function captureServerEvent({
       body: JSON.stringify({
         api_key: apiKey,
         event,
-        distinct_id: distinctId || "server",
+        distinct_id: sanitizeDistinctId(distinctId),
         properties: sanitizeAnalyticsProperties({
           ...getRequestProperties(request),
           ...properties,
