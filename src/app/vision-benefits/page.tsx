@@ -10,6 +10,7 @@ export const metadata: Metadata = {
   title: "Vision Insurance and HSA/FSA",
   description:
     "Learn how Honest Lenses supports out-of-network vision reimbursement and itemized HSA/FSA receipts.",
+  alternates: { canonical: "/vision-benefits" },
 };
 
 export default function VisionBenefitsPage() {

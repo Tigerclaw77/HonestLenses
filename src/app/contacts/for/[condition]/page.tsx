@@ -24,11 +24,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const readableCondition = getReadableCondition(condition);
 
   return {
-    title: `Best Contact Lenses for ${readableCondition}`,
-    description: `Browse contact lens options commonly prescribed for ${readableCondition}.`,
+    title: `Contact Lens Catalog: ${readableCondition}`,
+    description: `View catalog products with designs associated with ${readableCondition} prescriptions. Product selection requires an eye care professional.`,
     alternates: {
       canonical: `${SITE_URL}/contacts/for/${condition}`,
     },
+    robots: { index: false, follow: true },
   };
 }
 
@@ -45,7 +46,13 @@ export default async function ConditionPage({ params }: Props) {
 
   return (
     <div style={{ padding: 40, maxWidth: 900 }}>
-      <h1>Best Contact Lenses for {readableCondition}</h1>
+      <h1>Catalog products associated with {readableCondition}</h1>
+
+      <p>
+        This catalog list is not a product recommendation. Only an eye care
+        professional can select or change the lens on a contact lens
+        prescription.
+      </p>
 
       <ul>
         {results.map((lens) => (

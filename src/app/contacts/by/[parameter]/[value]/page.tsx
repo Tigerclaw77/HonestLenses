@@ -32,6 +32,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     alternates: {
       canonical: `${SITE_URL}/contacts/by/${parameter}/${value}`,
     },
+    robots: { index: false, follow: true },
   };
 }
 

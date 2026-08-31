@@ -135,9 +135,9 @@ export default function Header({
                   Shop lenses
                 </a>
               )}
-              {isHome && <Link href="/browse?category=daily">Daily lenses</Link>}
-              {isHome && <Link href="/browse?category=astigmatism">Astigmatism</Link>}
-              {isHome && <Link href="/browse?category=multifocal">Multifocal</Link>}
+              {isHome && <Link href="/contacts/daily-contact-lenses">Daily lenses</Link>}
+              {isHome && <Link href="/contacts/toric-contact-lenses">Astigmatism</Link>}
+              {isHome && <Link href="/contacts/multifocal-contact-lenses">Multifocal</Link>}
               {showAbout && <Link href="/about">About</Link>}
             </nav>
 
@@ -209,9 +209,9 @@ export default function Header({
               <a href="/browse" onClick={handleShopClick}>
                 Shop
               </a>
-              <Link href="/browse?category=daily">Daily lenses</Link>
-              <Link href="/browse?category=astigmatism">Astigmatism lenses</Link>
-              <Link href="/browse?category=multifocal">Multifocal lenses</Link>
+              <Link href="/contacts/daily-contact-lenses">Daily lenses</Link>
+              <Link href="/contacts/toric-contact-lenses">Astigmatism lenses</Link>
+              <Link href="/contacts/multifocal-contact-lenses">Multifocal lenses</Link>
               <Link href="/about">About</Link>
             </nav>
 

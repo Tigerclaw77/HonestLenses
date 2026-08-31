@@ -6,6 +6,7 @@ import Header from "@/components/Header";
 
 import styles from "./guide.module.css";
 import { getAbsoluteGuideUrl, getGuideUrl, guides } from "./guides";
+import { serializeJsonLd } from "@/lib/seo/jsonLd";
 
 export const metadata: Metadata = {
   title: "Contact Lens Guides",
@@ -31,7 +32,7 @@ function GuidesItemListJsonLd() {
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
     />
   );
 }

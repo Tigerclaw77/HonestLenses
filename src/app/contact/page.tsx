@@ -1,5 +1,13 @@
+import type { Metadata } from "next";
+
 import Header from "../../components/Header";
 import Footer from "../../components/Footer";
+
+export const metadata: Metadata = {
+  title: "Contact Honest Lenses",
+  description: "Contact Honest Lenses for order and prescription support.",
+  alternates: { canonical: "/contact" },
+};
 
 export default function ContactPage() {
   return (

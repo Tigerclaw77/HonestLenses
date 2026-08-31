@@ -7,6 +7,7 @@ import {
   type AnalyticsProperties,
   type PostHogEventName,
 } from "@/lib/posthog/client";
+import { sanitizeAnalyticsPath } from "@/lib/posthog/events";
 import { supabase } from "@/lib/supabase-client";
 
 type FunnelEvent = Extract<
@@ -58,7 +59,7 @@ function safeReferrer(): string | null {
 }
 
 function currentRoute(): string {
-  return isBrowser() ? window.location.pathname : "";
+  return isBrowser() ? sanitizeAnalyticsPath(window.location.pathname) : "";
 }
 
 function currentUtm(): AnalyticsProperties {

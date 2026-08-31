@@ -10,6 +10,7 @@ import { getLensImage } from "@/lib/display/getLensImage";
 import { getLensSkus } from "@/lib/pricing/getLensSkus";
 import { getLowestPrice } from "@/lib/pricing/getLowestPrice";
 import { getLensSlug, SITE_URL } from "@/lib/seo/contactSeoRoutes";
+import { serializeJsonLd } from "@/lib/seo/jsonLd";
 
 import styles from "./commercialContactPage.module.css";
 import type { CommercialContactPageConfig } from "./commercialPages";
@@ -73,7 +74,7 @@ function ProductItemListJsonLd({
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
     />
   );
 }

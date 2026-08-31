@@ -6,6 +6,7 @@ import Script from "next/script";
 
 import { HonestPostHogProvider } from "@/lib/posthog/PostHogProvider";
 import { GOOGLE_ADS_TAG_ID } from "@/lib/googleAds";
+import { serializeJsonLd } from "@/lib/seo/jsonLd";
 
 const siteUrl = "https://honestlenses.com";
 const siteTitle = "Honest Lenses | Contact Lenses Online";
@@ -19,6 +20,9 @@ export const metadata: Metadata = {
     template: "%s | Honest Lenses",
   },
   description: siteDescription,
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
     type: "website",
     url: "/",
@@ -76,7 +80,7 @@ export default function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify([organizationSchema, websiteSchema]),
+            __html: serializeJsonLd([organizationSchema, websiteSchema]),
           }}
         />
         {googleTagLoaderId ? (

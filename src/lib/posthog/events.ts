@@ -89,6 +89,11 @@ const SENSITIVE_KEY_PATTERNS = [
   /cyl/i,
   /axis/i,
   /base_curve/i,
+  /order.*id/i,
+  /transaction.*id/i,
+  /payment.*intent/i,
+  /message/i,
+  /query/i,
 ];
 
 const NON_SENSITIVE_KEY_ALLOWLIST = new Set([
@@ -118,6 +123,18 @@ export function sanitizeAnalyticsProperties(
   }
 
   return safe;
+}
+
+export function sanitizeAnalyticsPath(path: string): string {
+  return path
+    .replace(
+      /\/(order|orders|prescription-handoffs|abandoned-checkouts)\/[^/?#]+/gi,
+      "/$1/[redacted]",
+    )
+    .replace(
+      /\/(api\/admin\/orders|api\/orders|api\/prescription-handoffs|api\/admin\/abandoned-checkouts)\/[^/?#]+/gi,
+      "/$1/[redacted]",
+    );
 }
 
 export function errorToAnalyticsProperties(

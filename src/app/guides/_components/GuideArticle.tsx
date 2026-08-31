@@ -3,6 +3,7 @@ import Link from "next/link";
 import styles from "../guide.module.css";
 import type { GuidePage } from "../guides";
 import { getGuideUrl, guides } from "../guides";
+import { serializeJsonLd } from "@/lib/seo/jsonLd";
 
 function getSectionId(heading: string) {
   return heading
@@ -28,7 +29,7 @@ function FaqJsonLd({ guide }: { guide: GuidePage }) {
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
     />
   );
 }
@@ -83,11 +84,11 @@ function PillarJsonLd({ guide }: { guide: GuidePage }) {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(article) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(article) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumb) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumb) }}
       />
     </>
   );

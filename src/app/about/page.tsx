@@ -1,7 +1,15 @@
 import Image from "next/image";
 import Link from "next/link";
+import type { Metadata } from "next";
 import Header from "../../components/Header";
 import Footer from "../../components/Footer";
+
+export const metadata: Metadata = {
+  title: "About Honest Lenses",
+  description:
+    "Learn how Honest Lenses approaches authentic contact lens sourcing, prescription verification, and fulfillment.",
+  alternates: { canonical: "/about" },
+};
 
 export default function AboutPage() {
   return (

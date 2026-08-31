@@ -1,7 +1,16 @@
+import type { Metadata } from "next";
+
 import Header from "../../components/Header";
 import Footer from "../../components/Footer";
 
 import { ReactNode } from "react";
+
+export const metadata: Metadata = {
+  title: "Returns and Refunds",
+  description:
+    "Review the Honest Lenses policy for unopened boxes, damaged shipments, returns, and refunds.",
+  alternates: { canonical: "/returns" },
+};
 
 export default function ReturnsPage() {
   return (
