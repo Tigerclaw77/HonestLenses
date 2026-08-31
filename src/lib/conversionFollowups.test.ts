@@ -12,6 +12,7 @@ const uploadPage = source("src/app/upload-prescription/page.tsx");
 const checkoutPage = source("src/app/checkout/page.tsx");
 const checkoutStyles = source("src/app/checkout/checkout.module.css");
 const purchaseTrust = source("src/components/conversion/PurchaseTrust.tsx");
+const rxForm = source("src/components/RxForm.tsx");
 const expirationDatePicker = source(
   "src/components/ExpirationDatePicker.tsx",
 );
@@ -72,6 +73,19 @@ assert.equal(
 assert.doesNotMatch(
   `${source("src/app/layout.tsx")}\n${globalStyles}`,
   /user-scalable\s*=\s*no|maximum-scale\s*=\s*1/i,
+);
+
+assert.match(rxForm, /className="rx-upload-priority"/);
+assert.match(rxForm, /Upload my prescription/);
+assert.match(rxForm, /Fastest option — we’ll read it for you\./);
+assert.match(rxForm, /params\.set\("right", rightcoreId\)/);
+assert.match(rxForm, /params\.set\("left", leftcoreId\)/);
+assert.doesNotMatch(rxForm, /Upload prescription instead/);
+assert.match(uploadPage, /if \(rightLens\) params\.set\("right", rightLens\)/);
+assert.match(uploadPage, /if \(leftLens\) params\.set\("left", leftLens\)/);
+assert.match(
+  uploadPage,
+  /router\.push\(`\/upload-prescription\/confirm\?\$\{params\.toString\(\)\}`\)/,
 );
 
 console.log("Conversion audit follow-up regression tests passed");
