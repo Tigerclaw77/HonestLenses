@@ -7,6 +7,7 @@ function source(path: string): string {
 }
 
 const browsePage = source("src/app/browse/page.tsx");
+const homePage = source("src/app/page.tsx");
 const globalStyles = source("src/styles/globals.css");
 const uploadPage = source("src/app/upload-prescription/page.tsx");
 const checkoutPage = source("src/app/checkout/page.tsx");
@@ -24,6 +25,21 @@ assert.equal((browsePage.match(/placeholder="Lens name\.\.\."/g) ?? []).length, 
 assert.equal((browsePage.match(/setManufacturerFilter/g) ?? []).length, 3);
 assert.match(browsePage, /params\.get\("manufacturer"\)/);
 assert.match(browsePage, /VISTAKON:\s*"ACUVUE"/);
+
+assert.doesNotMatch(homePage, /home-optical-lens|home-optical-refraction/);
+assert.match(
+  homePage,
+  /const HERO_SHOWCASE_PRODUCT_IDS = \[\s*"OASYS_MAX_1D",\s*"DT1",\s*"PRECISION1",\s*\] as const/,
+);
+assert.match(homePage, /window\.setInterval\([\s\S]*?3500/);
+assert.match(homePage, /prefers-reduced-motion: reduce/);
+assert.match(homePage, /tabIndex=\{isActive \? 0 : -1\}/);
+assert.match(globalStyles, /transition:\s*opacity 500ms ease-in-out/);
+assert.match(globalStyles, /\.home-showcase-product img\s*\{[^}]*object-fit:\s*contain/);
+assert.match(
+  globalStyles,
+  /@media \(max-width: 760px\)[\s\S]*?\.home-hero-visual\s*\{\s*display:\s*none/,
+);
 
 assert.match(
   globalStyles,
