@@ -45,8 +45,9 @@ function PillarJsonLd({ guide }: { guide: GuidePage }) {
     url,
     mainEntityOfPage: url,
     author: {
-      "@type": "Person",
-      name: "Dr. Paul Driggers, OD",
+      "@type": "Organization",
+      name: "Honest Lenses",
+      url: "https://honestlenses.com",
     },
     publisher: {
       "@type": "Organization",
@@ -166,7 +167,7 @@ export default function GuideArticle({ guide }: { guide: GuidePage }) {
               })}
 
               <div className={styles.trustBlock}>
-                <p>Written for Honest Lenses by Dr. Paul Driggers, OD.</p>
+                <p>Written and reviewed by Honest Lenses.</p>
                 <p>
                   This guide is general educational information for contact
                   lens customers. It is not a medical exam, diagnosis, or

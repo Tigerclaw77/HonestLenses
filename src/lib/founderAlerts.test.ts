@@ -6,10 +6,10 @@ import {
 
 assert.equal(
   getFounderAlertRecipient({
-    ARMORY_OPERATOR_ALERT_RECIPIENT: "pauldriggers@aol.com",
+    ARMORY_OPERATOR_ALERT_RECIPIENT: "operator@example.com",
     ADMIN_ALERT_EMAIL: "support@honestlenses.com",
   }),
-  "pauldriggers@aol.com",
+  "operator@example.com",
   "founder alerts use the dedicated operator recipient, never support",
 );
 
