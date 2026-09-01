@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import {
   ADMIN_FULFILLMENT_STATUSES,
   assessAdminFulfillmentTransition,
+  isFounderOverrideEligible,
 } from "./adminWorkflow";
 
 const riskyOrder = {
@@ -83,6 +84,47 @@ assert.equal(regression.allowed, true, "admin can deliberately move backward");
 assert.ok(
   regression.warnings.some((warning) => warning.includes("backward")),
   "backward transition has an explicit warning",
+);
+
+assert.equal(
+  isFounderOverrideEligible({
+    ...riskyOrder,
+    verification_status: "requires_review",
+    rx_status: "ocr_failed",
+    rx: { right: { sphere: "-1.00" }, left: { sphere: "-1.25" } },
+  }),
+  true,
+  "founder override remains available when OCR/product matching requires review",
+);
+assert.equal(
+  isFounderOverrideEligible({
+    ...riskyOrder,
+    verification_status: "pending",
+    rx_source: "doctor",
+    prescriber_name: "Dr. Safeguard",
+  }),
+  true,
+  "an authorized order with reviewable Rx evidence can be explicitly overridden",
+);
+assert.equal(
+  isFounderOverrideEligible({
+    ...riskyOrder,
+    status: "draft",
+    payment_intent_id: null,
+    verification_status: "pending",
+    rx: null,
+  }),
+  false,
+  "ordinary unpaid customer paths cannot use founder override",
+);
+assert.equal(
+  isFounderOverrideEligible({
+    ...riskyOrder,
+    verification_status: "verified",
+    rx: { right: { sphere: "-1.00" } },
+  }),
+  false,
+  "already verified orders do not expose founder override",
 );
 
 console.log("Admin workflow override matrix passed.");

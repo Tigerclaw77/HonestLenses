@@ -1,5 +1,6 @@
 import {
   getPaymentState,
+  getRxSourceState,
   getVerificationState,
   type Order,
 } from "./getNextAction";
@@ -59,6 +60,26 @@ export function getAdminFulfillmentStatus(
   if (order.status === "shipped") return "shipped";
   if (order.status === "cancelled") return "cancelled";
   return "review";
+}
+
+/** Founder override resolves Rx review exceptions, never payment or holds. */
+export function isFounderOverrideEligible(order: Order): boolean {
+  const fulfillment = getAdminFulfillmentStatus(order);
+  const payment = getPaymentState(order);
+  const verification = getVerificationState(order);
+  const rxSource = getRxSourceState(order);
+
+  if (fulfillment !== "review" || verification.complete) return false;
+  if (payment.status !== "authorized" && payment.status !== "captured") {
+    return false;
+  }
+
+  return Boolean(
+    rxSource.hasRxEvidence ||
+      verification.requiresReview ||
+      verification.blocked ||
+      order.rx_status === "ocr_failed",
+  );
 }
 
 /**

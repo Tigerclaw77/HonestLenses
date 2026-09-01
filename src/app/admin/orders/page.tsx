@@ -26,6 +26,7 @@ import {
 import {
   assessAdminFulfillmentTransition,
   getAdminFulfillmentStatus,
+  isFounderOverrideEligible,
   type AdminFulfillmentStatus,
 } from "@/lib/orders/adminWorkflow";
 import {
@@ -1607,6 +1608,7 @@ function ActiveOrderCard({
   const classification = getOrderOperationalClassification(order);
   const quantity = getOperationalCardQuantity(order);
   const isFounderReview = classification.bucket === "founder_review";
+  const founderOverrideEligible = isFounderOverrideEligible(order);
   const totalBoxesLabel =
     quantity.total === "—" ? "—" : formatBoxCount(Number(quantity.total));
   const processingPanelId = `order-processing-${order.id}`;
@@ -1835,7 +1837,7 @@ function ActiveOrderCard({
               </div>
 
               <div style={{ display: "grid", gap: 7 }}>
-                {isFounderReview && (
+                {founderOverrideEligible && (
                   <button
                     type="button"
                     disabled={savingOrderId === order.id}
@@ -1850,8 +1852,8 @@ function ActiveOrderCard({
                     })}
                   >
                     {savingOrderId === order.id
-                      ? "Verifying and capturing..."
-                      : "Verify prescription & capture payment"}
+                      ? "Applying Founder Override..."
+                      : "Founder Override & capture payment"}
                   </button>
                 )}
 
@@ -2608,18 +2610,24 @@ export default function AdminOrdersPage() {
   }
 
   async function verifyUploadedPrescription(order: Order) {
-    if (getOrderOperationalBucket(order) !== "founder_review") {
-      setAdminError("This order is not awaiting uploaded-prescription review.");
+    if (!isFounderOverrideEligible(order)) {
+      setAdminError("This order is not eligible for Founder Override.");
       return;
     }
+
+    const reason = window.prompt(
+      "Founder Override reason (required for the audit log):",
+      "Personally reviewed corrected prescription and approved fulfillment.",
+    )?.trim();
+    if (!reason) return;
 
     const captureAmount = formatMoney(effectiveCaptureAmountCents(order));
     if (
       !window.confirm(
         [
-          "Confirm prescription review?",
+          "Confirm Founder Override?",
           "",
-          "This confirms that you reviewed the uploaded prescription and found it valid for this order.",
+          "This records your authenticated approval and bypasses automated prescription objections for this order.",
           `Stripe will capture ${captureAmount} immediately.`,
         ].join("\n"),
       )
@@ -2637,11 +2645,11 @@ export default function AdminOrdersPage() {
     });
 
     try {
-      const response = await fetch(`/api/orders/${order.id}/verify`, {
+      const response = await fetch(`/api/admin/orders/${order.id}/founder-override`, {
         method: "POST",
         headers: await authHeaders(),
         credentials: "same-origin",
-        body: JSON.stringify({}),
+        body: JSON.stringify({ reason }),
       });
       const payload = await readAdminApiPayload(response);
 
@@ -2673,8 +2681,8 @@ export default function AdminOrdersPage() {
         tone: payload.event_logged === false ? "info" : "success",
         message:
           payload.event_logged === false
-            ? "Prescription verified and payment captured, but the audit event was not recorded."
-            : "Prescription verified and payment captured. The order is ready to place.",
+            ? "Founder Override saved, but the audit event was not recorded."
+            : "Founder Override saved. Payment is captured and the order is ready to place.",
       });
     } catch (error) {
       const message =

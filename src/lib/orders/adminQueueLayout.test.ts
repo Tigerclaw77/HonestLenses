@@ -353,8 +353,9 @@ assert.ok(
   "authorized uploaded orders carry a prominent review-required banner",
 );
 assert.ok(
-  activeCard.includes("Verify prescription & capture payment"),
-  "uploaded-Rx review has a dedicated verify-and-capture action",
+  activeCard.includes("Founder Override & capture payment") &&
+    activeCard.includes("founderOverrideEligible"),
+  "reviewable Rx exceptions have a dedicated founder-override-and-capture action",
 );
 assert.ok(
   activeCard.includes("verification-capture-failure"),

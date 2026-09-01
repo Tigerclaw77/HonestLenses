@@ -25,6 +25,12 @@ const adminPatchRoute = source(
   "[id]",
   "route.ts",
 );
+const founderOverrideRoute = source(
+  "src", "app", "api", "admin", "orders", "[id]", "founder-override", "route.ts",
+);
+const founderOverrideMigration = source(
+  "supabase", "migrations", "20260901194500_add_atomic_founder_verification_override.sql",
+);
 
 assert.match(
   verifyRoute,
@@ -53,13 +59,18 @@ assert.match(
 );
 assert.match(
   adminPage,
-  /fetch\(`\/api\/orders\/\$\{order\.id\}\/verify`/,
-  "the admin work queue exposes the verify-and-capture endpoint",
+  /fetch\(`\/api\/admin\/orders\/\$\{order\.id\}\/founder-override`/,
+  "the admin work queue exposes the authenticated founder-override endpoint",
 );
 assert.match(
   adminPage,
-  /Verify prescription & capture payment/,
-  "the founder action states that capture is part of verification",
+  /Founder Override & capture payment/,
+  "the founder action is explicit and states that capture is part of verification",
+);
+assert.match(
+  adminPage,
+  /founderOverrideEligible && \(/,
+  "review exceptions are not gated to one queue bucket",
 );
 assert.match(
   adminPage,
@@ -71,5 +82,15 @@ assert.match(
   /RX_VERIFICATION_REQUIRED/,
   "generic fulfillment updates cannot bypass uploaded-Rx verification",
 );
+assert.match(founderOverrideRoute, /requireAdminUser\(req\)/, "founder override requires admin authentication");
+assert.match(founderOverrideRoute, /isFounderOverrideEligible\(order\)/, "server rechecks review eligibility");
+assert.match(founderOverrideRoute, /"admin-verification"/, "override retains guarded payment capture");
+assert.match(founderOverrideRoute, /apply_founder_verification_override/, "override uses the atomic database transition");
+assert.match(founderOverrideMigration, /verification_method = 'admin'/, "override records its canonical method");
+assert.match(founderOverrideMigration, /verification_passed = true/, "override records successful verification");
+assert.match(founderOverrideMigration, /verification_status = 'verified'/, "override records canonical verified status");
+assert.match(founderOverrideMigration, /verification_completed_at = now\(\)/, "override records completion time");
+assert.match(founderOverrideMigration, /fulfillment_status = 'ready_to_order'/, "override advances fulfillment after capture");
+assert.match(founderOverrideMigration, /insert into public\.order_events/, "state and audit event share one transaction");
 
 console.log("Verification/capture regression tests passed.");
