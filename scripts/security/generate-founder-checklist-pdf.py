@@ -24,36 +24,36 @@ ROWS = [
         "NOT VERIFIED",
     ),
     ("2", "Repository matches approved production baseline; no unexplained drift", "NOT VERIFIED"),
-    ("3", "Migration history exact: Resend matched; two pending only", "PARTIAL"),
+    ("3", "Migration history matches dynamically; authorized pending migrations only", "RECHECK"),
     ("4", "Backup completed and recovery point recorded", "NOT VERIFIED"),
     ("5", "PITR or approved backup RPO verified", "NOT VERIFIED"),
-    ("6", "Restore-to-new-project rehearsal passed; RTO accepted", "NOT VERIFIED"),
+    ("6", "Restore rehearsal completed or scoped founder waiver recorded", "NOT VERIFIED"),
     ("7", "Storage object recovery limitation accepted or covered", "NOT VERIFIED"),
     ("8", "Migration SQL, hashes, order, locks, role, transactions reviewed", "PASS"),
     ("9", "Rollback/forward recovery reviewed; operators named", "PLAN PASS / NAMES NV"),
-    ("10", "Stripe test-mode validation passed", "PASS"),
+    ("10", "Stripe validation passed when payment behavior is in scope", "NOT APPLICABLE / RECHECK"),
     ("11", "Hosted Supabase RLS/API authorization passed", "PASS"),
     (
         "12",
-        "Clean-profile hosted browser authorization passed OR waiver approved",
-        "HTTP PASS / WAIVER APPROVAL NV",
+        "Browser validation completed when browser/session behavior is in scope",
+        "NOT APPLICABLE / RECHECK",
     ),
     ("13", "Security database regression gate passed", "PASS"),
     ("14", "Repository tests pass at release commit", "FROZEN TREE PASS / RERUN"),
     ("15", "Production build passes at release commit", "FROZEN TREE PASS / RERUN"),
-    ("16", "Commerce v2 disabled in code and every production runtime/worker", "CODE PASS / PROD NV"),
+    ("16", "Feature flags relevant to the authorized scope verified", "RECHECK"),
     ("17", "All production feature flags and release artifact verified", "NOT VERIFIED"),
     ("18", "Production Supabase/Stripe/hosting identities and credentials verified", "NOT VERIFIED"),
     (
         "19",
-        "Write-drain control, canary, zero-write proof, and reopen verified",
-        "IMPLEMENTATION PASS / PROD NV",
+        "Write drain used when technically required, or scoped waiver recorded",
+        "NOT APPLICABLE / RECHECK",
     ),
     ("20", "Smoke tests ready; live canary explicitly approved or waived", "PLAN PASS / DECISION NV"),
     ("21", "First-hour/day monitoring owners and dashboards prepared", "CHECKLIST / OWNERS NV"),
     ("22", "Abort thresholds, RPO, and RTO approved", "CRITERIA / APPROVAL NV"),
-    ("23", "Dry run lists exactly 20260729144510 and 20260729160750", "NOT VERIFIED"),
-    ("24", "Founder explicitly authorizes production execution", "NOT VERIFIED"),
+    ("23", "Dry run lists exactly the authorized pending migration scope", "NOT VERIFIED"),
+    ("24", "Founder authorization and exact scope recorded", "NOT VERIFIED"),
 ]
 
 
@@ -71,7 +71,7 @@ def build_pdf():
         rightMargin=0.24 * inch,
         topMargin=0.20 * inch,
         bottomMargin=0.20 * inch,
-        title="Honest Lenses Founder Go-No-Go",
+        title="Honest Lenses Founder Risk Worksheet",
         author="Honest Lenses",
         subject="Production migration decision checklist",
     )
@@ -127,11 +127,12 @@ def build_pdf():
     )
 
     story = [
-        paragraph("HONEST LENSES - FOUNDER GO/NO-GO", title_style),
+        paragraph("HONEST LENSES - FOUNDER RISK WORKSHEET", title_style),
         paragraph(
             "Release/commit: ____________________   Window UTC: ____________________   "
-            "Founder: ____________________   Rule: every required item must be PASS; "
-            "NOT VERIFIED is NO-GO.",
+            "Founder: ____________________   Canonical policy: docs/production-deployment/"
+            "00-founder-authority.md. FOUNDER_GO plus exact scope satisfies repository "
+            "approval; genuine technical blockers still stop execution.",
             subtitle_style,
         ),
         Spacer(1, 4),
@@ -204,8 +205,8 @@ def build_pdf():
                 small_style,
             ),
             paragraph(
-                "Current package recommendation: PACKAGE READY FOR EXECUTION-TIME "
-                "CHECKS - DEPLOYMENT NOT AUTHORIZED.",
+                "This worksheet records warnings and evidence. It is not a veto over an "
+                "explicit scoped founder decision.",
                 decision_style,
             ),
         ]

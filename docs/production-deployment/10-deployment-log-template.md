@@ -1,5 +1,7 @@
 # Honest Lenses production deployment log
 
+> Governance: [Founder authority policy](00-founder-authority.md). This log records evidence; missing historical paperwork does not override an explicit scoped founder decision.
+
 Classification: confidential operational record
 
 ## Identity

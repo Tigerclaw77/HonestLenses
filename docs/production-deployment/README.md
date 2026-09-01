@@ -1,12 +1,14 @@
 # Honest Lenses production deployment package
 
-Status: **release candidate frozen; ready for execution-time checks; not authorized for deployment**
+> Governance: [Founder authority policy](00-founder-authority.md). This is a release-specific evidence package, not universal production authority. Explicit scoped founder authorization satisfies approval requirements; only genuine hard blockers defined by the canonical policy stop execution.
+
+Status: **historical July release package; advisory outside that named release**
 Prepared: 2026-07-30
 Package/runbook version: **1.2.0**
 Pinned Supabase CLI: `2.109.1`
 
-This is the permanent execution package for the reviewed Commerce v2 schema
-and least-privilege migrations. It does not authorize `db push`, a production
+This is the historical execution package for the reviewed Commerce v2 schema
+and least-privilege migrations. It did not itself authorize `db push`, a production
 database change, a live Stripe change, or enabling Commerce v2.
 
 ## Document index
@@ -43,10 +45,11 @@ Supporting read-only SQL:
 - [Roles catalog export](sql/roles-catalog-export.sql)
 - [Write-drain observation](sql/write-drain-observation.sql)
 
-## Hard boundaries
+## Technical boundaries and release defaults
 
-- Never run `supabase db push` until every required founder checklist item is
-  `PASS`.
+- Run a production migration only after exact target, credentials, requested
+  migration integrity, and authorized scope are verified. Under `FOUNDER_GO=1`,
+  incomplete advisory checklist items are warnings rather than vetoes.
 - Never use `db reset`, `db pull`, `migration repair`, `--include-all`,
   `--include-seed`, or `--include-roles` during the production deployment.
 - Never put the production schema dump into `supabase/migrations`; it is a
@@ -57,10 +60,12 @@ Supporting read-only SQL:
   server-enforced `READ ONLY` transaction, verify
   `current_setting('transaction_read_only')='on'` inside that transaction,
   run through `psql -X --set ON_ERROR_STOP=1`, and finish with `ROLLBACK`.
-- Keep `COMMERCE_V2_ENABLED=false`.
-- Do not perform live Stripe mutations unless a separately approved canary
-  transaction is recorded in the deployment log.
-- A `NOT VERIFIED` item is not a soft pass.
+- Keep `COMMERCE_V2_ENABLED=false` for the Commerce v2 release described here;
+  this is not a prerequisite for unrelated releases.
+- Do not perform live Stripe mutations unless they are explicitly in the
+  founder-authorized scope. A Stripe canary is not required for unrelated work.
+- `NOT VERIFIED` means the evidence is absent. It is a warning after scoped
+  founder authorization unless it reveals a genuine hard blocker.
 
 ## Required evidence folder
 

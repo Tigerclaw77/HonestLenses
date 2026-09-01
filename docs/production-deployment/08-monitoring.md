@@ -1,5 +1,7 @@
 # First-hour and first-day monitoring
 
+> Governance: [Founder authority policy](00-founder-authority.md). Monitoring thresholds are recommendations unless a current technical condition makes them necessary for the requested operation.
+
 Record UTC timestamps, dashboards/queries used, observed value, threshold, and
 operator decision in the deployment log.
 

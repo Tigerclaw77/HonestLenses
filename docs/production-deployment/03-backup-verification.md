@@ -1,5 +1,7 @@
 # Backup and restore verification
 
+> Governance: [Founder authority policy](00-founder-authority.md). Backup and restore evidence is strongly recommended. A scoped founder waiver converts missing rehearsal, RPO/RTO paperwork, or named-operator evidence to warnings unless the requested operation is destructive or current conditions make recovery capability a genuine technical prerequisite.
+
 Do not assume a Supabase backup, PITR window, or restorable Storage object
 backup exists. Verify each independently before migration.
 
@@ -47,7 +49,9 @@ One of these recovery paths must be explicitly approved:
 - founder explicitly accepts loss of writes between backup and incident;
 - a restore-to-new-project rehearsal has passed.
 
-If neither path passes, backup status is `FAIL` and deployment is `NO-GO`.
+If neither path passes, report backup status as `FAIL`. Without founder
+authorization, the default recommendation is `NO-GO`; with a scoped founder
+waiver it is a warning unless it creates a genuine hard blocker.
 
 ## 3. Restore confidence
 

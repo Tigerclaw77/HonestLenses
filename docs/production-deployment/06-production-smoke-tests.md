@@ -1,5 +1,7 @@
 # Ordered production smoke tests
 
+> Governance: [Founder authority policy](00-founder-authority.md). Select tests that exercise the requested change and its real dependencies. Historical Stripe, write-drain, Commerce v2, and fixed-ledger checks are not universal gates. Never improvise a production mutation outside the authorized scope.
+
 Use unique test identifiers and record every request/order/PaymentIntent/event
 ID in the deployment log. Stop on the first critical failure.
 
@@ -100,7 +102,7 @@ Use existing/canary records. Do not mutate a real customer's order.
 | # | Test | Expected |
 | ---: | --- | --- |
 | 5.1 | Post-migration assertions | 12/12 `PASS` |
-| 5.2 | Migration history | exactly three reviewed versions |
+| 5.2 | Migration history | historical rows match dynamically; exactly the scoped new migration(s) were added |
 | 5.3 | RLS flags | every reviewed public/Commerce table enabled |
 | 5.4 | Grants | anon/auth denied protected DML/RPC; service role works |
 | 5.5 | Owners/default ACL | exact reviewed `postgres` state |
@@ -122,7 +124,4 @@ Use existing/canary records. Do not mutate a real customer's order.
 
 ## Completion
 
-Critical tests are 0.1–0.4, 1.5–1.10, 2.4–2.6, 4.1–4.10, 5.1–5.8,
-and 6.1–6.7. Any critical `FAIL` requires write drain and rollback/forward
-recovery decision. An unauthorized live-canary test remains `NOT VERIFIED` but
-does not authorize a financial mutation.
+Record every result without manufacturing evidence. Failures relevant to the requested change require evaluation and may expose a genuine hard blocker; unrelated or explicitly waived checks are warnings under a scoped founder override. A live canary outside the authorized scope remains prohibited and does not authorize a financial mutation.

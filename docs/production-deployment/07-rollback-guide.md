@@ -1,5 +1,7 @@
 # Operational rollback and recovery guide
 
+> Governance: [Founder authority policy](00-founder-authority.md). This is the default recovery guidance; explicit scoped founder decisions control whether advisory rehearsal and ceremony are required.
+
 Database rollback is not the default response. First determine whether the
 failure is pre-commit, post-commit but forward-compatible, or destructive.
 

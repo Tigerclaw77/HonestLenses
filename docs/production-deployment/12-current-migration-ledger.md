@@ -1,5 +1,7 @@
 # Current production migration ledger
 
+> Governance: [Founder authority policy](00-founder-authority.md). This ledger supplies integrity evidence, not approval authority. Compare history dynamically and constrain execution to the exact founder-authorized migration scope.
+
 Verified against the Honest Lenses production Supabase project on
 2026-08-11 UTC.
 

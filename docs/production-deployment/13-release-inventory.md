@@ -1,5 +1,7 @@
 # Release-candidate inventory and classification
 
+> Governance: [Founder authority policy](00-founder-authority.md). This inventory applies only to its named release candidate and cannot impose scope on later hotfixes.
+
 Review scope: the 91 freeze-review entries (67 tracked changes and 24
 untracked paths), plus `src/proxy.ts` and `.gitattributes`, which were added
 solely to close the confirmed write-drain blocker and make documented SHA-256

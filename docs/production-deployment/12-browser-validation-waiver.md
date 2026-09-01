@@ -1,5 +1,7 @@
 # Hosted browser validation waiver
 
+> Governance: [Founder authority policy](00-founder-authority.md). This RC-specific waiver is historical. An explicit scoped founder instruction may waive browser ceremony without a separate signature; failed authentication or authorization enforcement remains a genuine blocker when the requested change depends on it.
+
 ## Scope
 
 Waiver ID: `HL-BROWSER-WAIVER-2026-07-29`
@@ -72,4 +74,6 @@ Founder/incident commander: ____________________
 UTC timestamp: ____________________
 Reason/conditions: __________________________________________________________
 
-An unsigned waiver is `NOT VERIFIED` and therefore `NO-GO`.
+For the historical release, an unsigned waiver was `NOT VERIFIED`. For future
+work, an explicit scoped founder instruction is the approval and no additional
+waiver signature is required.

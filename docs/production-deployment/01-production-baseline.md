@@ -1,5 +1,7 @@
 # Production baseline capture
 
+> Governance: [Founder authority policy](00-founder-authority.md). This capture procedure supplies evidence; release-specific filenames and ceremony are defaults, not vetoes after explicit scoped founder authorization.
+
 Purpose: create an authoritative, checksummed, read-only record of production
 immediately before migration. This is the only approved baseline-capture path.
 It does not use Docker or `supabase db dump`.
@@ -130,12 +132,11 @@ $dirty=git status --porcelain
 Assert-NativeSuccess 'git status'
 if ($dirty) { throw 'Baseline capture requires a clean checkout' }
 
+$expectedCommit='<full commit SHA from the founder-authorized scope>'
 $releaseCommit=git rev-parse HEAD
 Assert-NativeSuccess 'git rev-parse HEAD'
-$releaseTags=git tag --points-at HEAD
-Assert-NativeSuccess 'git tag --points-at HEAD'
-if ($releaseTags -notcontains 'hl-security-rc4-2026-07-30') {
-  throw 'Checkout is not the approved release tag'
+if ($releaseCommit -ne $expectedCommit) {
+  throw 'Checkout does not match the founder-authorized commit'
 }
 
 $expectedHashes=@{

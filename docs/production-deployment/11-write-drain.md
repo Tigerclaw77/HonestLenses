@@ -1,5 +1,7 @@
 # Production write drain
 
+> Governance: [Founder authority policy](00-founder-authority.md). This drain is a risk-control option for releases whose write behavior warrants it. It is not mandatory for every migration or deployment, and a scoped founder waiver converts it to a warning unless current technical conditions make a drain necessary to perform the requested operation safely at all.
+
 The release contains an executable request-level write drain in
 `src/proxy.ts`. It covers every non-safe method under `/api/:path*` plus
 `POST /admin/orders/image-url`. `GET`, `HEAD`, and `OPTIONS` remain available.

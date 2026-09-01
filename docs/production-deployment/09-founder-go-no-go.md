@@ -11,8 +11,10 @@
 
 # Founder Go/No-Go — Honest Lenses production migration
 
+> Governance: [Founder authority policy](00-founder-authority.md). This is an advisory risk worksheet for the July Commerce v2 package. It is not an approval authority for unrelated releases. `FOUNDER_GO=1` plus exact authorized scope satisfies repository GO/signoff requirements; only genuine hard blockers stop execution.
+
 Release/commit: __________  Window (UTC): __________  Founder: __________
-Rule: every required item must be `PASS`; `NOT VERIFIED` is a `NO-GO`.
+Default recommendation without founder authorization: every applicable item should be `PASS`. With explicit scoped founder authorization, `FAIL` and `NOT VERIFIED` remain visible warnings unless they identify a genuine hard blocker. No separate signature or checklist approval is required.
 
 | # | Gate | Decision: check one | Current preparation evidence |
 | ---: | --- | --- | --- |
@@ -45,5 +47,4 @@ Decision: ☐ GO  ☐ NO-GO
 Conditions/notes: ____________________________________________________________
 Founder signature/time: ____________________  Database operator: ____________________
 
-Current package recommendation: **PACKAGE READY FOR EXECUTION-TIME CHECKS;
-DEPLOYMENT NOT AUTHORIZED**.
+Historical package recommendation: **READY FOR EXECUTION-TIME CHECKS**. For a current release, the founder's explicit scoped instruction is the authorization.

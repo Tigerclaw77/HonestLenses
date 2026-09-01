@@ -1,5 +1,11 @@
 # Production deployment runbook
 
+> Governance: [Founder authority policy](00-founder-authority.md). This sequence is the default for the July Commerce v2 release. For a later scoped change, use the exact requested commit and dynamically verified pending migration set. Under `FOUNDER_GO=1`, waived or irrelevant steps are warnings; only canonical genuine hard blockers stop execution.
+
+## Scope before ceremony
+
+Record the exact commit, migration filenames, target project, and founder-authorized waivers. Do not import this document's RC tag, fixed migration count, Commerce v2, Stripe canary, restore rehearsal, browser waiver, or write-drain requirements into an unrelated release. Validate the decision with `npm run governance:check` and the exact requested scopes.
+
 Version: **1.2.0** — Effective: **2026-07-30**
 
 This document is preparation only. Do not execute it without a separate,
@@ -26,8 +32,9 @@ The database operator must not self-approve a failed or ambiguous gate.
 ## T-24 hours
 
 1. Freeze database migrations and production DDL.
-2. Check out annotated tag `hl-security-rc4-2026-07-30`, verify its commit,
-   and require `git status --porcelain` to return no output.
+2. Check out the exact full commit SHA in the founder-authorized scope, verify
+   `HEAD` matches it, and exclude all unrelated working-tree changes from the
+   release artifact. An annotated tag is optional unless the scope names one.
 3. Complete [Production baseline capture](01-production-baseline.md) using the
    production database owner through the Supabase Shared Pooler in Session
    mode on port `5432`. Every repository SQL capture must begin a server-
@@ -87,7 +94,7 @@ The database operator must not self-approve a failed or ambiguous gate.
     drive and `bitlocker-status.txt` shows `Fully Encrypted`, `100%`, and
     `Protection On`.
 
-Any missing item is `NO-GO`.
+Absent evidence must be reported accurately. Without founder authorization the default recommendation is `NO-GO`; with a scoped founder override, absent or waived advisory evidence is a warning unless it exposes a genuine hard blocker.
 
 ## T-30 minutes
 
@@ -158,9 +165,7 @@ rehearsal.
 
 ## Final go/no-go
 
-The founder reads and signs [Founder Go/No-Go](09-founder-go-no-go.md).
-
-Proceed only when every required row is `PASS`.
+The founder may use [Founder Go/No-Go](09-founder-go-no-go.md) as a risk worksheet. An explicit scoped founder instruction is itself the GO decision and requires no additional signature or ceremony. Proceed after the executable scope check unless a genuine hard blocker is present.
 
 ## Migration execution
 

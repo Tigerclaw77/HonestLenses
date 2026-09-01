@@ -1,5 +1,7 @@
 # Repository-to-production drift verification
 
+> Governance: [Founder authority policy](00-founder-authority.md). The fixed files and counts below describe the July Commerce v2 package only. Future work compares the production ledger dynamically and requires only the exact reviewed migration(s) in the authorized scope.
+
 The repository and production are expected to differ only by two reviewed,
 pending migrations. The legacy production schema is represented by the
 approved baseline artifact, not by a complete historical migration chain.
@@ -14,7 +16,7 @@ approved baseline artifact, not by a complete historical migration chain.
 Do not compare production against synthetic files under `supabase/validation`;
 they are test fixtures, not production migrations.
 
-## Required repository state
+## July package repository state
 
 Exactly these migration files may exist:
 
@@ -44,7 +46,11 @@ Get-ChildItem 'supabase/migrations' -File -Filter '*.sql' |
   Get-FileHash -Algorithm SHA256
 ```
 
-Any extra, missing, renamed, or changed migration is `FAIL`.
+For this historical package, any extra, missing, renamed, or changed migration
+was a review failure. For later releases, extra migration files are not a veto:
+the dry run must prove that only the explicitly authorized migration is pending
+for application. Unrelated pending migrations are a scope mismatch and remain
+a hard blocker until excluded.
 
 ## Migration-history comparison
 

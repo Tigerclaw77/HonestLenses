@@ -1,5 +1,7 @@
 # Final migration package
 
+> Governance: [Founder authority policy](00-founder-authority.md). The fixed migrations below belong only to the named July package. Future releases determine the exact authorized pending migration set dynamically.
+
 Pinned executor: Supabase CLI `2.109.1`
 Migration role: `postgres`
 Commerce v2 flag: `false`
