@@ -305,6 +305,14 @@ class MemoryStripe implements StripeGateway {
     this.current = intent({ amount, amount_capturable: amount });
     return this.result("update", key);
   }
+  updatePaymentIntentReceiptEmail(
+    _id: string,
+    receiptEmail: string,
+    key: string,
+  ) {
+    this.current = intent({ receipt_email: receiptEmail });
+    return this.result("update-receipt-email", key);
+  }
   capturePaymentIntent(_id: string, amount: number, key: string) {
     this.current = intent({
       amount_capturable: 0,
@@ -447,6 +455,7 @@ async function main() {
     repository: captureRepository,
     stripe: captureStripe,
     now: () => new Date("2026-07-29T12:00:00.000Z"),
+    createReceiptSnapshot: async () => true,
   });
   await captureService.createOrReusePayment(ORDER.id);
   const captured = await captureService.capture(ORDER.id);

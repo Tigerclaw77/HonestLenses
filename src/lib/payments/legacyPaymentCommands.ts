@@ -1,9 +1,11 @@
 import Stripe from "stripe";
+import { createHash } from "node:crypto";
 import { getCaptureAmountCents } from "@/lib/payments/captureAmount";
 import {
   getCaptureReadiness,
   getRequiredPaymentIntentId,
 } from "@/lib/orders/captureReadiness";
+import { ensureReceiptSnapshotWithoutAffectingPayment } from "@/lib/receipts/server";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -14,7 +16,27 @@ type PaymentCommandOrder = {
   capture_amount_cents?: number | null;
   feedback_credit_cents?: number | null;
   authorization_expires_at?: string | number | Date | null;
+  shipping_email?: string | null;
 };
+
+type LegacyStripeCommands = Pick<Stripe, "paymentIntents">;
+
+type CaptureDependencies = {
+  stripe?: LegacyStripeCommands;
+  createReceiptSnapshot?: typeof ensureReceiptSnapshotWithoutAffectingPayment;
+};
+
+function normalizedReceiptEmail(value?: string | null): string {
+  const email = value?.trim().toLowerCase() ?? "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("A verified checkout email is required before capture");
+  }
+  return email;
+}
+
+function receiptEmailKey(email: string): string {
+  return createHash("sha256").update(email).digest("hex").slice(0, 24);
+}
 
 export type CaptureReason =
   | "active-verification"
@@ -37,15 +59,23 @@ const CANCELLABLE_STATUSES = new Set<Stripe.PaymentIntent.Status>([
 export async function captureAuthorizedOrderPayment(
   order: PaymentCommandOrder,
   reason: CaptureReason,
+  dependencies: CaptureDependencies = {},
 ): Promise<{ paymentIntentId: string; alreadyCaptured: boolean }> {
+  const stripeCommands = dependencies.stripe ?? stripe;
   const paymentIntent = getRequiredPaymentIntentId(order);
   if (!paymentIntent.ok) throw new Error(paymentIntent.error);
 
-  const intent = await stripe.paymentIntents.retrieve(
+  const intent = await stripeCommands.paymentIntents.retrieve(
     paymentIntent.paymentIntentId,
   );
   const readiness = getCaptureReadiness(order, intent);
   if (readiness.reason === "already_captured") {
+    await (dependencies.createReceiptSnapshot ??
+      ensureReceiptSnapshotWithoutAffectingPayment)(
+      order.id,
+      paymentIntent.paymentIntentId,
+      "capture",
+    );
     return {
       paymentIntentId: paymentIntent.paymentIntentId,
       alreadyCaptured: true,
@@ -56,13 +86,29 @@ export async function captureAuthorizedOrderPayment(
   }
 
   const amountToCapture = getCaptureAmountCents(order);
-  await stripe.paymentIntents.capture(
+  const receiptEmail = normalizedReceiptEmail(order.shipping_email);
+  if (intent.receipt_email?.trim().toLowerCase() !== receiptEmail) {
+    await stripeCommands.paymentIntents.update(
+      paymentIntent.paymentIntentId,
+      { receipt_email: receiptEmail },
+      {
+        idempotencyKey: `legacy:${order.id}:receipt-email:${receiptEmailKey(receiptEmail)}`,
+      },
+    );
+  }
+  await stripeCommands.paymentIntents.capture(
     paymentIntent.paymentIntentId,
     { amount_to_capture: amountToCapture },
     {
       idempotencyKey:
         `legacy:${order.id}:capture:${paymentIntent.paymentIntentId}:${reason}`,
     },
+  );
+  await (dependencies.createReceiptSnapshot ??
+    ensureReceiptSnapshotWithoutAffectingPayment)(
+    order.id,
+    paymentIntent.paymentIntentId,
+    "capture",
   );
   return {
     paymentIntentId: paymentIntent.paymentIntentId,

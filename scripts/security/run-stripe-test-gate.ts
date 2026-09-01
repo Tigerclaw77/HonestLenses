@@ -58,8 +58,8 @@ async function expectStripeFailure(
 
 async function main() {
   const envPath = path.resolve(process.cwd(), ".env.local");
-  const env = parseEnvFile(await readFile(envPath, "utf8"));
-  const testKey = env.STRIPE_SECRET_KEY_TEST;
+  const env = parseEnvFile(await readFile(envPath, "utf8").catch(() => ""));
+  const testKey = process.env.STRIPE_SECRET_KEY_TEST ?? env.STRIPE_SECRET_KEY_TEST;
   assert(testKey, "STRIPE_SECRET_KEY_TEST is required");
   assert(
     testKey.startsWith("sk_test_"),
@@ -174,6 +174,17 @@ assert(
   captureIntent.status === "requires_capture",
   `Expected requires_capture, received ${captureIntent.status}`,
 );
+const authorizedIntent = await stripe.paymentIntents.retrieve(captureIntent.id, {
+  expand: ["latest_charge"],
+});
+const authorizedCharge =
+  typeof authorizedIntent.latest_charge === "object"
+    ? authorizedIntent.latest_charge
+    : null;
+assert(
+  authorizedIntent.amount_received === 0 && authorizedCharge?.captured === false,
+  "The manual authorization was unexpectedly captured before the capture command",
+);
 
 const captureFailure = await expectStripeFailure(
   () =>
@@ -194,14 +205,17 @@ const captureOrder = {
   id: "aaaaaaaa-1111-4111-8111-111111111111",
   payment_intent_id: captureIntent.id,
   total_amount_cents: 1_099,
+  shipping_email: "receipt-gate@example.invalid",
 };
 const firstCapture = await captureAuthorizedOrderPayment(
   captureOrder,
   "admin-verification",
+  { createReceiptSnapshot: async () => true },
 );
 const secondCapture = await captureAuthorizedOrderPayment(
   captureOrder,
   "admin-verification",
+  { createReceiptSnapshot: async () => true },
 );
 assert(!firstCapture.alreadyCaptured, "First capture was reported as duplicate");
 assert(secondCapture.alreadyCaptured, "Capture retry did not converge");
@@ -212,6 +226,10 @@ assert(
   capturedIntent.status === "succeeded" &&
     capturedIntent.amount_received === 1_099,
   "Capture did not produce one complete test-mode payment",
+);
+assert(
+  capturedIntent.receipt_email === captureOrder.shipping_email,
+  "The final checkout email was not assigned as receipt_email before capture",
 );
 
 const refundFailure = await expectStripeFailure(
@@ -380,6 +398,8 @@ for (const paymentIntentId of createdIntentIds) {
             firstAlreadyCaptured: firstCapture.alreadyCaptured,
             secondAlreadyCaptured: secondCapture.alreadyCaptured,
             amountReceived: capturedIntent.amount_received,
+            receiptEmailAssigned: true,
+            noChargeBeforeCapture: true,
           },
           refundFailure,
           refundRetry: {

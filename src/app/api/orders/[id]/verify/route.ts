@@ -45,6 +45,7 @@ export async function POST(
       revised_total_amount_cents,
       allow_price_increase,
       allow_price_decrease
+      ,shipping_email
     `)
     .eq("id", orderId)
     .single();

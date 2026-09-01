@@ -14,6 +14,7 @@ import {
   processLegacyStripeWebhook,
   type LegacyStripeWebhookRepository,
 } from "@/lib/payments/legacyStripeWebhook";
+import { ensureReceiptSnapshotWithoutAffectingPayment } from "@/lib/receipts/server";
 
 const legacyRepository: LegacyStripeWebhookRepository = {
   async findOrder(orderId, paymentIntentId) {
@@ -79,6 +80,19 @@ export async function POST(request: Request) {
         event,
         legacyRepository,
       );
+      if (
+        event.type === "payment_intent.succeeded" &&
+        result.orderId &&
+        !result.ignored
+      ) {
+        const intent = event.data.object;
+        await ensureReceiptSnapshotWithoutAffectingPayment(
+          result.orderId,
+          intent.id,
+          "stripe_webhook",
+          new Date(event.created * 1000).toISOString(),
+        );
+      }
       return NextResponse.json({
         received: true,
         mode: "legacy",

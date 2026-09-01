@@ -161,6 +161,10 @@ export const ROUTE_AUTHORIZATION_POLICY: Record<string, RoutePolicy> = {
     access: "public",
     guard: "rateLimit",
   },
+  "src/app/api/receipts/find/route.ts": {
+    access: "public",
+    guard: "rateLimit",
+  },
   "src/app/api/verification/complete/route.ts": {
     access: "internal",
     guard: "requireInternalScope",

@@ -6,12 +6,12 @@ import {
   hasOrderAccessContext,
 } from "@/lib/order-access";
 import {
-  buildCustomerReceiptHtml,
   CUSTOMER_ORDER_SELECT,
   isCustomerOrderId,
   isCustomerReceiptAvailable,
   type CustomerOrder,
 } from "@/lib/orders/customerOrder";
+import { issueReceiptAccessToken } from "@/lib/receipts/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,18 +47,9 @@ export async function GET(
     });
   }
 
-  const download = request.nextUrl.searchParams.get("download") === "1";
-  const disposition = download
-    ? `attachment; filename="honest-lenses-receipt-${order.id}.html"`
-    : "inline";
-
-  return new Response(buildCustomerReceiptHtml(order), {
-    headers: {
-      "Cache-Control": "private, no-store, max-age=0",
-      "Content-Disposition": disposition,
-      "Content-Type": "text/html; charset=utf-8",
-      "Referrer-Policy": "no-referrer",
-      "X-Robots-Tag": "noindex, nofollow",
-    },
-  });
+  const accessToken = await issueReceiptAccessToken(order.id, "order_status");
+  return Response.redirect(
+    new URL(`/receipt/${encodeURIComponent(accessToken.token)}`, request.url),
+    303,
+  );
 }

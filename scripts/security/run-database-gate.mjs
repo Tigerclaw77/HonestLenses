@@ -808,6 +808,20 @@ async function runGate(client, connectionConfig) {
     "Write-drain observation SQL did not return the expected read-only document",
   );
 
+  applied.push(
+    await applySqlFile(
+      client,
+      path.join(
+        migrationDirectory,
+        "20260901161929_add_secure_receipt_system.sql",
+      ),
+      {
+        version: "20260901161929",
+        name: "add_secure_receipt_system",
+      },
+    ),
+  );
+
   const missingViews = await client.query(`
     select
       to_regclass('public.admin_orders') is null as admin_orders_absent,
@@ -835,6 +849,8 @@ async function runGate(client, connectionConfig) {
     "order_email_deliveries",
     "order_events",
     "order_items",
+    "order_receipt_access_tokens",
+    "order_receipt_snapshots",
     "order_resume_tokens",
     "orders",
     "patients",
@@ -1133,6 +1149,34 @@ async function runGate(client, connectionConfig) {
     [itemId],
   );
 
+  const receiptOrderId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  await executeAs(
+    client,
+    "service_role",
+    `
+      insert into public.order_receipt_snapshots (
+        order_id, customer_order_number, snapshot, captured_amount_cents,
+        currency, captured_at, source
+      )
+      values ($1, 'HL-2026-SECURITYGATE', '{"version":1}', 1099, 'USD', now(), 'capture')
+    `,
+    [receiptOrderId],
+  );
+  await expectDatabaseError(
+    client,
+    "service_role",
+    "update public.order_receipt_snapshots set captured_amount_cents = 1100 where order_id = $1",
+    "55000",
+    [receiptOrderId],
+  );
+  await expectDatabaseError(
+    client,
+    "service_role",
+    "delete from public.order_receipt_snapshots where order_id = $1",
+    "55000",
+    [receiptOrderId],
+  );
+
   const advisorEquivalent = await client.query(`
     with exposed_roles(role_name) as (
       values ('anon'::name), ('authenticated'::name)
@@ -1300,6 +1344,7 @@ async function runGate(client, connectionConfig) {
       privilegeEscalation: "denied",
       sharedGuestOwnerRemoved: true,
       appendOnlyMutation: "denied with SQLSTATE 55000",
+      receiptSnapshotMutation: "update and delete denied with SQLSTATE 55000",
       adminOverrideAudit: adminAudit.rows[0],
     },
     securityDefiner: {

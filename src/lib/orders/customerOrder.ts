@@ -27,6 +27,7 @@ export const CUSTOMER_ORDER_SELECT = `
   shipping_first_name,
   shipping_last_name,
   vision_insurance_carrier
+  ,customer_order_number
 `;
 
 export type CustomerOrder = {
@@ -52,6 +53,7 @@ export type CustomerOrder = {
   shipping_first_name: string | null;
   shipping_last_name: string | null;
   vision_insurance_carrier: string | null;
+  customer_order_number?: string | null;
 };
 
 export type CustomerOrderQuantities = {
@@ -160,11 +162,15 @@ export function getCustomerOrderUrl(orderId: string, siteUrl?: string): string {
 
 export function buildCustomerOrderEmail({
   orderId,
+  customerOrderNumber,
+  receiptUrl,
   isUploaded,
   uploadedVerificationComplete = false,
   siteUrl,
 }: {
   orderId: string;
+  customerOrderNumber: string;
+  receiptUrl: string;
   isUploaded: boolean;
   uploadedVerificationComplete?: boolean;
   siteUrl?: string;
@@ -182,13 +188,17 @@ export function buildCustomerOrderEmail({
     html: `
       <h2>Thank you for your order</h2>
       <p>Your order has been received and is now being processed.</p>
-      <p><strong>Order ID:</strong> ${orderId}</p>
+      <p><strong>Order number:</strong> ${escapeHtml(customerOrderNumber)}</p>
       <p>${verificationMessage}</p>
-      <p><a href="${orderUrl}">View Your Order</a></p>
+      <p><a href="${escapeHtml(orderUrl)}">View Your Order</a></p>
+      <hr style="border:0;border-top:1px solid #d9dee8;margin:24px 0" />
+      <h3>Using HSA/FSA funds or requesting reimbursement?</h3>
+      <p>Download an itemized receipt for your records.</p>
+      <p><a href="${escapeHtml(receiptUrl)}" style="display:inline-block;padding:12px 18px;background:#1d4ed8;color:#fff;text-decoration:none;border-radius:8px">Download itemized receipt</a></p>
       <p>You will receive updates as your order progresses.</p>
       <p>- Honest Lenses</p>
     `,
-    text: `Thank you for your order.\n\nOrder ID: ${orderId}\n\n${verificationMessage}\n\nView Your Order: ${orderUrl}\n\n- Honest Lenses`,
+    text: `Thank you for your order.\n\nOrder number: ${customerOrderNumber}\n\n${verificationMessage}\n\nView Your Order: ${orderUrl}\n\nUsing HSA/FSA funds or requesting reimbursement?\nDownload an itemized receipt for your records.\nDownload itemized receipt: ${receiptUrl}\n\n- Honest Lenses`,
   };
 }
 

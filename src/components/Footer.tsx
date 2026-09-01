@@ -26,6 +26,7 @@ export default function Footer({ variant = "default" }: { variant?: "default" | 
             <Link href="/vision-benefits">Vision Insurance &amp; HSA/FSA</Link>
             <Link href="/guides">Lens guides</Link>
             <Link href="/resume-order">Resume an order</Link>
+            <Link href="/find-receipt">Find your receipt</Link>
             <Link href="/contact">Contact</Link>
           </nav>
           <nav aria-label="Company">
@@ -58,6 +59,7 @@ export default function Footer({ variant = "default" }: { variant?: "default" | 
         <Link href="/verification">Prescription Verification</Link>
         <Link href="/vision-benefits">Vision Insurance &amp; HSA/FSA</Link>
         <Link href="/resume-order">Resume an Order</Link>
+        <Link href="/find-receipt">Find Your Receipt</Link>
         <Link href="/contact">Contact</Link>
       </nav>
     </footer>

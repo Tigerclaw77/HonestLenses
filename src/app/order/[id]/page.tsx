@@ -20,6 +20,10 @@ import {
   type CustomerOrder,
 } from "@/lib/orders/customerOrder";
 import { getVisionCarrier } from "@/lib/visionBenefits";
+import {
+  ensureCustomerOrderNumber,
+  issueReceiptAccessToken,
+} from "@/lib/receipts/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -58,6 +62,11 @@ export default async function OrderPage({ params }: PageProps) {
   );
   const receiptAvailable = isCustomerReceiptAvailable(order);
   const visionCarrier = getVisionCarrier(order.vision_insurance_carrier);
+  const customerOrderNumber =
+    order.customer_order_number || (await ensureCustomerOrderNumber(order.id));
+  const receiptAccess = receiptAvailable
+    ? await issueReceiptAccessToken(order.id, "order_status").catch(() => null)
+    : null;
 
   return (
     <main style={{ padding: "40px 20px 64px" }}>
@@ -68,7 +77,7 @@ export default async function OrderPage({ params }: PageProps) {
           </p>
           <h1 style={{ fontSize: 34, margin: 0 }}>Your Order</h1>
           <p style={{ color: "#94a3b8", overflowWrap: "anywhere" }}>
-            Order {order.id}
+            Order {customerOrderNumber}
           </p>
         </header>
 
@@ -108,29 +117,18 @@ export default async function OrderPage({ params }: PageProps) {
 
         <section className="order-card">
           <h2 style={{ fontSize: 20, marginTop: 0 }}>
-            Vision plan / HSA-FSA receipt
+            Using HSA/FSA funds or requesting reimbursement?
           </h2>
           <p style={{ color: "#cbd5e1", lineHeight: 1.6 }}>
             {receiptAvailable
-              ? "Your itemized paid receipt is ready to view or download."
+              ? "Download an itemized receipt for your records."
               : "Your itemized receipt will be available here after payment is successfully captured."}
           </p>
-          {receiptAvailable ? <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <a className="primary-btn" href={`/order/${order.id}/receipt`}>
-              View receipt
+          {receiptAvailable && receiptAccess ? (
+            <a className="primary-btn" href={`/receipt/${encodeURIComponent(receiptAccess.token)}`}>
+              Download itemized receipt
             </a>
-            <a
-              className="primary-btn"
-              href={`/order/${order.id}/receipt?download=1`}
-              style={{
-                background: "rgba(148, 163, 184, 0.16)",
-                borderColor: "rgba(148, 163, 184, 0.32)",
-                boxShadow: "none",
-              }}
-            >
-              Download receipt
-            </a>
-          </div> : null}
+          ) : null}
           {receiptAvailable && visionCarrier && "helpUrl" in visionCarrier ? (
             <div style={{ marginTop: 24 }}>
               <h3 style={{ fontSize: 16, marginBottom: 8 }}>

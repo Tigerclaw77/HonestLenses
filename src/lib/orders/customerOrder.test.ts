@@ -47,6 +47,8 @@ assert.equal(getCustomerPaymentStatus(order), "Paid");
 
 const confirmation = buildCustomerOrderEmail({
   orderId: ORDER_ID,
+  customerOrderNumber: "HL-2026-A1B2C3D4E5F6",
+  receiptUrl: "https://www.honestlenses.com/receipt/secure_test_token_abcdefghijklmnopqrstuvwxyz",
   isUploaded: false,
   siteUrl: "https://www.honestlenses.com/",
 });
@@ -58,9 +60,14 @@ assert.equal(
 assert.match(confirmation.html, /View Your Order/);
 assert.match(confirmation.html, new RegExp(`/order/${ORDER_ID}`));
 assert.match(confirmation.text, new RegExp(`/order/${ORDER_ID}`));
+assert.match(confirmation.html, /Using HSA\/FSA funds or requesting reimbursement\?/);
+assert.match(confirmation.html, /Download itemized receipt/);
+assert.doesNotMatch(confirmation.html, /receipt\/[0-9a-f-]{36}/i);
 
 const automatedUploadConfirmation = buildCustomerOrderEmail({
   orderId: ORDER_ID,
+  customerOrderNumber: "HL-2026-A1B2C3D4E5F6",
+  receiptUrl: "https://www.honestlenses.com/receipt/secure_test_token_abcdefghijklmnopqrstuvwxyz",
   isUploaded: true,
   uploadedVerificationComplete: true,
 });

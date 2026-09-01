@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { createHash } from "node:crypto";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { POSTHOG_EVENTS } from "../../../../lib/posthog/events";
 import {
@@ -34,7 +35,16 @@ type CheckoutPaymentOrder = {
   manufacturer: string | null;
   sku: string | null;
   payment_attempt_generation: number;
+  shipping_email: string | null;
 };
+
+function verifiedCheckoutEmail(value: string | null): string {
+  const email = value?.trim().toLowerCase() ?? "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("A valid checkout email is required before payment.");
+  }
+  return email;
+}
 
 function paymentResponse(
   order: CheckoutPaymentOrder,
@@ -148,7 +158,8 @@ export async function POST(req: Request) {
         manufacturer,
         sku,
         payment_intent_id,
-        payment_attempt_generation
+        payment_attempt_generation,
+        shipping_email
       `)
       .eq("id", orderId)
       .eq("status", "draft")
@@ -166,8 +177,10 @@ export async function POST(req: Request) {
     }
 
     let amountDueCents: number;
+    let receiptEmail: string;
     try {
       amountDueCents = getCheckoutAmountCents(order);
+      receiptEmail = verifiedCheckoutEmail(order.shipping_email);
     } catch (error) {
       return NextResponse.json(
         {
@@ -247,8 +260,11 @@ export async function POST(req: Request) {
             advanced.payment_attempt_generation;
           order.payment_intent_id = null;
         } else {
-          if (existing.amount !== amountDueCents) {
-            if (existing.status === "requires_capture") {
+          const amountChanged = existing.amount !== amountDueCents;
+          const receiptChanged =
+            existing.receipt_email?.trim().toLowerCase() !== receiptEmail;
+          if (amountChanged || receiptChanged) {
+            if (amountChanged && existing.status === "requires_capture") {
               await stripe.paymentIntents.cancel(
                 existing.id,
                 undefined,
@@ -283,7 +299,8 @@ export async function POST(req: Request) {
               const updated = await stripe.paymentIntents.update(
                 order.payment_intent_id,
                 {
-                  amount: amountDueCents,
+                  ...(amountChanged ? { amount: amountDueCents } : {}),
+                  receipt_email: receiptEmail,
                   metadata: {
                     order_id: order.id,
                     user_id: access.userId ?? "",
@@ -298,7 +315,11 @@ export async function POST(req: Request) {
                 },
                 {
                   idempotencyKey:
-                    `legacy:${order.id}:update:${existing.id}:${amountDueCents}`,
+                    `legacy:${order.id}:update:${existing.id}:${amountDueCents}:` +
+                    createHash("sha256")
+                      .update(receiptEmail)
+                      .digest("hex")
+                      .slice(0, 24),
                 },
               );
 
@@ -326,6 +347,7 @@ export async function POST(req: Request) {
         currency: "usd",
         capture_method: "manual",
         automatic_payment_methods: { enabled: true },
+        receipt_email: receiptEmail,
         metadata: {
           order_id: order.id,
           user_id: access.userId ?? "",

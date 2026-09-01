@@ -21,6 +21,11 @@ type Dependencies = {
   repository: CommerceRepository;
   stripe: StripeGateway;
   now: () => Date;
+  createReceiptSnapshot?: (
+    orderId: string,
+    paymentIntentId: string,
+    source: "capture",
+  ) => Promise<boolean>;
 };
 
 function stableHash(value: Record<string, unknown>): string {
@@ -61,11 +66,26 @@ export class CommerceService {
   private readonly repository: CommerceRepository;
   private readonly stripe: StripeGateway;
   private readonly now: () => Date;
+  private readonly createReceiptSnapshot: NonNullable<
+    Dependencies["createReceiptSnapshot"]
+  >;
 
   constructor(dependencies: Dependencies) {
     this.repository = dependencies.repository;
     this.stripe = dependencies.stripe;
     this.now = dependencies.now;
+    this.createReceiptSnapshot =
+      dependencies.createReceiptSnapshot ??
+      (async (orderId, paymentIntentId, source) => {
+        const { ensureReceiptSnapshotWithoutAffectingPayment } = await import(
+          "@/lib/receipts/server"
+        );
+        return ensureReceiptSnapshotWithoutAffectingPayment(
+          orderId,
+          paymentIntentId,
+          source,
+        );
+      });
   }
 
   async createOrReusePayment(orderId: string): Promise<CommerceMutationResult> {
@@ -100,6 +120,7 @@ export class CommerceService {
             currency: order.currency,
             orderId: order.id,
             customerUserId: order.customer_user_id,
+            receiptEmail: this.requireReceiptEmail(order.customer_email),
           },
           key,
         ),
@@ -145,7 +166,19 @@ export class CommerceService {
       throw new Error("Capture amount exceeds Stripe's capturable amount");
     }
     const key = logicalKey(order.id, "capture", String(captureAmount));
-    return this.runIntentOperation({
+    const receiptEmail = this.requireReceiptEmail(order.customer_email);
+    const receiptEmailKey = createHash("sha256")
+      .update(receiptEmail)
+      .digest("hex")
+      .slice(0, 24);
+    if (payment.stripe_snapshot.receipt_email !== receiptEmail) {
+      await this.stripe.updatePaymentIntentReceiptEmail(
+        payment.stripe_payment_intent_id,
+        receiptEmail,
+        logicalKey(order.id, "update", `receipt-email:${receiptEmailKey}`),
+      );
+    }
+    const result = await this.runIntentOperation({
       order,
       operationType: "capture",
       idempotencyKey: key,
@@ -158,6 +191,12 @@ export class CommerceService {
           key,
         ),
     });
+    await this.createReceiptSnapshot(
+      order.id,
+      result.stripePaymentIntent.id,
+      "capture",
+    );
+    return result;
   }
 
   async cancel(orderId: string): Promise<CommerceMutationResult> {
@@ -320,5 +359,13 @@ export class CommerceService {
     if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
       throw new Error("Amount must be a positive integer number of cents");
     }
+  }
+
+  private requireReceiptEmail(value: string | null): string {
+    const email = value?.trim().toLowerCase() ?? "";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error("A verified checkout email is required before capture");
+    }
+    return email;
   }
 }

@@ -433,8 +433,8 @@ async function main() {
       "/order/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/receipt",
       { headers: bearer(users.customerA.accessToken) },
     );
-    assert.equal(apiResults.ownerReceipt.status, 200);
-    assert.match(apiResults.ownerReceipt.contentType, /text\/html/);
+    assert.equal(apiResults.ownerReceipt.status, 307);
+    assert.match(apiResults.ownerReceipt.location ?? "", /^\/receipt\/[A-Za-z0-9_-]+$/);
 
     apiResults.crossAccountReceipt = await request(
       baseUrl,

@@ -22,6 +22,11 @@ import {
 import { buildCustomerOrderEmail } from "@/lib/orders/customerOrder";
 import { sendFounderOperationalAlert } from "@/lib/founderAlerts";
 import {
+  ensureCustomerOrderNumber,
+  getReceiptUrl,
+  issueReceiptAccessToken,
+} from "@/lib/receipts/server";
+import {
   checkoutAmountMatchesPaymentIntent,
   getCheckoutAmountCents,
 } from "@/lib/payments/checkoutAmount";
@@ -476,8 +481,16 @@ export async function POST(req: Request) {
           actor: "system",
         });
       } else {
+        const customerOrderNumber = await ensureCustomerOrderNumber(orderId);
+        const receiptAccess = await issueReceiptAccessToken(
+          orderId,
+          "confirmation",
+        );
+        const receiptUrl = getReceiptUrl(receiptAccess.token);
         const confirmation = buildCustomerOrderEmail({
           orderId,
+          customerOrderNumber,
+          receiptUrl,
           isUploaded,
           uploadedVerificationComplete: uploadedAutoVerified,
         });
@@ -491,6 +504,7 @@ export async function POST(req: Request) {
             orderId,
             emailType: "order_confirmation",
           },
+          idempotencyKey: `order-confirmation:${orderId}`,
         });
       }
     } catch (err) {

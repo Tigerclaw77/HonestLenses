@@ -5,6 +5,7 @@ export type CreateIntentInput = {
   currency: string;
   orderId: string;
   customerUserId: string | null;
+  receiptEmail: string;
 };
 
 export interface StripeGateway {
@@ -18,6 +19,11 @@ export interface StripeGateway {
     id: string,
     amountCents: number,
     orderId: string,
+    idempotencyKey: string,
+  ): Promise<Stripe.PaymentIntent>;
+  updatePaymentIntentReceiptEmail(
+    id: string,
+    receiptEmail: string,
     idempotencyKey: string,
   ): Promise<Stripe.PaymentIntent>;
   capturePaymentIntent(
@@ -52,6 +58,7 @@ export function createStripeGateway(): StripeGateway {
           currency: input.currency.toLowerCase(),
           capture_method: "manual",
           automatic_payment_methods: { enabled: true },
+          receipt_email: input.receiptEmail,
           metadata: {
             order_id: input.orderId,
             customer_user_id: input.customerUserId ?? "",
@@ -80,6 +87,13 @@ export function createStripeGateway(): StripeGateway {
           amount: amountCents,
           metadata: { order_id: orderId, commerce_model: "v2" },
         },
+        { idempotencyKey },
+      );
+    },
+    updatePaymentIntentReceiptEmail(id, receiptEmail, idempotencyKey) {
+      return stripe.paymentIntents.update(
+        id,
+        { receipt_email: receiptEmail },
         { idempotencyKey },
       );
     },

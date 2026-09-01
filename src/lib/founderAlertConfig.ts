@@ -4,6 +4,8 @@ export const FOUNDER_ALERT_TYPES = [
   "verification_completed",
   "passive_verification_completed",
   "ready_to_order",
+  "receipt_snapshot_failed",
+  "receipt_access_email_failed",
 ] as const;
 
 export type FounderAlertType = (typeof FOUNDER_ALERT_TYPES)[number];
