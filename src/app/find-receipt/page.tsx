@@ -16,6 +16,11 @@ export default function FindReceiptPage() {
           display a receipt from this form. If the details match, we’ll email a
           secure, expiring access link to the checkout address on the order.
         </p>
+        <p style={{ color: "#cbd5e1", lineHeight: 1.7 }}>
+          The itemized receipt can be kept with HSA/FSA records or used as
+          documentation for a possible out-of-network vision-plan claim.
+          Eligibility and reimbursement depend on your plan.
+        </p>
         <FindReceiptForm />
         <style>{`
           .find-receipt-form{display:grid;gap:18px;margin-top:28px;padding:26px;background:rgba(15,23,42,.72);border:1px solid rgba(148,163,184,.2);border-radius:16px}

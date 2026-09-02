@@ -411,9 +411,11 @@ function CheckoutForm({
             your remaining allowance.
           </p>
           <p className={styles.benefitsNote}>
-            Eligible contact lens purchases can generally be paid with HSA/FSA
-            funds, subject to your plan rules. FSA deadlines and carryover rules
-            vary; HSA funds do not expire annually.
+            You may enter an HSA/FSA card in the secure payment field below.
+            Approval depends on your card issuer, plan rules, and merchant
+            eligibility, so Honest Lenses cannot guarantee acceptance. If you
+            pay another way, your itemized receipt may support a reimbursement
+            request, subject to your plan.
           </p>
           <Link href="/vision-benefits" className={styles.benefitsLink}>
             Vision insurance and HSA/FSA details

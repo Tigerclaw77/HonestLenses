@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase-client";
 
@@ -668,6 +669,18 @@ export default function CartPage() {
               <span>Total</span>
               <span>{fmtPrice(previewAmountDue)}</span>
             </div>
+          </div>
+
+          <div className="hl-benefits-note">
+            <div>
+              <strong>HSA/FSA and vision-benefit records</strong>
+              <p>
+                After payment is captured, you can access a secure itemized
+                receipt. Benefits-card approval and out-of-network reimbursement
+                depend on your plan and card issuer.
+              </p>
+            </div>
+            <Link href="/vision-benefits">Learn more</Link>
           </div>
 
           <button

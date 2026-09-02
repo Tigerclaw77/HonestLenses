@@ -61,7 +61,8 @@ assert.match(confirmation.html, /View Your Order/);
 assert.match(confirmation.html, new RegExp(`/order/${ORDER_ID}`));
 assert.match(confirmation.text, new RegExp(`/order/${ORDER_ID}`));
 assert.match(confirmation.html, /Using HSA\/FSA funds or requesting reimbursement\?/);
-assert.match(confirmation.html, /Download itemized receipt/);
+assert.match(confirmation.html, /Open secure receipt/);
+assert.match(confirmation.html, /after payment is captured/);
 assert.doesNotMatch(confirmation.html, /receipt\/[0-9a-f-]{36}/i);
 
 const automatedUploadConfirmation = buildCustomerOrderEmail({

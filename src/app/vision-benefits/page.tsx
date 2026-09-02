@@ -7,9 +7,9 @@ import Header from "@/components/Header";
 import styles from "./visionBenefits.module.css";
 
 export const metadata: Metadata = {
-  title: "Vision Insurance and HSA/FSA",
+  title: "Contact Lenses with HSA/FSA and Vision Insurance",
   description:
-    "Learn how Honest Lenses supports out-of-network vision reimbursement and itemized HSA/FSA receipts.",
+    "Learn how to use HSA/FSA funds for eligible contact lenses and get itemized documentation for possible out-of-network vision reimbursement.",
   alternates: { canonical: "/vision-benefits" },
 };
 
@@ -44,18 +44,61 @@ export default function VisionBenefitsPage() {
         </section>
 
         <section className={styles.section}>
-          <h2>HSA and FSA funds</h2>
+          <h2>Are contact lenses HSA/FSA eligible?</h2>
           <p>
-            Eligible contact lens purchases can generally be paid or reimbursed
-            with HSA/FSA funds, subject to your plan rules. Honest Lenses uses
-            the ordinary secure Stripe checkout and does not guarantee that a
-            particular benefits card or reimbursement request will be approved.
+            The IRS identifies contact lenses needed for medical reasons as a
+            medical expense. Whether your purchase can be paid or reimbursed
+            through a particular HSA or FSA still depends on your plan rules.
           </p>
           <p>
-            Your itemized receipt remains available from your customer order
-            page. FSA deadlines and carryover rules vary by employer plan; HSA
-            funds do not expire annually.
+            You may enter an HSA/FSA card in Honest Lenses&apos; secure Stripe
+            checkout. Card approval depends on the issuer, plan rules, and
+            merchant eligibility, so acceptance cannot be guaranteed. If you
+            pay another way, your itemized receipt may support a reimbursement
+            request.
           </p>
+          <a
+            className={styles.sourceLink}
+            href="https://www.irs.gov/publications/p502#en_US_2025_publink1000179016"
+          >
+            IRS Publication 502: Contact Lenses
+          </a>
+        </section>
+
+        <section className={styles.section}>
+          <h2>How to use your Honest Lenses documentation</h2>
+          <ol className={styles.steps}>
+            <li>
+              <strong>Check your benefits first.</strong> Confirm card rules,
+              allowance, filing deadline, and required documents with your plan.
+            </li>
+            <li>
+              <strong>Place your order.</strong> At checkout, optionally select
+              your vision carrier. This does not verify coverage or notify the
+              carrier.
+            </li>
+            <li>
+              <strong>Open your secure receipt.</strong> After payment is
+              captured, the itemized receipt is available from your order page
+              and confirmation-email link.
+            </li>
+            <li>
+              <strong>Submit directly to your plan.</strong> Use your carrier&apos;s
+              member portal or claim form. The plan decides eligibility and any
+              reimbursement amount.
+            </li>
+          </ol>
+        </section>
+
+        <section className={styles.section}>
+          <h2>What Honest Lenses does—and does not—do</h2>
+          <ul className={styles.checklist}>
+            <li>Provides a secure itemized receipt after payment capture.</li>
+            <li>Keeps receipt access available from the customer order page.</li>
+            <li>Provides carrier-specific official help links when available.</li>
+            <li>Does not bill vision plans or submit claims for customers.</li>
+            <li>Does not verify benefits or guarantee card or claim approval.</li>
+          </ul>
         </section>
 
         <div className={styles.actions}>
@@ -64,6 +107,9 @@ export default function VisionBenefitsPage() {
           </Link>
           <Link href="/resume-order" className={styles.secondaryLink}>
             Resume an order
+          </Link>
+          <Link href="/find-receipt" className={styles.secondaryLink}>
+            Find a past receipt
           </Link>
         </div>
       </main>

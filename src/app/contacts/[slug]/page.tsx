@@ -509,6 +509,23 @@ export default async function LensPage({ params }: Props) {
               </p>
             </section>
 
+            <section
+              className={styles.benefitsCallout}
+              aria-labelledby="benefits-documentation"
+            >
+              <p className={styles.benefitsEyebrow}>Benefits and receipts</p>
+              <h2 id="benefits-documentation">
+                Paying with HSA/FSA funds or using vision benefits?
+              </h2>
+              <p>
+                After payment is captured, Honest Lenses provides a secure
+                itemized receipt for your records. Benefits-card approval and
+                out-of-network reimbursement depend on your plan and card
+                issuer; reimbursement is not guaranteed.
+              </p>
+              <Link href="/vision-benefits">See how benefits documentation works</Link>
+            </section>
+
             <HonestPricePromise />
             <PurchaseTrust />
           </div>

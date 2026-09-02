@@ -53,6 +53,27 @@
   margin: 0.7rem 0 0;
 }
 
+.sourceLink {
+  display: inline-block;
+  margin-top: 1rem;
+  color: rgba(221, 214, 254, 0.92);
+  font-weight: 750;
+  text-underline-offset: 0.2em;
+}
+
+.steps,
+.checklist {
+  display: grid;
+  gap: 0.9rem;
+  margin: 1rem 0 0;
+  color: rgba(255, 255, 255, 0.76);
+  line-height: 1.65;
+}
+
+.steps { padding-left: 1.4rem; }
+.steps strong { color: #fff; }
+.checklist { padding-left: 1.2rem; }
+
 .actions {
   display: flex;
   flex-wrap: wrap;

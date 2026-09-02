@@ -306,6 +306,11 @@ export default function CheckoutSuccessPage() {
 
           <p className="hl-note">{noteText}</p>
 
+          <p className="hl-note" style={{ marginTop: 8 }}>
+            Need HSA/FSA or vision-plan documentation? Your secure order page
+            will provide an itemized receipt after payment is captured.
+          </p>
+
           {deadlineDate && isPassive && (
             <p className="hl-note" style={{ marginTop: 6 }}>
               Estimated verification window ends:{" "}

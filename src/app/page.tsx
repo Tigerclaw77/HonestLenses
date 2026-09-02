@@ -299,6 +299,44 @@ export default function HomePage() {
         </div>
       </section>
 
+      <section className="home-benefits" aria-labelledby="benefits-title">
+        <div className="home-benefits-inner">
+          <div className="home-benefits-heading">
+            <p>Benefits-ready documentation</p>
+            <h2 id="benefits-title">Use the benefits you already have.</h2>
+            <span>
+              Prescribed contact lenses may qualify for HSA/FSA funds or
+              out-of-network vision reimbursement, depending on your plan.
+            </span>
+          </div>
+          <div className="home-benefits-options">
+            <article>
+              <span aria-hidden="true">01</span>
+              <div>
+                <h3>HSA/FSA purchase records</h3>
+                <p>
+                  After payment is captured, access a secure itemized receipt for
+                  your plan records or a reimbursement request.
+                </p>
+              </div>
+            </article>
+            <article>
+              <span aria-hidden="true">02</span>
+              <div>
+                <h3>Using vision insurance?</h3>
+                <p>
+                  Honest Lenses does not bill plans directly. We make the
+                  documentation for a possible out-of-network claim easy to find.
+                </p>
+              </div>
+            </article>
+            <Link href="/vision-benefits">
+              How HSA/FSA and vision benefits work <span aria-hidden="true">→</span>
+            </Link>
+          </div>
+        </div>
+      </section>
+
       <section className="home-help" aria-labelledby="help-title">
         <div>
           <p>Prescription support</p>

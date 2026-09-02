@@ -207,6 +207,22 @@
   margin: 0.75rem 0 1rem;
 }
 
+.hl-benefits-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border: 1px solid rgba(196, 181, 253, 0.24);
+  border-radius: 10px;
+  background: rgba(76, 29, 149, 0.15);
+}
+
+.hl-benefits-note strong { color: #f5f3ff; }
+.hl-benefits-note p { margin: 0.35rem 0 0; color: rgba(255, 255, 255, 0.7); font-size: 0.82rem; line-height: 1.5; }
+.hl-benefits-note a { flex: 0 0 auto; color: #ddd6fe; font-size: 0.84rem; font-weight: 750; }
+
 /* =========================
    CTA
 ========================= */
@@ -252,4 +268,8 @@
   .hl-eye-total {
     min-width: 90px;
   }
+}
+
+@media (max-width: 600px) {
+  .hl-benefits-note { align-items: flex-start; flex-direction: column; }
 }

@@ -243,3 +243,29 @@
     gap: 0.25rem;
   }
 }
+
+.productDetails > .benefitsCallout {
+  padding: 1.2rem;
+  border: 1px solid rgba(196, 181, 253, 0.24);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(76, 29, 149, 0.2), rgba(15, 23, 42, 0.34));
+}
+
+.benefitsCallout .benefitsEyebrow {
+  margin: 0 0 0.45rem;
+  color: rgba(221, 214, 254, 0.84);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.benefitsCallout p:not(.benefitsEyebrow) {
+  margin: 0.7rem 0;
+}
+
+.benefitsCallout a {
+  color: #ddd6fe;
+  font-weight: 750;
+  text-underline-offset: 0.2em;
+}
