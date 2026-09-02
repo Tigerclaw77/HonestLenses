@@ -4,7 +4,7 @@ import next from "next";
 
 const port = 3107;
 const secret = "local-integrity-validation-secret";
-process.env.CRON_SECRET = secret;
+process.env.VERIFICATION_COMPLETE_SECRET = secret;
 
 const app = next({ dev: false, dir: process.cwd() });
 const handler = app.getRequestHandler();
