@@ -42,7 +42,7 @@ export const ADMIN_WORK_QUEUE_SECTIONS: ReadonlyArray<{
     key: "founder_review",
     title: "AUTHORIZED — RX REVIEW REQUIRED",
     description:
-      "Stripe payment is authorized. Review the uploaded prescription before the capture deadline.",
+      "Review the prescription and payment independently before supplier placement.",
   },
   {
     key: "ready_to_order",
@@ -54,7 +54,7 @@ export const ADMIN_WORK_QUEUE_SECTIONS: ReadonlyArray<{
     key: "resolve_exception",
     title: "Needs Attention",
     description:
-      "A specific payment, verification, supplier, or order issue needs founder action.",
+      "A specific payment, prescription, supplier, or order issue needs operator action.",
   },
 ];
 
@@ -528,9 +528,8 @@ function classify(
 
 export function classifyOperationalQueue(
   order: OperationalQueueOrder,
-  _options: OperationalQueueOptions = {},
+  options: OperationalQueueOptions = {},
 ): OperationalQueueClassification {
-  void _options;
   const payment = getPaymentState(order);
   const verification = getVerificationState(order);
   const rxSource = getRxSourceState(order);
@@ -564,6 +563,37 @@ export function classifyOperationalQueue(
     return classify("history_archive", false, ["terminal"], order);
   }
 
+  if (order.archived || order.archived_at) {
+    const coherentSupplierArchive =
+      payment.status === "captured" &&
+      SUPPLIER_MANAGED_FULFILLMENT_STATUSES.has(fulfillment);
+    if (coherentSupplierArchive) {
+      return classify(
+        "history_archive",
+        false,
+        ["Archived supplier-managed order has coherent payment and fulfillment state."],
+        order,
+      );
+    }
+
+    const now = options.now ?? new Date();
+    const archivedAt = Date.parse(order.archived_at ?? "");
+    const recent =
+      Number.isFinite(archivedAt) &&
+      now.getTime() - archivedAt >= 0 &&
+      now.getTime() - archivedAt <= 24 * 60 * 60 * 1000;
+    return classify(
+      "resolve_exception",
+      true,
+      [
+        recent && payment.status !== "captured"
+          ? `Recently archived unfinished order has ${payment.label.toLowerCase()} payment; restore it to continue or leave it archived intentionally.`
+          : "This order was archived before fulfillment completed; restore it to continue processing.",
+      ],
+      order,
+    );
+  }
+
   if (hasEmailDeliveryAttention(order)) {
     return classify(
       "resolve_exception",
@@ -591,17 +621,6 @@ export function classifyOperationalQueue(
       "resolve_exception",
       true,
       uniqueReasons(exceptionReasons),
-      order,
-    );
-  }
-
-  if (order.archived || order.archived_at) {
-    return classify(
-      "resolve_exception",
-      true,
-      [
-        "This order was archived before fulfillment completed; restore or resolve it.",
-      ],
       order,
     );
   }
@@ -706,8 +725,8 @@ export function classifyOperationalQueue(
   if (verification.status === "information_needed") {
     return classify(
       "awaiting_verification",
-      false,
-      ["Prescription verification is waiting for customer information."],
+      true,
+      ["Prescription verification needs customer information or an operator decision."],
       order,
     );
   }
@@ -715,7 +734,7 @@ export function classifyOperationalQueue(
   if (!rxSource.hasRxEvidence || order.rx_status === "expired") {
     return classify(
       "awaiting_verification",
-      false,
+      true,
       [
         "Valid prescription evidence is missing or expired; obtain updated prescription information.",
       ],
@@ -728,10 +747,10 @@ export function classifyOperationalQueue(
       nextAction.label === "Await doctor verification";
     return classify(
       "awaiting_verification",
-      !doctorVerification,
+      true,
       [
         doctorVerification
-          ? "Waiting for prescriber verification."
+          ? "Prescriber verification is pending; the operator may record attempts or accept the prescription after review."
           : "Prescription verification has not been completed.",
       ],
       order,

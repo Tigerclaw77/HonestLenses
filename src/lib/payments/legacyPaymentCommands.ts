@@ -42,6 +42,7 @@ export type CaptureReason =
   | "active-verification"
   | "passive-verification"
   | "admin-verification"
+  | "admin-operator"
   | "uploaded-rx-automation";
 
 export type CancelReason =

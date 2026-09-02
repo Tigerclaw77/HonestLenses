@@ -2,7 +2,7 @@ import { strict as assert } from "node:assert";
 import {
   ADMIN_FULFILLMENT_STATUSES,
   assessAdminFulfillmentTransition,
-  isFounderOverrideEligible,
+  isPrescriptionAcceptanceAvailable,
 } from "./adminWorkflow";
 
 const riskyOrder = {
@@ -71,9 +71,9 @@ assert.equal(
 );
 assert.ok(
   uploadedReview.warnings.some((warning) =>
-    warning.includes("Verify prescription"),
+    warning.includes("Accept the prescription"),
   ),
-  "the hard gate directs the founder to the verify-and-capture action",
+  "the supplier safety gate directs the operator to the independent Rx action",
 );
 
 const invalid = assessAdminFulfillmentTransition(
@@ -99,18 +99,56 @@ assert.ok(
   "backward transition has an explicit warning",
 );
 
+const recoverablePlacement = assessAdminFulfillmentTransition(
+  {
+    status: "captured",
+    payment_intent_id: "pi_noncanonical",
+    stripe_payment_intent_status: "succeeded",
+    verification_status: "verified",
+    fulfillment_status: "ready_to_order",
+  },
+  "ordered",
+);
 assert.equal(
-  isFounderOverrideEligible({
+  recoverablePlacement.allowed,
+  true,
+  "supplier placement succeeds from a recoverable noncanonical state",
+);
+
+const alreadyPlaced = assessAdminFulfillmentTransition(
+  {
+    status: "captured",
+    payment_intent_id: "pi_already_ordered",
+    stripe_payment_intent_status: "succeeded",
+    verification_status: "verified",
+    fulfillment_status: "ordered",
+  },
+  "ordered",
+);
+assert.equal(alreadyPlaced.allowed, true, "already-performed placement is idempotent");
+
+assert.equal(
+  isPrescriptionAcceptanceAvailable({
     ...riskyOrder,
     verification_status: "requires_review",
     rx_status: "ocr_failed",
     rx: { right: { sphere: "-1.00" }, left: { sphere: "-1.25" } },
   }),
   true,
-  "founder override remains available when OCR/product matching requires review",
+  "prescription acceptance remains available when OCR/product matching requires review",
 );
 assert.equal(
-  isFounderOverrideEligible({
+  isPrescriptionAcceptanceAvailable({
+    status: "draft",
+    payment_intent_id: null,
+    verification_status: "pending",
+    rx: { right: { sphere: "-1.00" } },
+  }),
+  true,
+  "prescription acceptance is independent of payment state",
+);
+assert.equal(
+  isPrescriptionAcceptanceAvailable({
     ...riskyOrder,
     verification_status: "pending",
     rx_source: "doctor",
@@ -120,7 +158,7 @@ assert.equal(
   "an authorized order with reviewable Rx evidence can be explicitly overridden",
 );
 assert.equal(
-  isFounderOverrideEligible({
+  isPrescriptionAcceptanceAvailable({
     ...riskyOrder,
     status: "draft",
     payment_intent_id: null,
@@ -128,16 +166,16 @@ assert.equal(
     rx: null,
   }),
   false,
-  "ordinary unpaid customer paths cannot use founder override",
+  "a record without prescription evidence cannot be accepted",
 );
 assert.equal(
-  isFounderOverrideEligible({
+  isPrescriptionAcceptanceAvailable({
     ...riskyOrder,
     verification_status: "verified",
     rx: { right: { sphere: "-1.00" } },
   }),
   false,
-  "already verified orders do not expose founder override",
+  "already verified orders do not expose prescription acceptance",
 );
 
-console.log("Admin workflow override matrix passed.");
+console.log("Admin operator workflow matrix passed.");

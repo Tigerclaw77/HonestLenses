@@ -19,11 +19,37 @@ export async function POST(
       return adminAuthErrorResponse(auth);
     }
 
+    let requestedArchived = true;
+    try {
+      const body = (await req.json()) as { archived?: unknown };
+      if (typeof body.archived === "boolean") requestedArchived = body.archived;
+    } catch {
+      // Existing callers without a JSON body continue to archive.
+    }
+
+    const { data: currentOrder, error: currentError } = await supabaseServer
+      .from("orders")
+      .select("id, archived, archived_at")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (currentError) {
+      console.error("Archive lookup error:", currentError);
+      return new Response("Failed to load order", { status: 500 });
+    }
+    if (!currentOrder) {
+      return new Response("Order not found or not authorized", { status: 404 });
+    }
+    if (Boolean(currentOrder.archived) === requestedArchived) {
+      return Response.json({ success: true, already_done: true });
+    }
+
     const query = supabaseServer
       .from("orders")
       .update({
-        archived: true,
-        archived_at: new Date().toISOString(),
+        archived: requestedArchived,
+        archived_at: requestedArchived ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
       })
       .eq("id", id);
 
@@ -40,11 +66,21 @@ export async function POST(
 
     await supabaseServer.from("order_events").insert({
       order_id: id,
-      event_type: "admin_order_archived",
+      event_type: requestedArchived
+        ? "admin_order_archived"
+        : "admin_order_restored",
       actor: auth.user.email ?? auth.user.id,
+      before: {
+        archived: currentOrder.archived,
+        archived_at: currentOrder.archived_at,
+      },
+      after: {
+        archived: requestedArchived,
+        archived_at: requestedArchived ? "recorded_at_action_time" : null,
+      },
     });
 
-    return Response.json({ success: true });
+    return Response.json({ success: true, already_done: false });
   } catch (err) {
     console.error("Archive route crash:", err);
     return new Response("Server error", { status: 500 });

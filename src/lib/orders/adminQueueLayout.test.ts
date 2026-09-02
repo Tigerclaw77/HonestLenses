@@ -115,7 +115,6 @@ const historyRows = source.slice(historyStart, abandonedStart);
 for (const legacyExpandedHeading of [
   "Order Summary",
   "Customer / Shipping",
-  "Payment",
   "Internal / Audit",
   "Order Quantity Adjustment",
   "Payment Adjustment",
@@ -291,8 +290,6 @@ assert.ok(
 );
 
 for (const recordOnlyField of [
-  "payment_intent_id",
-  "stripe_payment_intent_status",
   "Created:",
   "Updated:",
 ]) {
@@ -332,7 +329,6 @@ for (const detailsOnlyControl of [
 }
 
 for (const removedQueueRecordSignal of [
-  "Payment",
   "Authorized:",
   "Captured:",
   "Created:",
@@ -352,10 +348,27 @@ assert.ok(
     activeCard.includes("AuthorizationReviewBanner"),
   "authorized uploaded orders carry a prominent review-required banner",
 );
-assert.ok(
-  activeCard.includes("Founder Override & capture payment") &&
-    activeCard.includes("founderOverrideEligible"),
-  "reviewable Rx exceptions have a dedicated founder-override-and-capture action",
+for (const independentOperatorAction of [
+  "Accept prescription",
+  "Capture payment",
+  "Mark supplier order placed",
+  "Sync payment status",
+  "Restore order",
+]) {
+  assert.ok(
+    activeCard.includes(independentOperatorAction),
+    `${independentOperatorAction} is an independent operator action`,
+  );
+}
+assert.equal(
+  activeCard.includes("PaymentIntent:"),
+  false,
+  "the PaymentIntent identifier remains details-only even when actions use it",
+);
+assert.equal(
+  activeCard.includes("Founder Override & capture payment"),
+  false,
+  "routine Rx acceptance is not coupled to payment capture",
 );
 assert.ok(
   activeCard.includes("verification-capture-failure"),
@@ -365,15 +378,8 @@ assert.ok(
   source.includes('"minmax(125px, 0.65fr) repeat(3, minmax(0, 1fr))"'),
   "verification attempts render as one compact tracker row",
 );
-assert.ok(
-  activeCard.includes("workflowActionLabel(fulfillment, nextFulfillment)"),
-  "the next routine workflow action is a visible button",
-);
-assert.ok(
-  activeCard.includes("Undo to {labelizeStatus(previousFulfillment)}"),
-  "the previous routine workflow action is a visible button",
-);
-assert.ok(source.includes("Record manufacturer/distributor order placed"));
+assert.ok(activeCard.includes('data-testid="operational-dimensions"'));
+assert.ok(source.includes("Mark supplier order placed"));
 assert.equal(source.includes("Mark Shipped"), false);
 assert.equal(source.includes("Complete Order"), false);
 assert.ok(activeCard.includes("Return to Review"));

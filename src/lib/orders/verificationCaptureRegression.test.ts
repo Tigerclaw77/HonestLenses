@@ -28,11 +28,11 @@ const adminPatchRoute = source(
   "[id]",
   "route.ts",
 );
-const founderOverrideRoute = source(
-  "src", "app", "api", "admin", "orders", "[id]", "founder-override", "route.ts",
+const prescriptionRoute = source(
+  "src", "app", "api", "admin", "orders", "[id]", "prescription", "route.ts",
 );
-const founderOverrideMigration = source(
-  "supabase", "migrations", "20260901194500_add_atomic_founder_verification_override.sql",
+const paymentRoute = source(
+  "src", "app", "api", "admin", "orders", "[id]", "payment", "route.ts",
 );
 
 assert.match(
@@ -117,39 +117,34 @@ assert.match(
 );
 assert.match(
   adminPage,
-  /fetch\(`\/api\/admin\/orders\/\$\{order\.id\}\/founder-override`/,
-  "the admin work queue exposes the authenticated founder-override endpoint",
+  /fetch\(`\/api\/admin\/orders\/\$\{order\.id\}\/prescription`/,
+  "the admin work queue exposes the independent prescription endpoint",
 );
 assert.match(
+  adminPage,
+  /fetch\(`\/api\/admin\/orders\/\$\{order\.id\}\/payment`/,
+  "the admin work queue exposes the independent payment endpoint",
+);
+assert.doesNotMatch(
   adminPage,
   /Founder Override & capture payment/,
-  "the founder action is explicit and states that capture is part of verification",
+  "routine prescription acceptance is never coupled to capture",
 );
 assert.match(
   adminPage,
-  /founderOverrideEligible && \(/,
-  "review exceptions are not gated to one queue bucket",
-);
-assert.match(
-  adminPage,
-  /CAPTURE\/VERIFICATION NOT COMPLETE/,
-  "a failed verify request remains unmistakable in the order card",
+  /ACTION NOT COMPLETE/,
+  "a failed operator request remains attached to the order card",
 );
 assert.match(
   adminPatchRoute,
-  /RX_VERIFICATION_REQUIRED/,
-  "generic fulfillment updates cannot bypass uploaded-Rx verification",
+  /OPERATION_PREREQUISITE_NOT_MET/,
+  "supplier placement retains explicit payment and Rx safety prerequisites",
 );
-assert.match(founderOverrideRoute, /requireAdminUser\(req\)/, "founder override requires admin authentication");
-assert.match(founderOverrideRoute, /isFounderOverrideEligible\(order\)/, "server rechecks review eligibility");
-assert.match(founderOverrideRoute, /"admin-verification"/, "override retains guarded payment capture");
-assert.match(founderOverrideRoute, /apply_founder_verification_override/, "override uses the atomic database transition");
-assert.match(founderOverrideMigration, /verification_method = 'admin'/, "override records its canonical method");
-assert.match(founderOverrideMigration, /verification_passed = true/, "override records successful verification");
-assert.match(founderOverrideMigration, /verification_status = 'verified'/, "override records canonical verified status");
-assert.match(founderOverrideMigration, /verification_completed_at = now\(\)/, "override records completion time");
-assert.match(founderOverrideMigration, /fulfillment_status = 'ready_to_order'/, "override advances fulfillment after capture");
-assert.match(founderOverrideMigration, /insert into public\.order_events/, "state and audit event share one transaction");
+assert.match(prescriptionRoute, /requireAdminUser\(req\)/, "prescription acceptance requires admin authentication");
+assert.match(prescriptionRoute, /verification_status: "verified"/, "prescription acceptance records verified state");
+assert.doesNotMatch(prescriptionRoute, /captureAuthorizedOrderPayment/, "prescription acceptance never captures payment");
+assert.match(paymentRoute, /captureAuthorizedOrderPayment/, "the payment endpoint retains guarded Stripe capture");
+assert.match(paymentRoute, /already_done/, "payment actions report idempotent completion");
 
 async function assertCapturedRetryReconcilesWithoutAnotherStripeCapture() {
   let stripeCaptureCalls = 0;

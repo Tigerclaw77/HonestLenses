@@ -7,7 +7,12 @@ import {
 
 export const ADMIN_FULFILLMENT_STATUSES = [
   "review",
+  "ready_to_order",
   "ordered",
+  "backordered",
+  "shipped",
+  "delivered",
+  "completed",
   "hold",
   "cancelled",
 ] as const;
@@ -25,6 +30,7 @@ export type AdminFulfillmentTransition = {
 
 const FULFILLMENT_PROGRESS_FLOW: AdminFulfillmentStatus[] = [
   "review",
+  "ready_to_order",
   "ordered",
 ];
 
@@ -51,17 +57,12 @@ export function getAdminFulfillmentStatus(
   return "review";
 }
 
-/** Founder override resolves Rx review exceptions, never payment or holds. */
-export function isFounderOverrideEligible(order: Order): boolean {
-  const fulfillment = getAdminFulfillmentStatus(order);
-  const payment = getPaymentState(order);
+/** Routine operator acceptance changes only prescription state. */
+export function isPrescriptionAcceptanceAvailable(order: Order): boolean {
   const verification = getVerificationState(order);
   const rxSource = getRxSourceState(order);
 
-  if (fulfillment !== "review" || verification.complete) return false;
-  if (payment.status !== "authorized" && payment.status !== "captured") {
-    return false;
-  }
+  if (verification.complete) return false;
 
   return Boolean(
     rxSource.hasRxEvidence ||
@@ -70,6 +71,9 @@ export function isFounderOverrideEligible(order: Order): boolean {
       order.rx_status === "ocr_failed",
   );
 }
+
+/** Kept as a compatibility alias while callers migrate to operator language. */
+export const isFounderOverrideEligible = isPrescriptionAcceptanceAvailable;
 
 /**
  * Fulfillment states that expect captured payment have two hard gates: a real
@@ -116,7 +120,7 @@ export function assessAdminFulfillmentTransition(
     uploadedRxRequiresReview
   ) {
     warnings.push(
-      "Review the uploaded prescription and use Verify prescription before advancing fulfillment.",
+      "Accept the prescription before recording the supplier order.",
     );
   }
 

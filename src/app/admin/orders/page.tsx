@@ -26,7 +26,7 @@ import {
 import {
   assessAdminFulfillmentTransition,
   getAdminFulfillmentStatus,
-  isFounderOverrideEligible,
+  isPrescriptionAcceptanceAvailable,
   type AdminFulfillmentStatus,
 } from "@/lib/orders/adminWorkflow";
 import {
@@ -310,13 +310,10 @@ type AdminApiPayload = {
   draft?: RecoveryEmailDraft;
   warnings?: string[];
   event_logged?: boolean;
+  already_done?: boolean;
+  stripe_payment_intent_status?: string;
   integrity_issues?: AdminQueueIntegrityIssue[];
 };
-
-const FULFILLMENT_PROGRESS_FLOW: FulfillmentStatus[] = [
-  "review",
-  "ordered",
-];
 
 const HIGHLIGHT_MS = 120_000;
 
@@ -767,31 +764,6 @@ function getOrderStatusFlags(order: Order): OrderStatusFlag[] {
 }
 
 
-
-function nextFulfillmentStatus(status: FulfillmentStatus): FulfillmentStatus | null {
-  const currentIndex = FULFILLMENT_PROGRESS_FLOW.indexOf(status);
-  if (currentIndex < 0) return null;
-  return FULFILLMENT_PROGRESS_FLOW[currentIndex + 1] ?? null;
-}
-
-
-function previousFulfillmentStatus(
-  status: FulfillmentStatus,
-): FulfillmentStatus | null {
-  const currentIndex = FULFILLMENT_PROGRESS_FLOW.indexOf(status);
-  if (currentIndex <= 0) return null;
-  return FULFILLMENT_PROGRESS_FLOW[currentIndex - 1] ?? null;
-}
-
-function workflowActionLabel(
-  current: FulfillmentStatus,
-  next: FulfillmentStatus,
-): string {
-  if (current === "review" && next === "ordered") {
-    return "Record manufacturer/distributor order placed";
-  }
-  return `Advance to ${labelizeStatus(next)}`;
-}
 
 function canPermanentlyDelete(order: Order): boolean {
   return Boolean(
@@ -1567,7 +1539,10 @@ function ActiveOrderCard({
   onOpenRxImage,
   onRecordVerificationAttempt,
   onAdvanceFulfillment,
-  onVerifyPrescription,
+  onAcceptPrescription,
+  onPaymentAction,
+  onRestoreOrder,
+  onResolveEmailAttention,
   verificationFailure,
 }: {
   order: Order;
@@ -1582,21 +1557,46 @@ function ActiveOrderCard({
     method: ManualVerificationAttemptMethod,
   ) => void;
   onAdvanceFulfillment: (status: FulfillmentStatus) => void;
-  onVerifyPrescription: () => void;
+  onAcceptPrescription: () => void;
+  onPaymentAction: (action: "capture" | "sync") => void;
+  onRestoreOrder: () => void;
+  onResolveEmailAttention: () => void;
   verificationFailure?: string | null;
 }) {
   const customerName = getCustomerName(order);
   const lensDisplay = getOrderLensDisplayName(order);
   const activity = formatOrderActivitySummary(order);
   const verification = getVerificationState(order);
+  const payment = getPaymentState(order);
   const fulfillment = normalizedFulfillmentStatus(order);
-  const nextFulfillment = nextFulfillmentStatus(fulfillment);
-  const previousFulfillment = previousFulfillmentStatus(fulfillment);
   const nextAction = getNextAction(order);
   const classification = getOrderOperationalClassification(order);
   const quantity = getOperationalCardQuantity(order);
   const isFounderReview = classification.bucket === "founder_review";
-  const founderOverrideEligible = isFounderOverrideEligible(order);
+  const prescriptionAcceptanceAvailable =
+    isPrescriptionAcceptanceAvailable(order);
+  const supplierOrderRecorded = [
+    "ordered",
+    "backordered",
+    "shipped",
+    "delivered",
+    "completed",
+  ].includes(fulfillment);
+  const rawFulfillment = order.fulfillment_status?.trim().toLowerCase() ?? "";
+  const fulfillmentNeedsReset = Boolean(
+    rawFulfillment &&
+      ![
+        "review",
+        "ready_to_order",
+        "ordered",
+        "backordered",
+        "shipped",
+        "delivered",
+        "completed",
+        "hold",
+        "cancelled",
+      ].includes(rawFulfillment),
+  );
   const totalBoxesLabel =
     quantity.total === "—" ? "—" : formatBoxCount(Number(quantity.total));
   const processingPanelId = `order-processing-${order.id}`;
@@ -1824,24 +1824,109 @@ function ActiveOrderCard({
                 )}
               </div>
 
-              <div style={{ display: "grid", gap: 7 }}>
-                {founderOverrideEligible && (
+              <div
+                data-testid="operational-dimensions"
+                style={{ display: "grid", gap: 8 }}
+              >
+                <div style={mutedPanelStyle()}>
+                  <div style={{ opacity: 0.62, fontSize: 10 }}>PRESCRIPTION</div>
+                  <strong>{verification.label}</strong>
+                  {prescriptionAcceptanceAvailable && (
+                    <button
+                      type="button"
+                      disabled={savingOrderId === order.id}
+                      onClick={onAcceptPrescription}
+                      style={buttonStyle({ width: "100%", marginTop: 7 })}
+                    >
+                      Accept prescription
+                    </button>
+                  )}
+                </div>
+
+                <div style={mutedPanelStyle()}>
+                  <div style={{ opacity: 0.62, fontSize: 10 }}>PAYMENT</div>
+                  <strong>{payment.label}</strong>
+                  <div style={{ opacity: 0.72, fontSize: 11 }}>
+                    {formatMoney(
+                      payment.status === "captured"
+                        ? order.stripe_captured_amount_cents ?? order.total_amount_cents
+                        : order.stripe_authorized_amount_cents ?? order.total_amount_cents,
+                    )}
+                  </div>
+                  {payment.status === "authorized" &&
+                    order.stripe_payment_intent_status === "requires_capture" && (
+                      <button
+                        type="button"
+                        disabled={savingOrderId === order.id}
+                        onClick={() => onPaymentAction("capture")}
+                        style={buttonStyle({ width: "100%", marginTop: 7 })}
+                      >
+                        Capture payment
+                      </button>
+                    )}
+                  {order.payment_intent_id &&
+                    (order.payment_status_source === "stripe_lookup_failed" ||
+                      (order.stripe_payment_intent_status === "succeeded" &&
+                        order.status !== "captured" &&
+                        order.status !== "completed")) && (
+                      <button
+                        type="button"
+                        disabled={savingOrderId === order.id}
+                        onClick={() => onPaymentAction("sync")}
+                        style={buttonStyle({ width: "100%", marginTop: 7 })}
+                      >
+                        Sync payment status
+                      </button>
+                    )}
+                </div>
+
+                <div style={mutedPanelStyle()}>
+                  <div style={{ opacity: 0.62, fontSize: 10 }}>SUPPLIER</div>
+                  <strong>
+                    {supplierOrderRecorded
+                      ? "Supplier order placed"
+                      : "Not ordered"}
+                  </strong>
+                  {!supplierOrderRecorded && (
+                    <button
+                      type="button"
+                      disabled={savingOrderId === order.id}
+                      onClick={() => onAdvanceFulfillment("ordered")}
+                      style={buttonStyle({ width: "100%", marginTop: 7 })}
+                    >
+                      Mark supplier order placed
+                    </button>
+                  )}
+                  {fulfillmentNeedsReset && (
+                    <button
+                      type="button"
+                      disabled={savingOrderId === order.id}
+                      onClick={() => onAdvanceFulfillment("review")}
+                      style={buttonStyle({ width: "100%", marginTop: 7 })}
+                    >
+                      Reset fulfillment to review
+                    </button>
+                  )}
+                </div>
+
+                {(order.archived || order.archived_at) && (
                   <button
                     type="button"
                     disabled={savingOrderId === order.id}
-                    onClick={onVerifyPrescription}
-                    style={buttonStyle({
-                      width: "100%",
-                      padding: "10px 11px",
-                      fontSize: 13,
-                      fontWeight: 900,
-                      background: "rgba(20,184,166,0.34)",
-                      border: "1px solid rgba(94,234,212,0.72)",
-                    })}
+                    onClick={onRestoreOrder}
+                    style={buttonStyle({ width: "100%" })}
                   >
-                    {savingOrderId === order.id
-                      ? "Applying Founder Override..."
-                      : "Founder Override & capture payment"}
+                    Restore order
+                  </button>
+                )}
+                {order.email_delivery_requires_attention && (
+                  <button
+                    type="button"
+                    disabled={savingOrderId === order.id}
+                    onClick={onResolveEmailAttention}
+                    style={buttonStyle({ width: "100%" })}
+                  >
+                    Mark email issue resolved
                   </button>
                 )}
 
@@ -1860,36 +1945,8 @@ function ActiveOrderCard({
                       lineHeight: 1.4,
                     }}
                   >
-                    CAPTURE/VERIFICATION NOT COMPLETE: {verificationFailure}
+                    ACTION NOT COMPLETE: {verificationFailure}
                   </div>
-                )}
-
-                {!isFounderReview && nextFulfillment && (
-                  <button
-                    type="button"
-                    disabled={savingOrderId === order.id}
-                    onClick={() => onAdvanceFulfillment(nextFulfillment)}
-                    style={buttonStyle({
-                      width: "100%",
-                      padding: "9px 10px",
-                      fontSize: 12,
-                      fontWeight: 850,
-                      background: "rgba(20,184,166,0.28)",
-                    })}
-                  >
-                    {workflowActionLabel(fulfillment, nextFulfillment)}
-                  </button>
-                )}
-
-                {previousFulfillment && (
-                  <button
-                    type="button"
-                    disabled={savingOrderId === order.id}
-                    onClick={() => onAdvanceFulfillment(previousFulfillment)}
-                    style={buttonStyle({ width: "100%", fontSize: 11 })}
-                  >
-                    Undo to {labelizeStatus(previousFulfillment)}
-                  </button>
                 )}
 
                 {(fulfillment === "hold" || fulfillment === "cancelled") && (
@@ -2053,6 +2110,11 @@ function OrderDetailsModal({
   onOpenNotes,
   onCopyOrder,
   onArchive,
+  onRestoreOrder,
+  onAcceptPrescription,
+  onPaymentAction,
+  onMarkSupplierOrderPlaced,
+  onResolveEmailAttention,
   onAdjustQuantity,
   onAdjustCapture,
 }: {
@@ -2062,6 +2124,11 @@ function OrderDetailsModal({
   onOpenNotes: () => void;
   onCopyOrder: () => void;
   onArchive: () => void;
+  onRestoreOrder: () => void;
+  onAcceptPrescription: () => void;
+  onPaymentAction: (action: "capture" | "sync") => void;
+  onMarkSupplierOrderPlaced: () => void;
+  onResolveEmailAttention: () => void;
   onAdjustQuantity: () => void;
   onAdjustCapture: () => void;
 }) {
@@ -2075,6 +2142,15 @@ function OrderDetailsModal({
   const rxSource = getRxSourceState(order);
   const rxStatus = displayRxStatus(order);
   const flags = getOrderStatusFlags(order);
+  const prescriptionAcceptanceAvailable =
+    isPrescriptionAcceptanceAvailable(order);
+  const supplierOrderRecorded = [
+    "ordered",
+    "backordered",
+    "shipped",
+    "delivered",
+    "completed",
+  ].includes(fulfillment);
   const isMerchantLane = isMerchantQueueBucket(
     getOrderOperationalClassification(order).bucket,
   );
@@ -2263,13 +2339,46 @@ function OrderDetailsModal({
           <button type="button" onClick={onCopyOrder} style={buttonStyle()}>
             Copy Order
           </button>
-          <button
-            type="button"
-            onClick={onArchive}
-            style={buttonStyle({ color: "#fbbf24" })}
-          >
-            Archive
-          </button>
+          {prescriptionAcceptanceAvailable && (
+            <button type="button" onClick={onAcceptPrescription} style={buttonStyle()}>
+              Accept prescription
+            </button>
+          )}
+          {payment.status === "authorized" &&
+            order.stripe_payment_intent_status === "requires_capture" && (
+              <button type="button" onClick={() => onPaymentAction("capture")} style={buttonStyle()}>
+                Capture payment
+              </button>
+            )}
+          {order.payment_intent_id &&
+            order.payment_status_source === "stripe_lookup_failed" && (
+              <button type="button" onClick={() => onPaymentAction("sync")} style={buttonStyle()}>
+                Sync payment status
+              </button>
+            )}
+          {!supplierOrderRecorded && (
+            <button type="button" onClick={onMarkSupplierOrderPlaced} style={buttonStyle()}>
+              Mark supplier order placed
+            </button>
+          )}
+          {order.email_delivery_requires_attention && (
+            <button type="button" onClick={onResolveEmailAttention} style={buttonStyle()}>
+              Mark email issue resolved
+            </button>
+          )}
+          {order.archived || order.archived_at ? (
+            <button type="button" onClick={onRestoreOrder} style={buttonStyle()}>
+              Restore order
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onArchive}
+              style={buttonStyle({ color: "#fbbf24" })}
+            >
+              Archive
+            </button>
+          )}
         </div>
       </section>
     </div>
@@ -2281,6 +2390,7 @@ function OrderDetailsModal({
 ========================= */
 
 export default function AdminOrdersPage() {
+  const [isLoading, setIsLoading] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
   const [abandonedOrders, setAbandonedOrders] = useState<Order[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -2384,6 +2494,7 @@ export default function AdminOrdersPage() {
     if (!res.ok) {
       const message = adminApiErrorMessage(json, "Failed to fetch orders.");
       setAdminError(message);
+      setIsLoading(false);
       if (process.env.NODE_ENV !== "production") {
         console.warn("[AdminOrdersPage] orders fetch failed", {
           status: res.status,
@@ -2475,9 +2586,13 @@ export default function AdminOrdersPage() {
         },
       )
       .subscribe();
+    const refreshInterval = window.setInterval(() => {
+      if (mounted) void fetchData();
+    }, 30_000);
 
     return () => {
       mounted = false;
+      window.clearInterval(refreshInterval);
       supabase.removeChannel(channel);
     };
   }, [fetchData]);
@@ -2513,7 +2628,7 @@ export default function AdminOrdersPage() {
         | "fulfillment_status"
         | "admin_notes"
       >
-    >,
+    > & { resolve_email_attention?: true },
   ): Promise<boolean> {
     setSavingOrderId(orderId);
     setAdminError(null);
@@ -2568,65 +2683,25 @@ export default function AdminOrdersPage() {
     order: Order,
     newStatus: FulfillmentStatus,
   ) {
-    if (
-      getOrderOperationalBucket(order) === "founder_review" &&
-      newStatus !== "review" &&
-      newStatus !== "hold" &&
-      newStatus !== "cancelled"
-    ) {
-      setAdminError(
-        "Review the uploaded prescription and use Verify prescription & capture payment before advancing fulfillment.",
-      );
-      return;
-    }
-
     const transition = assessAdminFulfillmentTransition(order, newStatus);
-    if (!transition.valid || !transition.allowed) {
-      setAdminError("Invalid fulfillment status.");
+    if (!transition.valid) {
+      setAdminError("The requested fulfillment value is not supported.");
       return;
     }
-
-    if (
-      transition.warnings.length > 0 &&
-      !window.confirm(
-        [
-          `Override fulfillment to ${newStatus.replace(/_/g, " ")}?`,
-          "",
-          ...transition.warnings.map((warning) => `• ${warning}`),
-          "",
-          "This warning will not block the admin override.",
-        ].join("\n"),
-      )
-    ) {
+    if (!transition.allowed) {
+      setAdminError(
+        transition.warnings.join(" ") ||
+          "This supplier action cannot be completed yet.",
+      );
       return;
     }
 
     await updateAdminOrder(order.id, { fulfillment_status: newStatus });
   }
 
-  async function verifyUploadedPrescription(order: Order) {
-    if (!isFounderOverrideEligible(order)) {
-      setAdminError("This order is not eligible for Founder Override.");
-      return;
-    }
-
-    const reason = window.prompt(
-      "Founder Override reason (required for the audit log):",
-      "Personally reviewed corrected prescription and approved fulfillment.",
-    )?.trim();
-    if (!reason) return;
-
-    const captureAmount = formatMoney(effectiveCaptureAmountCents(order));
-    if (
-      !window.confirm(
-        [
-          "Confirm Founder Override?",
-          "",
-          "This records your authenticated approval and bypasses automated prescription objections for this order.",
-          `Stripe will capture ${captureAmount} immediately.`,
-        ].join("\n"),
-      )
-    ) {
+  async function acceptPrescription(order: Order) {
+    if (!isPrescriptionAcceptanceAvailable(order)) {
+      setAdminError("Prescription evidence is required before acceptance.");
       return;
     }
 
@@ -2640,27 +2715,25 @@ export default function AdminOrdersPage() {
     });
 
     try {
-      const response = await fetch(`/api/admin/orders/${order.id}/founder-override`, {
+      const response = await fetch(`/api/admin/orders/${order.id}/prescription`, {
         method: "POST",
         headers: await authHeaders(),
         credentials: "same-origin",
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify({ action: "accept" }),
       });
       const payload = await readAdminApiPayload(response);
 
       if (!response.ok) {
         const message = adminApiErrorMessage(
           payload,
-          "Verification and capture did not complete. Refresh Stripe status and retry.",
+          "Prescription acceptance did not complete.",
         );
         setVerificationFailures((current) => ({
           ...current,
           [order.id]: message,
         }));
         setAdminError(
-          payload.payment_captured
-            ? `Payment may already be captured for ${order.id}, but local verification did not complete. Retry the same Verify action to reconcile it.`
-            : `Verification/capture failed for ${order.id}. The order remains blocked; review Stripe status and retry.`,
+          `Prescription acceptance failed for ${order.id}. ${message}`,
         );
         await fetchData();
         return;
@@ -2676,22 +2749,76 @@ export default function AdminOrdersPage() {
         tone: payload.event_logged === false ? "info" : "success",
         message:
           payload.event_logged === false
-            ? "Founder Override saved, but the audit event was not recorded."
-            : "Founder Override saved. Payment is captured and the order is ready to place.",
+            ? "Prescription accepted, but the audit event was not recorded."
+            : payload.already_done
+              ? "Prescription was already accepted."
+              : "Prescription accepted.",
       });
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
-          : "The verification request could not be completed.";
+          : "The prescription action could not be completed.";
       setVerificationFailures((current) => ({
         ...current,
-        [order.id]: `${message} Refresh payment status and retry; the order remains blocked until confirmed.`,
+        [order.id]: message,
       }));
       setAdminError(
-        `Verification/capture could not be confirmed for ${order.id}. Review Stripe status and retry.`,
+        `Prescription acceptance could not be confirmed for ${order.id}.`,
       );
       await fetchData();
+    } finally {
+      setSavingOrderId(null);
+    }
+  }
+
+  async function runPaymentAction(order: Order, action: "capture" | "sync") {
+    setSavingOrderId(order.id);
+    setAdminError(null);
+    try {
+      const response = await fetch(`/api/admin/orders/${order.id}/payment`, {
+        method: "POST",
+        headers: await authHeaders(),
+        credentials: "same-origin",
+        body: JSON.stringify({ action }),
+      });
+      const payload = await readAdminApiPayload(response);
+      if (!response.ok) {
+        setAdminError(adminApiErrorMessage(payload, "Payment action failed."));
+        return;
+      }
+      await fetchData();
+      setAdminNotice({
+        tone: "success",
+        message:
+          action === "capture"
+            ? payload.already_done
+              ? "Payment was already captured."
+              : "Payment captured."
+            : "Payment status synchronized from Stripe.",
+      });
+    } finally {
+      setSavingOrderId(null);
+    }
+  }
+
+  async function restoreArchivedOrder(order: Order) {
+    setSavingOrderId(order.id);
+    setAdminError(null);
+    try {
+      const response = await fetch(`/api/orders/${order.id}/archive`, {
+        method: "POST",
+        headers: await authHeaders(),
+        credentials: "same-origin",
+        body: JSON.stringify({ archived: false }),
+      });
+      const payload = await readAdminApiPayload(response);
+      if (!response.ok) {
+        setAdminError(adminApiErrorMessage(payload, "Restore failed."));
+        return;
+      }
+      await fetchData();
+      setAdminNotice({ tone: "success", message: "Order restored." });
     } finally {
       setSavingOrderId(null);
     }
@@ -3148,7 +3275,13 @@ export default function AdminOrdersPage() {
       return;
     }
 
-    setAdminNotice({ tone: "success", message: "Order archived." });
+    optimisticallyHiddenOrderIds.current.delete(orderId);
+    await fetchData();
+    setAdminNotice({
+      tone: "success",
+      message: "Order archived. It remains available in Needs Attention for immediate restore.",
+    });
+    setIsLoading(false);
   }
 
   async function runAbandonedAction(
@@ -3442,6 +3575,12 @@ export default function AdminOrdersPage() {
         Order Work Queue
       </h1>
 
+      {isLoading && (
+        <div role="status" style={{ marginBottom: 12, color: "#bae6fd" }}>
+          Loading current order and Stripe status…
+        </div>
+      )}
+
       {adminError && (
         <div
           role="status"
@@ -3544,7 +3683,7 @@ export default function AdminOrdersPage() {
             >
               <div>
                 <h2 style={{ fontSize: 16, margin: 0, fontWeight: 900 }}>
-                  {section.title} ({section.orders.length})
+                  {section.title} ({isLoading ? "…" : section.orders.length})
                 </h2>
                 <div style={{ fontSize: 12, opacity: 0.68, marginTop: 3 }}>
                   {section.description}
@@ -3562,7 +3701,7 @@ export default function AdminOrdersPage() {
                   fontSize: 13,
                 }}
               >
-                No orders in this section.
+                {isLoading ? "Loading current orders…" : "No orders in this section."}
               </div>
             ) : (
               <div
@@ -3588,8 +3727,11 @@ export default function AdminOrdersPage() {
                     onAdvanceFulfillment={(status) =>
                       updateFulfillmentStatus(o, status)
                     }
-                    onVerifyPrescription={() =>
-                      verifyUploadedPrescription(o)
+                    onAcceptPrescription={() => acceptPrescription(o)}
+                    onPaymentAction={(action) => runPaymentAction(o, action)}
+                    onRestoreOrder={() => restoreArchivedOrder(o)}
+                    onResolveEmailAttention={() =>
+                      updateAdminOrder(o.id, { resolve_email_attention: true })
                     }
                     verificationFailure={verificationFailures[o.id]}
                   />
@@ -3968,6 +4110,28 @@ export default function AdminOrdersPage() {
           onArchive={() => {
             setDetailsOrderId(null);
             archiveOrder(detailsOrder.id);
+          }}
+          onRestoreOrder={() => {
+            setDetailsOrderId(null);
+            void restoreArchivedOrder(detailsOrder);
+          }}
+          onAcceptPrescription={() => {
+            setDetailsOrderId(null);
+            void acceptPrescription(detailsOrder);
+          }}
+          onPaymentAction={(action) => {
+            setDetailsOrderId(null);
+            void runPaymentAction(detailsOrder, action);
+          }}
+          onMarkSupplierOrderPlaced={() => {
+            setDetailsOrderId(null);
+            void updateFulfillmentStatus(detailsOrder, "ordered");
+          }}
+          onResolveEmailAttention={() => {
+            setDetailsOrderId(null);
+            void updateAdminOrder(detailsOrder.id, {
+              resolve_email_attention: true,
+            });
           }}
           onAdjustQuantity={() =>
             openOrderQuantityAdjustment(

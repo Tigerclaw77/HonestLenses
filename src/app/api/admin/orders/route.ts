@@ -25,6 +25,7 @@ import {
   type PaymentLifecycleStatus,
 } from "@/lib/orders/paymentState";
 import { collectLatestVerificationAttempts } from "@/lib/orders/verificationAttempts";
+import { reconcileAdminPaymentState } from "@/lib/payments/adminPaymentReconciliation";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
@@ -243,6 +244,22 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
       stripeIntent: intent,
       fallback: "intent_authorized",
     });
+    let reconciledStatus = order.status ?? null;
+    try {
+      const reconciliation = await reconcileAdminPaymentState({
+        order,
+        stripeStatus: intent.status,
+        actor: "system:admin-queue",
+        source: "queue_refresh",
+      });
+      reconciledStatus = reconciliation.status;
+    } catch (reconciliationError) {
+      console.error("Admin payment reconciliation failed", {
+        orderId: order.id,
+        paymentIntentId: order.payment_intent_id,
+        error: reconciliationError,
+      });
+    }
     const latestCharge =
       intent.latest_charge && typeof intent.latest_charge !== "string"
         ? intent.latest_charge
@@ -258,6 +275,7 @@ async function withPaymentStatus(order: OrderRow): Promise<OrderRow> {
 
     return {
       ...order,
+      status: reconciledStatus ?? order.status,
       payment_status: projection.status,
       stripe_payment_intent_status: projection.stripePaymentIntentStatus,
       stripe_authorized_amount_cents:

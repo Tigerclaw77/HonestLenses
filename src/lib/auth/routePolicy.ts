@@ -41,6 +41,14 @@ export const ROUTE_AUTHORIZATION_POLICY: Record<string, RoutePolicy> = {
     access: "admin",
     guard: "requireAdmin",
   },
+  "src/app/api/admin/orders/[id]/payment/route.ts": {
+    access: "admin",
+    guard: "requireAdmin",
+  },
+  "src/app/api/admin/orders/[id]/prescription/route.ts": {
+    access: "admin",
+    guard: "requireAdmin",
+  },
   "src/app/api/admin/orders/[id]/verification-attempt/route.ts": {
     access: "admin",
     guard: "requireAdmin",
