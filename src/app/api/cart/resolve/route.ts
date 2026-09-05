@@ -271,6 +271,8 @@ export async function POST(req: Request) {
       shipping_method,
       brand_confidence,
       verification_status,
+      updated_at,
+      total_amount_cents,
       created_at
     `,
     )
@@ -496,7 +498,7 @@ export async function POST(req: Request) {
      Persist
   ========================= */
 
-  const { error: updateError } = await supabaseServer
+  const { data: resolvedRows, error: updateError } = await supabaseServer
     .from("orders")
     .update({
       sku: resolvedSku,
@@ -513,12 +515,14 @@ export async function POST(req: Request) {
         : totalBoxes,
       shipping_method: quote.shippingMethod,
       shipping_cents: quote.shippingCents,
+      subtotal_cents: quote.productSubtotalCents,
+      tax_cents: 0,
       total_amount_cents: quote.totalAmountCents,
       price_reason: quote.priceReason,
     })
-    .eq("id", order.id);
+    .eq("id", order.id).eq("status", "draft").eq("updated_at", order.updated_at).select("id");
 
-  if (updateError) {
+  if (updateError || !resolvedRows?.length) {
     await captureServerException({
       event: POSTHOG_EVENTS.API_ROUTE_FAILED,
       error: updateError,

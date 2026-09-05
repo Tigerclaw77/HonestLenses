@@ -160,6 +160,7 @@ export async function POST(req: Request) {
         payment_intent_id,
         payment_attempt_generation,
         shipping_email
+        ,subtotal_cents, right_box_count, left_box_count
       `)
       .eq("id", orderId)
       .eq("status", "draft")
@@ -311,6 +312,10 @@ export async function POST(req: Request) {
                       order.feedback_credit_cents ?? 0,
                     ),
                     amount_due_cents: String(amountDueCents),
+                    sku: order.sku ?? "",
+                    subtotal_cents: String(order.subtotal_cents),
+                    right_box_count: String(order.right_box_count),
+                    left_box_count: String(order.left_box_count),
                   },
                 },
                 {
@@ -356,6 +361,11 @@ export async function POST(req: Request) {
           shipping_cents: String(order.shipping_cents ?? 0),
           feedback_credit_cents: String(order.feedback_credit_cents ?? 0),
           amount_due_cents: String(amountDueCents),
+          sku: order.sku ?? "",
+          original_sku: order.sku ?? "",
+          subtotal_cents: String(order.subtotal_cents),
+          right_box_count: String(order.right_box_count),
+          left_box_count: String(order.left_box_count),
           payment_attempt_generation: String(
             order.payment_attempt_generation,
           ),

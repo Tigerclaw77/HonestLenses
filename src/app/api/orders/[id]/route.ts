@@ -17,6 +17,7 @@ type OrderRow = {
   price_reason: string | null;
   rx: unknown;
   rx_ocr_raw: unknown;
+  rx_ocr_meta: unknown;
   user_id: string | null;
   manufacturer: string | null;
   sku: string | null;
@@ -77,6 +78,7 @@ export async function GET(
       price_reason,
       rx,
       rx_ocr_raw,
+      rx_ocr_meta,
       user_id,
       manufacturer,
       sku,
@@ -122,6 +124,7 @@ export async function GET(
       price_reason: order.price_reason,
       rx: order.rx,
       rx_ocr_raw: order.rx_ocr_raw,
+      rx_ocr_meta: order.rx_ocr_meta,
       manufacturer: order.manufacturer,
       sku: order.sku,
       shipping_method: order.shipping_method,

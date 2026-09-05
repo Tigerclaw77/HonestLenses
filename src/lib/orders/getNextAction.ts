@@ -35,6 +35,9 @@ export type Order = {
   rx_status?: string | null;
   rx_source?: string | null;
   rx?: unknown;
+  sku?: string | null;
+  rx_ocr_raw?: unknown;
+  rx_ocr_meta?: unknown;
   rx_upload_path?: string | null;
   prescriber_name?: string | null;
   prescriber_email?: string | null;

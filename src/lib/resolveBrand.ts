@@ -236,6 +236,21 @@ export function resolveBrand(
 
   let candidates = [...lenses];
 
+  // An exact catalog identity beats heuristic overlap with variants such as
+  // OASYS MAX. Physical/structural conflicts still fail closed.
+  const identity = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const exact = candidates.filter(lens => identity(lens.displayName) === identity(rawString));
+  if (exact.length === 1) {
+    const lens = exact[0];
+    const compatible = (!input.hasCyl || lens.type.toric) &&
+      (!input.hasAdd || lens.type.multifocal) &&
+      (input.bc == null || (lens.parameters.baseCurve ?? []).includes(input.bc)) &&
+      (input.dia == null || (lens.parameters.diameter ?? []).includes(input.dia));
+    return { lensId: compatible ? lens.coreId : null, score: compatible ? 200 : 0,
+      confidence: compatible ? "high" : "low",
+      reason: { stage: "scored", candidateCount: 1, bestScore: compatible ? 200 : 0, gap: 200 } };
+  }
+
   if (candidates.length === 0) {
     return {
       lensId: null,

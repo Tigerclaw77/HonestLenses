@@ -9,6 +9,7 @@ import {
 } from "@/lib/order-access";
 import { resolveDefaultSku } from "../../../../../lib/pricing/resolveDefaultSku";
 import { getLensFamilyQuantityReset } from "../../../../../lib/orders/rxFamilyChange";
+import { record, productChanges, prescribedProducts, originalProduct, productChangeDescription } from "@/lib/orders/productSelection";
 import {
   lenses,
   resolveLensRxState,
@@ -34,6 +35,7 @@ type EyeRx = {
 };
 
 type RxMeta = {
+  product_change_resolution?: { action?: string; original_sku?: string | null; upload_path?: string };
   patient_name?: string;
   prescriber_name?: string;
   prescriber_phone?: string;
@@ -212,7 +214,7 @@ export async function POST(
 
   const { data: order, error: orderError } = await supabaseServer
     .from("orders")
-    .select("id, user_id, status, verification_status, rx_source, rx_upload_path, rx")
+    .select("id, user_id, status, verification_status, rx_source, rx_upload_path, rx, sku, rx_ocr_raw, rx_ocr_meta, updated_at")
     .eq("id", orderId)
     .single();
 
@@ -223,7 +225,7 @@ export async function POST(
     );
   }
 
-  if (!["draft", "pending", "authorized"].includes(order.status)) {
+  if (!["draft", "pending"].includes(order.status)) {
     return NextResponse.json(
       { error: "Order is not editable" },
       { status: 400 },
@@ -255,6 +257,37 @@ export async function POST(
     left: leftResult.eye,
   };
 
+  let ocrMeta = record(order.rx_ocr_meta);
+  if (order.rx_upload_path) {
+    const prescribed = prescribedProducts(order.rx_ocr_raw);
+    for (const eye of ["right", "left"] as const) {
+      if (sanitizedRx[eye] && prescribed[eye] && sanitizedRx[eye]?.coreId !== prescribed[eye]) {
+        return NextResponse.json({ code: "PRESCRIBED_PRODUCT_MISMATCH",
+          error: "The selected product differs from your uploaded prescription. Choose the prescribed product explicitly, or upload the correct prescription before continuing." }, { status: 409 });
+      }
+    }
+    const changes = productChanges(order, sanitizedRx);
+    if (changes.length) {
+      const resolution = rx.product_change_resolution;
+      const explicit = resolution?.action === "accept_prescribed_product" &&
+        resolution.original_sku === originalProduct(order).sku &&
+        resolution.upload_path === order.rx_upload_path &&
+        changes.every(eye => prescribed[eye] === sanitizedRx[eye]?.coreId);
+      if (!explicit) {
+        return NextResponse.json({ code: "PRODUCT_CHANGE_CONFIRMATION_REQUIRED",
+          error: "Confirm the change from your selected product to the prescribed product before continuing.",
+          description: productChangeDescription(order, sanitizedRx),
+          original_sku: originalProduct(order).sku, upload_path: order.rx_upload_path }, { status: 409 });
+      }
+      ocrMeta = { ...ocrMeta, product_resolution: {
+        action: "accept_prescribed_product", original_sku: originalProduct(order).sku,
+        upload_path: order.rx_upload_path, right: sanitizedRx.right?.coreId ?? null,
+        left: sanitizedRx.left?.coreId ?? null, actor: access.userId ?? "customer_guest",
+        resolved_at: new Date().toISOString(),
+      } };
+    }
+  }
+
   // This must run before the new default SKU is persisted. Once the SKU is
   // overwritten, cart resolution can no longer tell that saved quantities
   // belong to a different lens family.
@@ -273,13 +306,15 @@ export async function POST(
      9️⃣ Persist
   ========================= */
 
-  const { error: updateError } = await supabaseServer
+  const { data: updated, error: updateError } = await supabaseServer
     .from("orders")
     .update({
       rx: sanitizedRx,
+      rx_ocr_meta: ocrMeta,
       sku,
       ...quantityReset,
       verification_status: nextVerificationStatus,
+      verification_passed: false,
       rx_source: order.rx_upload_path ? "ocr" : order.rx_source ?? "manual",
       rx_status: order.rx_upload_path
         ? "uploaded_customer_confirmed"
@@ -289,9 +324,11 @@ export async function POST(
       prescriber_phone: prescriber_phone || null,
     })
     .eq("id", orderId)
-    .eq("status", order.status);
+    .eq("status", order.status)
+    .eq("updated_at", order.updated_at)
+    .select("id");
 
-  if (updateError) {
+  if (updateError || !updated?.length) {
     return NextResponse.json({ error: "Unable to save the prescription." }, { status: 500 });
   }
 

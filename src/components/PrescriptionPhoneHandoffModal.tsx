@@ -14,6 +14,8 @@ type Props = {
   isOpen: boolean;
   orderId: string | null;
   accessToken: string | null;
+  selectedRight?: string | null;
+  selectedLeft?: string | null;
   onClose: () => void;
   onComplete: (orderId: string) => void;
 };
@@ -22,6 +24,8 @@ export default function PrescriptionPhoneHandoffModal({
   isOpen,
   orderId,
   accessToken,
+  selectedRight,
+  selectedLeft,
   onClose,
   onComplete,
 }: Props) {
@@ -43,7 +47,7 @@ export default function PrescriptionPhoneHandoffModal({
           "Content-Type": "application/json",
           ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         },
-        body: JSON.stringify({ orderId }),
+        body: JSON.stringify({ orderId, selectedRight, selectedLeft }),
       });
       const body = (await response.json().catch(() => ({}))) as Partial<Handoff> & { error?: string };
       if (!response.ok || !body.handoffId || !body.expiresAt || !body.qrDataUrl) {
@@ -56,7 +60,7 @@ export default function PrescriptionPhoneHandoffModal({
     } finally {
       setLoading(false);
     }
-  }, [accessToken, orderId]);
+  }, [accessToken, orderId, selectedRight, selectedLeft]);
 
   useEffect(() => {
     if (!isOpen || !orderId) return;

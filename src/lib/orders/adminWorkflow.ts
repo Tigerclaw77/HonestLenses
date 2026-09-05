@@ -4,6 +4,7 @@ import {
   getVerificationState,
   type Order,
 } from "./getNextAction";
+import { hasUnresolvedProductMismatch } from "./productSelection";
 
 export const ADMIN_FULFILLMENT_STATUSES = [
   "review",
@@ -96,6 +97,11 @@ export function assessAdminFulfillmentTransition(
   }
 
   const warnings: string[] = [];
+  if (hasUnresolvedProductMismatch(order) &&
+      ["ready_to_order", "ordered", "backordered", "shipped", "delivered", "completed"].includes(target)) {
+    return { valid: true, allowed: false, currentStatus, targetStatus: target,
+      warnings: ["Resolve the selected/prescribed product mismatch explicitly before fulfillment."] };
+  }
   const payment = getPaymentState(order);
   const hasCapturedPaymentEvidence =
     payment.status === "captured" && Boolean(order.payment_intent_id?.trim());

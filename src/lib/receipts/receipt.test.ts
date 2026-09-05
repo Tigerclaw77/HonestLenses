@@ -176,7 +176,8 @@ async function testCaptureReceiptEmailOrdering() {
         amount_capturable: 11_797,
         amount_received: 0,
         receipt_email: null,
-      } as Stripe.PaymentIntent;
+        capture_method: "manual", currency: "usd", metadata: { order_id: mutableOrder.id },
+      } as unknown as Stripe.PaymentIntent;
     },
     update: async (_id: string, params: Stripe.PaymentIntentUpdateParams) => {
       calls.push(`update:${params.receipt_email}`);
@@ -205,6 +206,8 @@ async function testCaptureReceiptEmailOrdering() {
   "admin-verification",
   {
     stripe: stripeMock as never,
+    loadOrder: async () => ({ ...mutableOrder, total_amount_cents: 11797, payment_intent_id: "pi_test_receipt", shipping_email: "customer@example.com" }),
+    persistSubtotal: async () => {},
     createReceiptSnapshot: async () => {
       calls.push("snapshot");
       return true;

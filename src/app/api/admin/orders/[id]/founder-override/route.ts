@@ -41,7 +41,7 @@ export async function POST(
   const { data: order, error: orderError } = await supabaseServer
     .from("orders")
     .select(
-      "id, status, fulfillment_status, verification_status, rx_status, rx_source, rx, rx_upload_path, prescriber_name, prescriber_email, prescriber_phone, payment_intent_id, total_amount_cents, capture_amount_cents, feedback_credit_cents, authorization_expires_at, shipping_email",
+      "id, status, fulfillment_status, verification_status, rx_status, rx_source, rx, rx_upload_path, prescriber_name, prescriber_email, prescriber_phone, payment_intent_id, total_amount_cents, capture_amount_cents, feedback_credit_cents, shipping_email",
     )
     .eq("id", orderId)
     .maybeSingle();

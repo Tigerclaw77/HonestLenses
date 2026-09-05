@@ -12,6 +12,7 @@ import {
   hasOrderAccessContext,
 } from "@/lib/order-access";
 import { validatePrescriptionUpload } from "@/lib/security/uploadValidation";
+import { originalProduct, record, selectedProduct } from "@/lib/orders/productSelection";
 import {
   enforceRateLimit,
   rateLimitErrorResponse,
@@ -243,7 +244,7 @@ export async function POST(
 
     const { data: order, error: orderError } = await supabaseServer
       .from("orders")
-      .select("id, user_id, status, payment_intent_id")
+      .select("id, user_id, status, payment_intent_id, rx, sku, rx_ocr_meta, updated_at")
       .eq("id", orderId)
       .maybeSingle();
 
@@ -255,7 +256,7 @@ export async function POST(
       return NextResponse.json({ error: "Order not authorized" }, { status: 403 });
     }
 
-    if (!["draft", "pending", "authorized"].includes(order.status)) {
+    if (!["draft", "pending"].includes(order.status)) {
       return NextResponse.json({ error: "Order is not editable" }, { status: 400 });
     }
 
@@ -268,6 +269,16 @@ export async function POST(
     if (!rateLimit.allowed) return rateLimitErrorResponse(rateLimit);
 
     const formData = await req.formData();
+    const selectedFromUpload = selectedProduct({ rx: {
+      right: { coreId: formData.get("selected_right") },
+      left: { coreId: formData.get("selected_left") },
+    } });
+    const original = originalProduct(order);
+    const selection = {
+      ...original,
+      right: original.right ?? selectedFromUpload.right,
+      left: original.left ?? selectedFromUpload.left,
+    };
     const file = formData.get("file") as File | null;
 
     if (!file) {
@@ -311,17 +322,20 @@ export async function POST(
       );
     }
 
-    const { error: evidenceError } = await supabaseServer
+    const { data: evidenceRows, error: evidenceError } = await supabaseServer
       .from("orders")
       .update({
         rx_upload_path: storagePath,
         rx_status: "uploaded_pending_review",
         verification_status: "pending",
+        verification_passed: false,
+        rx_ocr_meta: { ...record(order.rx_ocr_meta), selected_product: selection, product_resolution: null },
       })
       .eq("id", orderId)
-      .in("status", ["draft", "pending", "authorized"]);
+      .eq("status", order.status)
+      .eq("updated_at", order.updated_at).select("id");
 
-    if (evidenceError) {
+    if (evidenceError || !evidenceRows?.length) {
       await supabaseServer.storage.from("prescriptions").remove([storagePath]);
       return NextResponse.json(
         { error: "Failed to save Rx evidence", code: "evidence_save_failed" },
@@ -354,7 +368,7 @@ export async function POST(
           rx_status: "automation_review_ocr_evidence_missing",
           verification_status: "pending",
         })
-        .eq("id", orderId);
+        .eq("id", orderId).eq("rx_upload_path", storagePath).eq("status", order.status);
       await supabaseServer.from("order_events").insert({
         order_id: orderId,
         event_type: "verification_uploaded_exception",
@@ -401,10 +415,11 @@ export async function POST(
       });
     }
 
-    const { error: updateError } = await supabaseServer
+    const { data: ocrRows, error: updateError } = await supabaseServer
       .from("orders")
       .update({
-        rx,
+        // OCR is evidence, not permission to replace a customer's selection.
+        rx: Object.keys(record(order.rx)).length ? order.rx : rx,
         rx_status: !usable
           ? "automation_review_ocr_missing_required_fields"
           : !isLikelyRx
@@ -415,9 +430,11 @@ export async function POST(
         verification_status: "pending",
         rx_ocr_raw: interpretation,
       })
-      .eq("id", orderId);
+      .eq("id", orderId)
+      .eq("rx_upload_path", storagePath)
+      .eq("status", order.status).select("id");
 
-    if (updateError) {
+    if (updateError || !ocrRows?.length) {
       console.error("RX UPDATE ERROR:", updateError);
       return NextResponse.json(
         { error: "Failed to save Rx", code: "rx_save_failed" },

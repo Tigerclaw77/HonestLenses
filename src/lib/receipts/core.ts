@@ -4,6 +4,7 @@ import { getPackSizeFromSku } from "@/lib/cart/skuPackSize";
 import { getLensSkus } from "@/lib/pricing/getLensSkus";
 import { getPricePerBox } from "@/lib/pricing/getPricePerBox";
 import { getAuthoritativeOrderQuantity } from "@/lib/orders/orderQuantity";
+import { getCaptureAmountCents } from "@/lib/payments/captureAmount";
 
 export const RECEIPT_RETRIEVAL_TOKEN_TTL_MINUTES = 60;
 export const RECEIPT_CONFIRMATION_TOKEN_TTL_DAYS = 30;
@@ -56,6 +57,7 @@ export type ReceiptOrderSource = {
   adjusted_left_box_count?: number | null;
   adjusted_total_box_count?: number | null;
   total_amount_cents?: number | null;
+  subtotal_cents?: number | null;
   capture_amount_cents?: number | null;
   feedback_credit_cents?: number | null;
   shipping_cents?: number | null;
@@ -170,6 +172,19 @@ function money(value: unknown): number {
     : 0;
 }
 
+export function receiptMerchandiseSubtotal(order: ReceiptOrderSource): number {
+  const quantity = getAuthoritativeOrderQuantity(order);
+  const unit = order.sku ? getPricePerBox(order.sku) : null;
+  if (order.price_reason !== "flat_retail_v1" || !unit || quantity.total <= 0 ||
+      quantity.right + quantity.left !== quantity.total) throw new Error("Receipt merchandise facts are unavailable");
+  const subtotal = unit * quantity.total;
+  if ((order.subtotal_cents != null && order.subtotal_cents !== 0 && order.subtotal_cents !== subtotal) ||
+      subtotal + money(order.shipping_cents) + money(order.tax_cents) !== order.total_amount_cents) {
+    throw new Error("Receipt line items do not reconcile to the stored order total");
+  }
+  return subtotal;
+}
+
 export function buildReceiptSnapshot(
   order: ReceiptOrderSource,
   payment: ReceiptPaymentSource,
@@ -197,19 +212,23 @@ export function buildReceiptSnapshot(
 
   const shippingCents = money(order.shipping_cents);
   const taxCents = money(order.tax_cents);
-  const lineTotalCents = unitPriceCents * quantity.total;
+  const lineTotalCents = receiptMerchandiseSubtotal(order);
   const storedTotal = money(order.total_amount_cents);
   if (storedTotal !== lineTotalCents + shippingCents + taxCents) {
     throw new Error("Receipt line items do not reconcile to the stored order total");
   }
 
   const amountPaidCents = money(payment.amountReceivedCents);
+  if (amountPaidCents !== getCaptureAmountCents(order)) {
+    throw new Error("Captured amount does not match the approved final amount");
+  }
   if (amountPaidCents <= 0 || !Number.isFinite(new Date(payment.capturedAt).getTime())) {
     throw new Error("Captured payment facts are unavailable");
   }
   const adjustmentCents =
     amountPaidCents - lineTotalCents - shippingCents - taxCents;
   const currency = payment.currency.trim().toUpperCase();
+  if (order.currency && currency !== order.currency.trim().toUpperCase()) throw new Error("Receipt currency mismatch");
   if (!/^[A-Z]{3}$/.test(currency)) throw new Error("Receipt currency is invalid");
 
   const customerName = [order.shipping_first_name, order.shipping_last_name]

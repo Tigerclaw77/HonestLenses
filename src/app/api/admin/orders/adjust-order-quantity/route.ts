@@ -312,6 +312,8 @@ export async function POST(req: Request) {
       manufacturer: quote.manufacturer,
       shipping_method: quote.shippingMethod,
       shipping_cents: quote.shippingCents,
+      subtotal_cents: quote.productSubtotalCents,
+      tax_cents: 0,
       total_amount_cents: quote.totalAmountCents,
       price_reason: quote.priceReason,
       capture_amount_cents: amountDueCents,

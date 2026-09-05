@@ -1153,7 +1153,7 @@ export default function RxForm({
 
       console.log("STEP 3: posting RX");
 
-      const rxRes = await fetch(`/api/orders/${finalOrderId}/rx`, {
+      let rxRes = await fetch(`/api/orders/${finalOrderId}/rx`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1168,6 +1168,19 @@ export default function RxForm({
         rxBody = await rxRes.json();
       } catch {
         // ignore
+      }
+
+      if (rxRes.status === 409 && rxBody && typeof rxBody === "object" &&
+          "code" in rxBody && rxBody.code === "PRODUCT_CHANGE_CONFIRMATION_REQUIRED") {
+        const change = rxBody as unknown as { description: string; original_sku: string | null; upload_path: string };
+        if (!window.confirm(`${change.description}\n\nChange your selected product to the prescribed product? You will review the new quantity and price in your cart before payment.`)) return;
+        rxRes = await fetch(`/api/orders/${finalOrderId}/rx`, {
+          method: "POST", headers: { "Content-Type": "application/json", ...optionalAuthHeaders(accessToken) },
+          body: JSON.stringify({ ...rx, product_change_resolution: {
+            action: "accept_prescribed_product", original_sku: change.original_sku, upload_path: change.upload_path,
+          } }), cache: "no-store",
+        });
+        rxBody = await rxRes.json();
       }
 
       if (!rxRes.ok) {

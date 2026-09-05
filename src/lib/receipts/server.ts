@@ -172,6 +172,9 @@ export async function ensureReceiptSnapshot(
     }),
   ]);
   if (error || !order) throw new Error("Receipt order facts are unavailable");
+  if (order.payment_intent_id !== intent.id || intent.metadata?.order_id !== orderId) {
+    throw new Error("Receipt payment does not belong to this order");
+  }
   if (intent.status !== "succeeded" || intent.amount_received <= 0) {
     throw new Error("Receipt requires a successfully captured payment");
   }
@@ -182,6 +185,13 @@ export async function ensureReceiptSnapshot(
   );
   if (receiptSnapshotContainsProhibitedData(snapshot)) {
     throw new Error("Receipt snapshot failed data-minimization checks");
+  }
+  if (order.subtotal_cents !== snapshot.line.lineTotalCents) {
+    const { error: subtotalError } = await supabaseServer.from("orders")
+      .update({ subtotal_cents: snapshot.line.lineTotalCents })
+      .eq("id", orderId).eq("payment_intent_id", paymentIntentId)
+      .eq("total_amount_cents", order.total_amount_cents);
+    if (subtotalError) throw new Error("Receipt subtotal persistence failed");
   }
 
   const { error: insertError } = await supabaseServer
@@ -224,6 +234,7 @@ export async function ensureReceiptSnapshotWithoutAffectingPayment(
     console.error("Receipt snapshot creation failed", {
       orderId,
       code: error instanceof Error ? error.name : "UNKNOWN",
+      reason: error instanceof Error ? error.message : "Unknown receipt failure",
     });
     try {
       await sendFounderOperationalAlert({

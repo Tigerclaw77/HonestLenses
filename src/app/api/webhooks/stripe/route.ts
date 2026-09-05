@@ -15,6 +15,7 @@ import {
   type LegacyStripeWebhookRepository,
 } from "@/lib/payments/legacyStripeWebhook";
 import { ensureReceiptSnapshotWithoutAffectingPayment } from "@/lib/receipts/server";
+import { ensureOrderConfirmation } from "@/lib/receipts/confirmation";
 
 const legacyRepository: LegacyStripeWebhookRepository = {
   async findOrder(orderId, paymentIntentId) {
@@ -86,12 +87,14 @@ export async function POST(request: Request) {
         !result.ignored
       ) {
         const intent = event.data.object;
-        await ensureReceiptSnapshotWithoutAffectingPayment(
+        const receiptReady = await ensureReceiptSnapshotWithoutAffectingPayment(
           result.orderId,
           intent.id,
           "stripe_webhook",
           new Date(event.created * 1000).toISOString(),
         );
+        if (!receiptReady) throw new Error("Paid receipt facts unavailable; webhook retry required");
+        await ensureOrderConfirmation(result.orderId);
       }
       return NextResponse.json({
         received: true,

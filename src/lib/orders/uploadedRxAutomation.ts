@@ -1,5 +1,6 @@
 import { lenses } from "@/LensCore";
 import { resolveBrand } from "@/lib/resolveBrand";
+import { hasUnresolvedProductMismatch } from "./productSelection";
 
 export const UPLOADED_RX_AUTO_VERIFY_MIN_CONFIDENCE = 0.95;
 
@@ -25,6 +26,8 @@ export type UploadedRxExceptionReason =
   | "automation_state_update_failed";
 
 export type UploadedRxAutomationOrder = {
+  sku?: unknown;
+  rx_ocr_meta?: unknown;
   rx_upload_path?: unknown;
   rx_status?: unknown;
   rx?: unknown;
@@ -308,6 +311,9 @@ export function evaluateUploadedRxAutomation(
 
   if (!text(order.rx_upload_path)) {
     return review("missing_upload_evidence", "No retained upload exists.", evidence);
+  }
+  if (hasUnresolvedProductMismatch(order)) {
+    return review("product_mismatch", "Selected and prescribed products require explicit resolution.", evidence);
   }
   if (order.rx_status !== "uploaded_customer_confirmed") {
     return review(

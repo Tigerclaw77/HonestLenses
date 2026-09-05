@@ -11,12 +11,14 @@ import { captureClientError } from "@/lib/telemetry/clientErrors";
 import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 import { hasUploadedEvidenceWithoutPrescription } from "@/lib/uploadFlow";
 import type { OcrExtract } from "@/types/ocr";
+import { originalProduct } from "@/lib/orders/productSelection";
 
 /* =========================
    TYPES
 ========================= */
 
 type Eye = {
+  coreId?: string;
   sphere?: number | string;
   cylinder?: number | string;
   axis?: number | string;
@@ -51,6 +53,8 @@ export default function ConfirmClient() {
   const [initialDraft, setInitialDraft] = useState<RxDraft | null>(null);
   const [ocrExtract, setOcrExtract] = useState<OcrExtract | null>(null);
   const [recoveryRequired, setRecoveryRequired] = useState(false);
+  const [prescribedDraft, setPrescribedDraft] = useState<RxDraft | null>(null);
+  const [productDifference, setProductDifference] = useState<string | null>(null);
 
   const recoveryParams = new URLSearchParams();
   if (rightLens) recoveryParams.set("right", rightLens);
@@ -100,14 +104,19 @@ export default function ConfirmClient() {
           throw new Error("No prescription data found for this order");
         }
 
-        const rx = order.rx as {
+        const rawOcr = order.rx_ocr_raw as Record<string, unknown> | null;
+        const sourceEye = (value: unknown) => value && typeof value === "object"
+          ? { ...value, base_curve: (value as Record<string, unknown>).baseCurve } : undefined;
+        const rx = (rawOcr ? {
+          right: sourceEye(rawOcr.right), left: sourceEye(rawOcr.left), expires: rawOcr.expirationDate,
+        } : order.rx) as {
           left?: Eye;
           right?: Eye;
           expires?: string;
         };
-        const rawOcr = order.rx_ocr_raw as Record<string, unknown> | null;
+        const selection = originalProduct(order);
 
-        const mapEye = (eye?: Eye): RxDraft["left"] => {
+        const mapEye = (eye?: Eye, selected?: string | null): RxDraft["left"] => {
           const rawString = (eye?.brand_raw ?? "").trim();
 
           const result = resolveBrand(
@@ -121,26 +130,7 @@ export default function ConfirmClient() {
             lenses,
           );
 
-          let coreId = result?.lensId ?? "";
-
-          // 🔥 CRITICAL FIX — HARD FALLBACK
-          if (!coreId && rawString) {
-            const normalized = rawString.toLowerCase();
-
-            const match = lenses.find((l) =>
-              l.displayName.toLowerCase().includes(normalized),
-            );
-
-            if (match) {
-              coreId = match.coreId;
-              if (process.env.NODE_ENV === "development") {
-                console.info("Rx brand fallback match used", {
-                  matched: match.displayName,
-                  coreId,
-                });
-              }
-            }
-          }
+          const coreId = selected ?? result?.lensId ?? "";
 
           // 🔍 DEBUG — DO NOT REMOVE YET
           if (process.env.NODE_ENV === "development") {
@@ -168,10 +158,19 @@ export default function ConfirmClient() {
         };
 
         const draft: RxDraft = {
-          left: mapEye(rx.left),
-          right: mapEye(rx.right),
+          left: mapEye(rx.left, selection.left),
+          right: mapEye(rx.right, selection.right),
           expires: rx.expires ?? "",
         };
+        const prescriptionDraft: RxDraft = {
+          left: mapEye(rx.left), right: mapEye(rx.right), expires: rx.expires ?? "",
+        };
+        const changedEyes = (["right", "left"] as const).filter(eye =>
+          selection[eye] && prescriptionDraft[eye].coreId && selection[eye] !== prescriptionDraft[eye].coreId);
+        const lensName = (id: string | null) => lenses.find(l => l.coreId === id)?.displayName ?? id;
+        setProductDifference(changedEyes.length ? changedEyes.map(eye =>
+          `${eye === "right" ? "Right" : "Left"} eye: selected ${lensName(selection[eye])}; prescription ${lensName(prescriptionDraft[eye].coreId)}.`).join(" ") : null);
+        setPrescribedDraft(prescriptionDraft);
 
         setInitialDraft(draft);
         const firstEye =
@@ -274,6 +273,12 @@ export default function ConfirmClient() {
 
   return (
     <div style={{ padding: 40 }}>
+      {productDifference ? <div role="alert" style={{ padding: 16, border: "1px solid #b45309", marginBottom: 24 }}>
+        <p><strong>Your selected lenses differ from your prescription.</strong> {productDifference}</p>
+        <p>Your selection has been retained. Review the prescribed product to request a change, or upload the correct prescription. Payment and fulfillment cannot proceed until this is resolved.</p>
+        <button type="button" onClick={() => { if (prescribedDraft) setInitialDraft(prescribedDraft); }}>Review prescribed product</button>
+        {" · "}<Link href={uploadHref}>Upload a different prescription</Link>
+      </div> : null}
       <RxForm mode="ocr" initialDraft={initialDraft} ocrExtract={ocrExtract ?? undefined} />
     </div>
   );

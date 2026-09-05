@@ -473,6 +473,8 @@ function UploadPrescriptionContent() {
 
       const formData = new FormData();
       formData.append("file", file);
+      if (rightLens) formData.append("selected_right", rightLens);
+      if (leftLens) formData.append("selected_left", leftLens);
 
       markStepStart("rx_upload");
       uploadAttemptStarted = true;
@@ -854,6 +856,8 @@ function UploadPrescriptionContent() {
         isOpen={phoneModalOpen}
         orderId={phoneOrderId}
         accessToken={phoneAccessToken}
+        selectedRight={rightLens}
+        selectedLeft={leftLens}
         onClose={() => setPhoneModalOpen(false)}
         onComplete={handleMobileUploadComplete}
       />
