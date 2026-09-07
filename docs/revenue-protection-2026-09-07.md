@@ -12,7 +12,7 @@ Recovery now checks archive, confirmation, fulfillment, product evidence, and li
 
 Validation: `npm run test:revenue`, full `npm test`, TypeScript, targeted ESLint, production build, and temporary PostgreSQL gate passed. Fourteen pinned SKU/pack/price fixtures cover OASYS ordinary/MAX/daily/biweekly, DT1/TOTAL30, Biotrue sphere/toric, MyDay/Biofinity, quantity, shipping boundaries, authorized/captured amount, selection preservation, and receipt arithmetic. Real capture/reconciliation/confirmation functions run against fixtures with provider delivery mocked; replay cannot recapture or resend. The small cart SKU-selection helper exposes existing behavior to deterministic tests.
 
-Production builds now run zero-row schema/grant probes before Next builds. The live gate failed clearly on the missing recovery table before migration, then passed after it. Existing receipt schema was present and reused. The additive migration `20260907152347_recovery_touch_drafts.sql` was applied and verified: RLS enabled, no client grants, service role select/insert only, zero production rows. Local PostgreSQL tests verify duplicate-key and prohibited-state rejection.
+Production builds now run zero-row schema/grant probes before Next builds. The live gate failed clearly on the missing recovery table before migration, then passed after it. Existing receipt schema was present and reused. The additive migration `20260907153608_recovery_touch_drafts.sql` was applied and verified: RLS enabled, no client grants, service role select/insert only, zero production rows. Local PostgreSQL tests verify duplicate-key and prohibited-state rejection.
 
 ## Fulfillment audit only
 

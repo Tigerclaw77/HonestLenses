@@ -823,8 +823,8 @@ async function runGate(client, connectionConfig) {
   );
 
   applied.push(await applySqlFile(client,
-    path.join(migrationDirectory, "20260907152347_recovery_touch_drafts.sql"),
-    { version: "20260907152347", name: "recovery_touch_drafts" }));
+    path.join(migrationDirectory, "20260907153608_recovery_touch_drafts.sql"),
+    { version: "20260907153608", name: "recovery_touch_drafts" }));
   const recoverySecurity = await client.query(`select relrowsecurity as rls from pg_class where oid='public.recovery_touch_drafts'::regclass`);
   assert(recoverySecurity.rows[0]?.rls, "Recovery drafts must enable RLS");
   for (const role of ["anon", "authenticated"]) {
