@@ -1,4 +1,7 @@
 import { createHmac, randomBytes } from "crypto";
+import { CORE_TO_SKUS } from "./pricing/resolveDefaultSku";
+
+const RECOVERABLE_SKUS = new Set(Object.values(CORE_TO_SKUS).flat());
 
 export const ORDER_RESUME_TOKEN_TTL_MINUTES = 60;
 export const ORDER_RESUME_TOKEN_TTL_MS =
@@ -12,6 +15,12 @@ type JsonObject = Record<string, unknown>;
 export type RecoverableOrder = {
   id: string;
   status: string | null;
+  archived?: boolean | null;
+  archived_at?: string | null;
+  fulfillment_status?: string | null;
+  payment_status?: string | null;
+  stripe_payment_intent_status?: string | null;
+  confirmation_email_sent_at?: string | null;
   rx?: unknown;
   rx_upload_path?: string | null;
   rx_source?: string | null;
@@ -70,13 +79,14 @@ export function getCartSaveExpiry(): string {
 }
 
 export function hasRecoverableRx(order: RecoverableOrder): boolean {
-  if (order.rx_upload_path || order.rx_source === "upload") return true;
+  if (order.rx_upload_path) return true;
 
   if (!isObject(order.rx)) return false;
   const right = order.rx.right;
   const left = order.rx.left;
 
-  return Boolean(isObject(right) || isObject(left));
+  return [right, left].some(eye => isObject(eye) &&
+    typeof eye.coreId === "string" && Boolean(CORE_TO_SKUS[eye.coreId]));
 }
 
 export function hasRecoverableShipping(order: RecoverableOrder): boolean {
@@ -94,7 +104,16 @@ export function hasRecoverableShipping(order: RecoverableOrder): boolean {
 export function getResumeDestination(
   order: RecoverableOrder,
 ): ResumeDestination | null {
-  if (!order.id || order.status !== "draft") return null;
+  if (
+    !order.id || order.status !== "draft" || order.archived || order.archived_at ||
+    order.confirmation_email_sent_at ||
+    (order.fulfillment_status && order.fulfillment_status !== "review") ||
+    (order.payment_status && order.payment_status !== "draft") ||
+    (order.stripe_payment_intent_status &&
+      !["requires_payment_method", "requires_confirmation", "requires_action"].includes(order.stripe_payment_intent_status))
+  ) return null;
+
+  if (!hasRecoverableRx(order) && !RECOVERABLE_SKUS.has(order.sku ?? "")) return null;
 
   if (order.payment_intent_id || hasRecoverableShipping(order)) {
     return {

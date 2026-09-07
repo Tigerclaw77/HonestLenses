@@ -4,12 +4,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { setGuestOrderCookie } from "@/lib/order-access";
 import {
-  getResumeDestination,
   hashOrderResumeToken,
   normalizeRecoveryEmail,
   type RecoverableOrder,
 } from "@/lib/order-recovery";
 import { supabaseServer } from "@/lib/supabase-server";
+import { getVerifiedResumeDestination, RECOVERY_ORDER_FIELDS } from "@/lib/recoveryServer";
 
 type ResumeTokenRow = {
   id: string;
@@ -57,7 +57,7 @@ async function getRecoverableOrder(
   let query = supabaseServer
     .from("orders")
     .select(
-      "id, status, rx, rx_upload_path, rx_source, verification_status, payment_intent_id, shipping_email, shipping_first_name, shipping_last_name, shipping_address1, shipping_city, shipping_state, shipping_zip, sku, total_amount_cents",
+      RECOVERY_ORDER_FIELDS,
     )
     .eq("id", orderId);
 
@@ -69,8 +69,8 @@ async function getRecoverableOrder(
   return error ? null : data;
 }
 
-function completeRecovery(req: NextRequest, order: RecoverableOrder) {
-  const destination = getResumeDestination(order);
+async function completeRecovery(req: NextRequest, order: RecoverableOrder) {
+  const destination = await getVerifiedResumeDestination(order).catch(() => null);
   if (!destination) return redirectToStatus(req, "expired");
 
   const response = protectRedirect(
@@ -81,7 +81,7 @@ function completeRecovery(req: NextRequest, order: RecoverableOrder) {
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token")?.trim();
-  if (!token) return redirectToStatus(req, "invalid");
+  if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return redirectToStatus(req, "invalid");
 
   let tokenHash: string;
   try {
@@ -117,8 +117,16 @@ export async function GET(req: NextRequest) {
     .gt("expires_at", now)
     .maybeSingle<CartSaveTokenRow>();
 
-  if (cartSaveTokenError || !cartSaveToken) {
+  if (cartSaveTokenError) {
     return redirectToStatus(req, "expired");
+  }
+
+  if (!cartSaveToken) {
+    const { data: draft, error } = await supabaseServer.from("recovery_touch_drafts")
+      .select("order_id,email").eq("token_hash", tokenHash).gt("expires_at", now).maybeSingle();
+    if (error || !draft) return redirectToStatus(req, "expired");
+    const order = await getRecoverableOrder(draft.order_id, draft.email);
+    return order ? completeRecovery(req, order) : redirectToStatus(req, "expired");
   }
 
   // A cart-save token is delivered directly to the requested inbox. Unlike

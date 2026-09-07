@@ -3,6 +3,7 @@ export type RecoveryEmailDraftInput = {
   customerEmail?: string | null;
   orderId: string;
   siteUrl?: string | null;
+  resumeUrl?: string;
 };
 
 export type RecoveryEmailDraft = {
@@ -30,9 +31,10 @@ export function buildAbandonedCheckoutRecoveryEmail({
   customerEmail,
   orderId,
   siteUrl,
+  resumeUrl,
 }: RecoveryEmailDraftInput): RecoveryEmailDraft {
   const name = customerName?.trim() || "there";
-  const cartUrl = `${normalizeSiteUrl(siteUrl)}/cart`;
+  const cartUrl = resumeUrl ?? `${normalizeSiteUrl(siteUrl)}/resume-order`;
   const subject = "Need help finishing your HonestLenses order?";
   const text = [
     `Hi ${name},`,

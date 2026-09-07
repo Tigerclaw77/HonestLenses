@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { resolveSkuSelection } from "@/lib/cart/resolveSkuSelection";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -71,16 +72,9 @@ const resolveRoute = readFileSync(
 assert.match(cartPage, /Prefer smaller boxes\?/);
 assert.match(cartPage, /Same prescribed lenses\s+and total lens quantity/);
 assert.match(resolveRoute, /Requested pack size is not available for this lens/);
-assert.match(
-  resolveRoute,
-  /requestedSku \?\? storedSku \?\? resolveDefaultSku/,
-  "the explicit pack choice must survive later quantity and shipping resolves",
-);
-assert.match(
-  resolveRoute,
-  /hasCompatibleStoredQuantity = storedSku !== null/,
-  "quantities from an incompatible prior lens family must not survive SKU resolution",
-);
+assert.match(resolveRoute, /resolveSkuSelection\(/);
+assert.equal(resolveSkuSelection(["OASYS_MAX_1D"], null, "OASYS_MAX_1D_30", 12).sku, "OASYS_MAX_1D_30");
+assert.equal(resolveSkuSelection(["OASYS_1D"], null, "OASYS_2W_24", 12).hasCompatibleStoredQuantity, false);
 assert.deepEqual(
   getQuantityOptionsWithSelectedValue([0, 1, 2, 3, 4], 12),
   [0, 1, 2, 3, 4, 12],

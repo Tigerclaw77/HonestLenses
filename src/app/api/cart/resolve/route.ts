@@ -8,7 +8,7 @@ import {
   hasOrderAccessContext,
 } from "@/lib/order-access";
 import { getSkuBoxDurationMonths } from "../../../../lib/pricing/skuDefaults";
-import { resolveDefaultSku } from "../../../../lib/pricing/resolveDefaultSku";
+import { resolveSkuSelection } from "@/lib/cart/resolveSkuSelection";
 import { isSkuAvailableForCoreId } from "@/lib/pricing/packSizeOptions";
 import {
   hasResolvedCartQuantity,
@@ -390,16 +390,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const storedSku =
-    typeof order.sku === "string" &&
-    coreIds.every((eyeCoreId) =>
-      isSkuAvailableForCoreId(eyeCoreId, order.sku as string),
-    )
-      ? order.sku
-      : null;
-  const hasCompatibleStoredQuantity = storedSku !== null;
-  const resolvedSku =
-    requestedSku ?? storedSku ?? resolveDefaultSku(coreId, targetMonths);
+  const { sku: resolvedSku, hasCompatibleStoredQuantity } = resolveSkuSelection(
+    coreIds, requestedSku, typeof order.sku === "string" ? order.sku : null, targetMonths,
+  );
   if (!resolvedSku) {
     return NextResponse.json({ error: "No SKU found." }, { status: 400 });
   }

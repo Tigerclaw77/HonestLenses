@@ -822,6 +822,22 @@ async function runGate(client, connectionConfig) {
     ),
   );
 
+  applied.push(await applySqlFile(client,
+    path.join(migrationDirectory, "20260907152347_recovery_touch_drafts.sql"),
+    { version: "20260907152347", name: "recovery_touch_drafts" }));
+  const recoverySecurity = await client.query(`select relrowsecurity as rls from pg_class where oid='public.recovery_touch_drafts'::regclass`);
+  assert(recoverySecurity.rows[0]?.rls, "Recovery drafts must enable RLS");
+  for (const role of ["anon", "authenticated"]) {
+    await expectDenied(client, role, "select * from public.recovery_touch_drafts");
+  }
+  await expectDenied(client, "service_role", "update public.recovery_touch_drafts set state='sent'");
+  const recoveryInsert = `insert into public.recovery_touch_drafts
+    (order_id,touch_hours,email,token_hash,activity_at,expires_at)
+    values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',1,'fixture@example.test',$1,now()-interval '1 hour',now()+interval '7 days')`;
+  await executeAs(client, "service_role", recoveryInsert, ["a".repeat(64)]);
+  await expectDatabaseError(client, "service_role", recoveryInsert, "23505", ["b".repeat(64)]);
+  await expectDatabaseError(client, "postgres", "update public.recovery_touch_drafts set state='sent'", "23514");
+
   const missingViews = await client.query(`
     select
       to_regclass('public.admin_orders') is null as admin_orders_absent,

@@ -13,6 +13,7 @@ import {
   ORDER_RESUME_TOKEN_TTL_MINUTES,
   type RecoverableOrder,
 } from "@/lib/order-recovery";
+import { getVerifiedResumeDestination, RECOVERY_ORDER_FIELDS } from "@/lib/recoveryServer";
 import { supabaseServer } from "@/lib/supabase-server";
 import {
   enforceRateLimit,
@@ -53,27 +54,7 @@ export async function POST(req: Request) {
 
   const { data: orders, error } = await supabaseServer
     .from("orders")
-    .select(
-      `
-      id,
-      status,
-      rx,
-      rx_upload_path,
-      rx_source,
-      verification_status,
-      payment_intent_id,
-      shipping_email,
-      shipping_first_name,
-      shipping_last_name,
-      shipping_address1,
-      shipping_city,
-      shipping_state,
-      shipping_zip,
-      sku,
-      total_amount_cents,
-      updated_at
-    `,
-    )
+    .select(RECOVERY_ORDER_FIELDS)
     .eq("shipping_email", email)
     .eq("status", "draft")
     .order("updated_at", { ascending: false })
@@ -91,7 +72,7 @@ export async function POST(req: Request) {
       Boolean(getResumeDestination(candidate)),
     ) ?? null;
 
-  if (!order) {
+  if (!order || !await getVerifiedResumeDestination(order).catch(() => null)) {
     return NextResponse.json({ ok: true });
   }
 

@@ -4,7 +4,7 @@ import {
   getAbandonedCheckoutThresholdHours,
   getStaleCheckoutThresholdHours,
 } from "@/lib/ops/abandonedCheckout";
-import { buildAbandonedCheckoutRecoveryEmail } from "@/lib/email/recoveryEmail";
+import { prepareRecoveryDraft } from "@/lib/recoveryServer";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { captureServerEvent } from "@/lib/posthog/server";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -63,15 +63,6 @@ async function parseBody(req: NextRequest): Promise<ActionBody> {
   }
 }
 
-function customerName(order: OrderRow): string | null {
-  return (
-    order.patient_name ||
-    order.patient_full_name ||
-    `${order.shipping_first_name ?? ""} ${order.shipping_last_name ?? ""}`.trim() ||
-    null
-  );
-}
-
 export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -87,6 +78,23 @@ export async function POST(
 
   if (!isAction(body.action)) {
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+  }
+
+  if (body.action === "draft_recovery_email") {
+    try {
+      const result = await prepareRecoveryDraft(id);
+      if (!result.eligible || ("duplicate" in result && result.duplicate)) {
+        return NextResponse.json({ error: result.eligible
+          ? "This recovery touch was already drafted. Sending remains disabled."
+          : "This checkout is not currently eligible for a 1-hour or 24-hour recovery touch." }, { status: 409 });
+      }
+      return NextResponse.json({ ok: true, ...result }, {
+        headers: { "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" },
+      });
+    } catch (error) {
+      console.error("Recovery draft preparation failed", { orderId: id, error });
+      return NextResponse.json({ error: "Recovery preview unavailable. Check payment provider and recovery schema." }, { status: 503 });
+    }
   }
 
   const { data: order, error } = await supabaseServer
@@ -142,31 +150,6 @@ export async function POST(
       { error: "Order is not an abandoned draft" },
       { status: 400 },
     );
-  }
-
-  if (body.action === "draft_recovery_email") {
-    const draft = buildAbandonedCheckoutRecoveryEmail({
-      customerName: customerName(order),
-      customerEmail: order.shipping_email,
-      orderId: order.id,
-      siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? process.env.SITE_URL,
-    });
-
-    await captureServerEvent({
-      event: POSTHOG_EVENTS.RECOVERY_EMAIL_DRAFTED,
-      distinctId: order.user_id,
-      request: req,
-      properties: {
-        order_id: order.id,
-        has_email: Boolean(draft.to),
-        order_value_cents: order.total_amount_cents,
-        total_amount_cents: order.total_amount_cents,
-        primary_reason: classification.primaryReason,
-        had_payment_intent: Boolean(order.payment_intent_id),
-      },
-    });
-
-    return NextResponse.json({ ok: true, draft });
   }
 
   if (body.action === "delete_permanently") {

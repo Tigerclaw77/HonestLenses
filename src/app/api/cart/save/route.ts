@@ -93,7 +93,7 @@ export async function POST(req: Request) {
   const { data: order, error: orderError } = await supabaseServer
     .from("orders")
     .select(
-      "id, user_id, status, rx, rx_upload_path, rx_source, verification_status, payment_intent_id, shipping_email, shipping_first_name, shipping_last_name, shipping_address1, shipping_city, shipping_state, shipping_zip, sku, total_amount_cents",
+      "id, user_id, status, archived, archived_at, fulfillment_status, confirmation_email_sent_at, rx, rx_upload_path, rx_source, verification_status, payment_intent_id, shipping_email, shipping_first_name, shipping_last_name, shipping_address1, shipping_city, shipping_state, shipping_zip, sku, total_amount_cents",
     )
     .eq("id", cartId)
     .eq("status", "draft")
