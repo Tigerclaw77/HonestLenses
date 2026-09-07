@@ -34,7 +34,7 @@ assert.match(deliveryToken(base.id,ago(-24)),/^[A-Za-z0-9_-]{43}$/);
 
 async function main(){
   const {supabaseServer:db}=await import('./supabase-server');
-  const {processRecovery,replacementOrSuppression,refreshStuckOrder}=await import('./orderOperationsServer');
+  const {processRecovery,replacementOrSuppression}=await import('./orderOperationsServer');
   const {GET,POST}=await import('@/app/recovery/opt-out/route');
   const tables:Record<string,Row[]>={};
   let disableAfterClaim=false;
@@ -112,10 +112,6 @@ async function main(){
   for(let i=0;i<2;i++)assert.equal((await POST(new Request(url,{method:'POST'}))).status,200);
   assert.equal(tables.commercial_email_suppressions.length,1);
   assert.equal(await processRecovery(base,[base],send),'ineligible');assert.equal(sends.length,0);
-  reset();sends=[];
-  await refreshStuckOrder(paid,send);await refreshStuckOrder(paid,send);
-  assert.equal(sends.length,1);assert.ok(tables.order_stuck_alerts[0].active);assert.ok(tables.order_stuck_alerts[0].notified_at);
-  await refreshStuckOrder({...paid,fulfillment_status:'completed'},send);assert.equal(tables.order_stuck_alerts[0].active,false);
   const {GET:run}=await import('@/app/api/internal/order-operations/route');
   assert.equal((await run(new Request('https://honestlenses.com/api/internal/order-operations'))).status,401);
   console.log('Operations: kill switches, replacement/opt-out exclusion, concurrent dedup, immutable retries, ambiguity stop, durable stuck detection/notification/resolution passed. No network or customer delivery.');

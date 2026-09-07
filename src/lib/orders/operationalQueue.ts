@@ -103,7 +103,6 @@ export type OperationalQueueOrder = NextActionOrder & {
   fulfillment_status?: string | null;
   payment_status_source?: string | null;
   abandoned_checkout?: { isAbandoned?: boolean | null } | null;
-  stuck_alert?: { active: boolean; reason: string | null; acknowledged_until?: string | null } | null;
 };
 
 export type ClassifiedOperationalOrder<T extends OperationalQueueOrder> = T & {
@@ -562,10 +561,6 @@ export function classifyOperationalQueue(
     payment.status === "refunded"
   ) {
     return classify("history_archive", false, ["terminal"], order);
-  }
-
-  if (order.stuck_alert?.active && ['authorized','captured'].includes(payment.status)) {
-    return classify('resolve_exception',true,[order.stuck_alert.reason ?? 'Order progress requires review.'],order);
   }
 
   if (order.archived || order.archived_at) {

@@ -8,8 +8,6 @@ import {
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { captureServerEvent } from "@/lib/posthog/server";
 import { supabaseServer } from "@/lib/supabase-server";
-import { operationsControl } from "@/lib/orderOperationsServer";
-import type { StuckAlert } from "@/lib/orderOperations";
 import {
   adminAuthErrorResponse,
   logAdminAuthFailure,
@@ -371,23 +369,14 @@ export async function GET(req: Request) {
       );
     }
 
-    const {data:stuckRows,error:stuckError}=await supabaseServer.from('order_stuck_alerts').select('*,orders(*)').eq('active',true);
-    if(stuckError)throw new Error('Durable stuck-order status unavailable');
-    const stuckById=new Map<string,StuckAlert>((stuckRows??[]).map(row=>[row.order_id,row as StuckAlert]));
-    // Include old actionable rows even when the default orders query hits PostgREST's row cap.
-    const merged=new Map((data??[]).map(row=>[row.id,row]));
-    for(const row of stuckRows??[])if(row.orders&&!merged.has(row.order_id))merged.set(row.order_id,row.orders);
-    const control=await operationsControl();
     const review=await supabaseServer.from('recovery_touch_drafts').select('id',{count:'exact',head:true}).eq('state','needs_review');
     if(review.error)throw new Error('Recovery delivery status unavailable');
-    const operationsWarning=control.last_error || (review.count ? `${review.count} recovery deliveries require provider review; automatic retries stopped.` : null) || (!control.last_succeeded_at || Date.now()-Date.parse(control.last_succeeded_at)>3_600_000
-      ? 'Scheduled order checks are overdue. Review paid orders and scheduler health.' : null);
-    const baseOrders: OrderRow[] = [...merged.values()]
+    const operationsWarning=review.count ? `${review.count} recovery deliveries require provider review; automatic retries stopped.` : null;
+    const baseOrders: OrderRow[] = (data ?? [])
       .filter((o): o is OrderRow => !!o && !!o.id && !!o.created_at)
       .map((o) => ({
         ...o,
         rx: normalizeRx(o.rx ?? null),
-        stuck_alert:stuckById.get(o.id)??null,
       }));
 
     const { data: eventData, error: eventError } = await supabaseServer

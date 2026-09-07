@@ -867,6 +867,17 @@ async function runGate(client, connectionConfig) {
     assert(!(await client.query('select public.try_order_operations_run(gen_random_uuid()) as claimed')).rows[0].claimed, 'Runner overlap blocked');
   } finally { await client.query('rollback'); }
 
+  for (const name of ['suppress_individual_stuck_emails','disable_stuck_order_monitor']) {
+    const filename=(await readdir(migrationDirectory)).find(file=>file.endsWith(`_${name}.sql`));
+    applied.push(await applySqlFile(client,path.join(migrationDirectory,filename),{version:filename.split('_')[0],name}));
+  }
+  const suppressed=await queryAs(client,'service_role',`insert into public.order_stuck_alerts
+    (order_id,state_key,state_since,active,reason,notification_claimed_at)
+    values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','captured:ordered',now(),true,'Paid order has remained ordered for at least 72 hours.',null)
+    returning active,notification_claimed_at`);
+  assert(!suppressed.rows[0].active && suppressed.rows[0].notification_claimed_at,
+    'Old monitoring workers cannot recreate synthetic exceptions or claim email');
+
   const missingViews = await client.query(`
     select
       to_regclass('public.admin_orders') is null as admin_orders_absent,

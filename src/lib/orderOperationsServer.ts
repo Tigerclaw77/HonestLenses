@@ -1,14 +1,11 @@
 import { randomUUID } from "node:crypto";
-import Stripe from "stripe";
 import { supabaseServer as db } from "./supabase-server";
 import { sendEmail } from "./email";
-import { escapeHtml } from "./email/html";
-import { getFounderAlertRecipient } from "./founderAlertConfig";
 import { buildAbandonedCheckoutRecoveryEmail } from "./email/recoveryEmail";
 import { hashOrderResumeToken, normalizeRecoveryEmail } from "./order-recovery";
 import { RECOVERY_ORDER_FIELDS, getVerifiedResumeDestination } from "./recoveryServer";
 import { recoveryTouchDue, type RecoveryOrder } from "./recovery";
-import { commercialEmailHash, optOutSignature, deliveryToken, nextStuckAlert, shouldNotifyStuck, actionablePaymentStatus, type StuckAlert } from "./orderOperations";
+import { commercialEmailHash, optOutSignature, deliveryToken } from "./orderOperations";
 import { isExplicitDraftOrTest } from "./orders/operationalQueue";
 
 type Order=RecoveryOrder & {user_id?:string|null};
@@ -102,41 +99,12 @@ export async function processRecovery(order:Order,all:Order[],send:typeof sendEm
   }
 }
 
-export async function refreshStuckOrder(order:Order,send:typeof sendEmail=sendEmail) {
-  const {data:previous,error}=await db.from('order_stuck_alerts').select('*').eq('order_id',order.id).maybeSingle<StuckAlert>();check(error);
-  const current={...order};
-  if(isExplicitDraftOrTest(order))current.status='draft';
-  else if(order.payment_intent_id && ['authorized','captured'].includes(order.status??'')) {
-    const intent=await new Stripe(process.env.STRIPE_SECRET_KEY!).paymentIntents.retrieve(order.payment_intent_id,{expand:['latest_charge']});
-    if(intent.metadata.order_id!==order.id)throw new Error('Stuck-order payment ownership mismatch');
-    const charge=typeof intent.latest_charge==='object'?intent.latest_charge:null;
-    current.status=actionablePaymentStatus(intent,charge);
-  }
-  const next=nextStuckAlert(current,previous);
-  const stored=await db.from('order_stuck_alerts').upsert({...next,last_checked_at:new Date().toISOString()});check(stored.error);
-  if(!shouldNotifyStuck(next))return;
-  // At-most-once notification claim persists before send; ambiguity remains visible, never spammed.
-  const claimed=await db.from('order_stuck_alerts').update({notification_claimed_at:new Date().toISOString()}).eq('order_id',order.id).eq('state_key',next.state_key).is('notification_claimed_at',null).select('order_id');check(claimed.error);
-  if(!claimed.data?.length)return;
-  try {
-    const sent=await send({to:getFounderAlertRecipient(),subject:`[Founder] Stuck order: ${order.id}`,
-      text:`${next.reason}\nReview: https://honestlenses.com/admin/orders`,
-      html:`<p>${escapeHtml(next.reason??'')}</p><p><a href="https://honestlenses.com/admin/orders">Review stuck order</a></p>`,
-      idempotencyKey:`stuck:${order.id}:${next.state_since}`});
-    if(!sent.data?.id)throw new Error('Founder email was not confirmed');
-    const result=await db.from('order_stuck_alerts').update({notified_at:new Date().toISOString(),notification_error:null}).eq('order_id',order.id);check(result.error);
-  } catch {
-    const result=await db.from('order_stuck_alerts').update({notification_error:'Founder email was not confirmed. Alert remains in Needs Attention; inspect provider before retrying.'}).eq('order_id',order.id);check(result.error);
-  }
-}
 export async function runOrderOperations() {
   const lease=randomUUID();const claim=await db.rpc('try_order_operations_run',{p_lease:lease});check(claim.error);
   if(!claim.data)return {busy:true};
   let failures=0;
   try {
     const orders=await loadOperationsOrders();
-    const openAlerts=await db.from('order_stuck_alerts').select('order_id').eq('active',true);check(openAlerts.error);
-    const openIds=new Set((openAlerts.data??[]).map(row=>row.order_id));
     const pending=await db.from('recovery_touch_drafts').select('order_id,touch_hours').eq('state','sending');check(pending.error);
     for(const attempt of pending.data??[]) {
       const order=orders.find(o=>o.id===attempt.order_id);
@@ -144,7 +112,6 @@ export async function runOrderOperations() {
     }
     for(const order of orders) {
       try {
-        if(['authorized','captured'].includes(order.status??'') || openIds.has(order.id))await refreshStuckOrder(order);
         if(order.status==='draft')await processRecovery(order,orders);
       } catch {failures++;}
     }

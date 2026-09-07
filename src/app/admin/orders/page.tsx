@@ -139,7 +139,6 @@ type Order = {
   created_at?: string;
   updated_at?: string | null;
   lastOperationalActivityAt?: string | null;
-  stuck_alert?: {active:boolean;reason:string|null;acknowledged_until?:string|null}|null;
   lastOperationalActivityReason?: string | null;
 
   rx: string | RxData | null;
@@ -2110,7 +2109,6 @@ function OrderDetailsModal({
   onClose,
   onOpenRxImage,
   onOpenNotes,
-  onAcknowledgeStuck,
   onCopyOrder,
   onArchive,
   onRestoreOrder,
@@ -2125,7 +2123,6 @@ function OrderDetailsModal({
   onClose: () => void;
   onOpenRxImage: () => void;
   onOpenNotes: () => void;
-  onAcknowledgeStuck: () => void;
   onCopyOrder: () => void;
   onArchive: () => void;
   onRestoreOrder: () => void;
@@ -2335,9 +2332,6 @@ function OrderDetailsModal({
               View Rx Image
             </button>
           )}
-          {order.stuck_alert?.active && <button type="button" onClick={onAcknowledgeStuck} style={buttonStyle()}>
-            {order.stuck_alert.acknowledged_until ? `Acknowledged until ${formatAdminDateTime(order.stuck_alert.acknowledged_until)}; extend 24h` : 'Acknowledge stuck order for 24h'}
-          </button>}
           {orderSupportsAdminNotes(order) && (
             <button type="button" onClick={onOpenNotes} style={buttonStyle()}>
               Notes
@@ -4114,14 +4108,6 @@ export default function AdminOrdersPage() {
             openNotes(detailsOrder, getCustomerName(detailsOrder))
           }
           onCopyOrder={() => copyOrderText(detailsOrder, parseRx(detailsOrder))}
-          onAcknowledgeStuck={async()=>{
-            try {
-              const response=await fetch('/api/admin/order-operations',{method:'POST',credentials:'same-origin',headers:{...await authHeaders(),'Content-Type':'application/json'},
-                body:JSON.stringify({action:'acknowledge_stuck',orderId:detailsOrder.id})});
-              if(!response.ok)throw new Error('Acknowledgment failed');
-              await fetchData();
-            } catch {setAdminError('Unable to acknowledge stuck order.');}
-          }}
           onArchive={() => {
             setDetailsOrderId(null);
             archiveOrder(detailsOrder.id);

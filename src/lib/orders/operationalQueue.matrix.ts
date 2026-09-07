@@ -551,6 +551,14 @@ assert.deepEqual(
   "background-only events do not replace the last meaningful activity",
 );
 
+// Retained legacy monitor metadata must not change the pre-existing queue rules.
+for (const scenario of cases) {
+  const withSyntheticAlert = {...scenario.order, stuck_alert: {active:true,reason:'Historical age alert'}};
+  const options = {now:new Date('2026-09-07T12:00:00Z')};
+  assert.deepEqual(classifyOperationalQueue(withSyntheticAlert,options),classifyOperationalQueue(scenario.order,options),
+    `Synthetic alert must not alter existing payment/Rx/fulfillment queue behavior: ${scenario.scenario}`);
+}
+
 console.log("| Scenario | Bucket | Actionable | Next action |");
 console.log("|---|---|---|---|");
 for (const row of rows) {
