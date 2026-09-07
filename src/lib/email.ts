@@ -31,6 +31,7 @@ type SendEmailParams = {
   text?: string;
   tracking?: TransactionalEmailTracking;
   idempotencyKey?: string;
+  headers?: Record<string, string>;
 };
 
 /* ======================================
@@ -44,6 +45,7 @@ export async function sendEmail({
   text,
   tracking,
   idempotencyKey,
+  headers,
 }: SendEmailParams) {
   const result = await resend.emails.send(
     {
@@ -53,6 +55,7 @@ export async function sendEmail({
       html,
       text,
       replyTo: REPLY_TO_SUPPORT,
+      headers,
       tags: tracking
         ? [
             { name: "order_id", value: tracking.orderId },

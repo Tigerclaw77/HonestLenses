@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -837,6 +837,35 @@ async function runGate(client, connectionConfig) {
   await executeAs(client, "service_role", recoveryInsert, ["a".repeat(64)]);
   await expectDatabaseError(client, "service_role", recoveryInsert, "23505", ["b".repeat(64)]);
   await expectDatabaseError(client, "postgres", "update public.recovery_touch_drafts set state='sent'", "23514");
+
+  const operationsMigration = (await readdir(migrationDirectory)).find(name => name.endsWith('_recovery_delivery_and_stuck_alerts.sql'));
+  applied.push(await applySqlFile(client, path.join(migrationDirectory, operationsMigration),
+    { version: operationsMigration.split('_')[0], name: 'recovery_delivery_and_stuck_alerts' }));
+  for (const role of ['anon', 'authenticated']) {
+    for (const table of ['order_operations_control','commercial_email_suppressions','order_stuck_alerts']) {
+      await expectDenied(client, role, `select * from public.${table}`);
+    }
+    await expectDenied(client, role, 'select public.claim_recovery_delivery(gen_random_uuid())');
+    await expectDenied(client, role, 'select public.try_order_operations_run(gen_random_uuid())');
+  }
+  await expectDatabaseError(client, 'service_role', 'update public.order_operations_control set recovery_enabled=true', '23514');
+  await client.query('begin');
+  try {
+    await client.query(`update public.orders set status='draft',archived=false,archived_at=null,fulfillment_status='review',
+      confirmation_email_sent_at=null,shipping_email='fixture@example.test' where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'`);
+    const deliveryId=(await client.query('select id from public.recovery_touch_drafts limit 1')).rows[0].id;
+    const claimDelivery=async()=> (await client.query('select public.claim_recovery_delivery($1) as claimed',[deliveryId])).rows[0].claimed;
+    assert(!await claimDelivery(), 'Default kill switch must prevent delivery');
+    await client.query("update public.order_operations_control set recovery_enabled=true,postal_address='Synthetic fixture address'");
+    assert(await claimDelivery(), 'Eligible delivery must be claimable once');
+    assert(!await claimDelivery(), 'Concurrent delivery claim must fail');
+    await client.query("update public.recovery_touch_drafts set last_attempt_at=now()-interval '6 minutes'");
+    assert(await claimDelivery(), 'Same-key retry may recover after lease expires');
+    await client.query("update public.recovery_touch_drafts set first_attempt_at=now()-interval '24 hours',last_attempt_at=now()-interval '6 minutes'");
+    assert(!await claimDelivery(), 'Retry must stop before provider idempotency expiry');
+    assert((await client.query('select public.try_order_operations_run(gen_random_uuid()) as claimed')).rows[0].claimed, 'Runner claims durable lease');
+    assert(!(await client.query('select public.try_order_operations_run(gen_random_uuid()) as claimed')).rows[0].claimed, 'Runner overlap blocked');
+  } finally { await client.query('rollback'); }
 
   const missingViews = await client.query(`
     select

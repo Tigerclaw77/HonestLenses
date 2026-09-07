@@ -13,6 +13,9 @@ export type RoutePolicy = {
 };
 
 export const ROUTE_AUTHORIZATION_POLICY: Record<string, RoutePolicy> = {
+  "src/app/api/admin/order-operations/route.ts": {access:"admin",guard:"requireAdmin"},
+  "src/app/api/internal/order-operations/route.ts": {access:"internal",guard:"hasInternalBearerAuthorization"},
+  "src/app/recovery/opt-out/route.ts": {access:"capability",guard:"validOptOut"},
   "src/app/admin/orders/image-url/route.ts": {
     access: "admin",
     guard: "requireAdmin",

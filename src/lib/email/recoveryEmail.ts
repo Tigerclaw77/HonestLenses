@@ -4,6 +4,8 @@ export type RecoveryEmailDraftInput = {
   orderId: string;
   siteUrl?: string | null;
   resumeUrl?: string;
+  postalAddress?: string;
+  unsubscribeUrl?: string;
 };
 
 export type RecoveryEmailDraft = {
@@ -32,6 +34,8 @@ export function buildAbandonedCheckoutRecoveryEmail({
   orderId,
   siteUrl,
   resumeUrl,
+  postalAddress,
+  unsubscribeUrl,
 }: RecoveryEmailDraftInput): RecoveryEmailDraft {
   const name = customerName?.trim() || "there";
   const cartUrl = resumeUrl ?? `${normalizeSiteUrl(siteUrl)}/resume-order`;
@@ -50,6 +54,7 @@ export function buildAbandonedCheckoutRecoveryEmail({
     `Order reference: ${orderId}`,
     "",
     "HonestLenses",
+    ...(postalAddress && unsubscribeUrl ? ["Commercial reminder about your unfinished checkout.",postalAddress,`Stop commercial emails: ${unsubscribeUrl}`] : []),
   ].join("\n");
 
   const html = `
@@ -60,10 +65,9 @@ export function buildAbandonedCheckoutRecoveryEmail({
     <p><a href="${escapeHtml(cartUrl)}">Return to cart</a></p>
     <p style="color:#555;font-size:13px;">Order reference: ${escapeHtml(orderId)}</p>
     <p>HonestLenses</p>
+    ${postalAddress && unsubscribeUrl ? `<p>Commercial reminder about your unfinished checkout.</p><p>${escapeHtml(postalAddress)}</p><p><a href="${escapeHtml(unsubscribeUrl)}">Stop commercial emails</a></p>` : ""}
   `;
 
-  // TODO: Wire this to a scheduled recovery workflow only after consent,
-  // suppression, send-frequency limits, and unsubscribe handling are defined.
   return {
     to: customerEmail?.trim().toLowerCase() || null,
     subject,

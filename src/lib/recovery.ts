@@ -1,6 +1,6 @@
 import { getResumeDestination, isLikelyEmail, normalizeRecoveryEmail, type RecoverableOrder } from "./order-recovery";
 
-// No send transport exists in this workflow. Activation requires a reviewed change.
+// Default off. Live delivery requires the service-only database master switch.
 export const RECOVERY_DELIVERY_ENABLED = false;
 export const RECOVERY_TOUCH_HOURS = [1, 24] as const;
 export type RecoveryTouch = (typeof RECOVERY_TOUCH_HOURS)[number];
