@@ -9,6 +9,41 @@ export type TransactionalEmailTracking = {
   emailType: string;
 };
 
+export const MANUAL_VERIFICATION_INFORMATION_REQUEST_EVENT =
+  "verification_information_requested_manually";
+export const VERIFICATION_INFORMATION_NEEDED_EMAIL_TYPE =
+  "verification_information_needed";
+
+/**
+ * Returns true when the customer request was already sent either through
+ * Resend or manually. Database errors intentionally fail closed so a lookup
+ * outage cannot turn into an accidental duplicate customer message.
+ */
+export async function hasVerificationInformationNeededNotification(
+  orderId: string,
+): Promise<boolean> {
+  const [manualRequest, trackedDelivery] = await Promise.all([
+    supabaseServer
+      .from("order_events")
+      .select("id")
+      .eq("order_id", orderId)
+      .eq("event_type", MANUAL_VERIFICATION_INFORMATION_REQUEST_EVENT)
+      .limit(1)
+      .maybeSingle(),
+    supabaseServer
+      .from("order_email_deliveries")
+      .select("resend_email_id")
+      .eq("order_id", orderId)
+      .eq("email_type", VERIFICATION_INFORMATION_NEEDED_EMAIL_TYPE)
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  if (manualRequest.error) throw manualRequest.error;
+  if (trackedDelivery.error) throw trackedDelivery.error;
+  return Boolean(manualRequest.data || trackedDelivery.data);
+}
+
 export async function recordTransactionalEmailSend({
   emailId,
   recipient,

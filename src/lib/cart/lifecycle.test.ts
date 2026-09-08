@@ -78,6 +78,16 @@ const checkoutAuthorizedRoute = readFileSync(
   ),
   "utf8",
 );
+const checkoutAuthorizationFinalizer = readFileSync(
+  join(
+    workspaceRoot,
+    "src",
+    "lib",
+    "payments",
+    "checkoutAuthorizationFinalizer.ts",
+  ),
+  "utf8",
+);
 
 for (const [label, source] of [
   ["cart lookup", cartRoute],
@@ -101,7 +111,12 @@ assert.match(
 );
 assert.match(
   checkoutAuthorizedRoute,
-  /status:\s*uploadedAutoVerified \? "captured" : "authorized"/,
+  /finalizeCheckoutAuthorization\s*\(/,
+  "the browser authorization path must use the shared finalizer",
+);
+assert.match(
+  checkoutAuthorizationFinalizer,
+  /uploadedAutoVerified[\s\S]*?orderStatus === "captured"[\s\S]*?intent\.status === "succeeded"[\s\S]*?\? "captured"[\s\S]*?: "authorized"/,
   "only successful authorization advances the order out of cart status",
 );
 

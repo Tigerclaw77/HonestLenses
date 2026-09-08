@@ -249,7 +249,7 @@ async function runAutomationWorkflowTests() {
   assert.equal(failedRun.capture, null, "automation failure remains unresolved");
 
   const checkoutRoute = readFileSync(
-  join(process.cwd(), "src", "app", "api", "checkout", "authorized", "route.ts"),
+  join(process.cwd(), "src", "lib", "payments", "checkoutAuthorizationFinalizer.ts"),
   "utf8",
 );
   assert.match(

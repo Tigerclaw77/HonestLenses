@@ -1,6 +1,7 @@
 export const FOUNDER_ALERT_TYPES = [
   "rx_review_required",
   "prescriber_verification_required",
+  "verification_attention_required",
   "ready_to_place",
   "receipt_snapshot_failed",
   "receipt_access_email_failed",

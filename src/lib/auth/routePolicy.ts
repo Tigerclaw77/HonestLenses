@@ -100,6 +100,10 @@ export const ROUTE_AUTHORIZATION_POLICY: Record<string, RoutePolicy> = {
     access: "customer-owned",
     guard: "requireOrderAccess",
   },
+  "src/app/api/checkout/return/route.ts": {
+    access: "customer-owned",
+    guard: "requireOrderAccess",
+  },
   "src/app/api/checkout/pay/route.ts": {
     access: "customer-owned",
     guard: "requireOrderAccess",

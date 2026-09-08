@@ -23,6 +23,24 @@ export async function sendFounderOperationalAlert(
 ): Promise<{ emailId: string | null; recipient: string }> {
   const recipient = getFounderAlertRecipient();
   const alertKey = founderAlertKey(alert);
+
+  const { data: previous, error: previousError } = await supabaseServer
+    .from("order_founder_alerts")
+    .select("resend_email_id")
+    .eq("alert_key", alertKey)
+    .maybeSingle();
+  if (previousError) {
+    console.error("Founder alert audit lookup failed", {
+      orderId: alert.orderId,
+      type: alert.type,
+      alertKey,
+      error: previousError.message,
+    });
+  }
+  if (previous?.resend_email_id) {
+    return { emailId: previous.resend_email_id, recipient };
+  }
+
   const subject = `[Founder] ${alert.headline}: ${alert.orderId}`;
   const text = [
     "Founder operational action required.",

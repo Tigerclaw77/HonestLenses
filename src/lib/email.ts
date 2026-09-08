@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import {
+  hasVerificationInformationNeededNotification,
   recordTransactionalEmailSend,
   type TransactionalEmailTracking,
 } from "@/lib/emailDeliveryServer";
@@ -116,20 +117,14 @@ export async function sendVerificationEmail({
 Customer Verification Info Needed
 ====================================== */
 
-export async function sendVerificationInformationNeededEmail({
-  to,
-  orderId,
-}: {
-  to: string;
-  orderId: string;
-}) {
+export function buildVerificationInformationNeededEmail(orderId: string) {
   const subject =
     "Additional Information Needed for Your Honest Lenses Order";
   const text = `Hi,
 
-Thanks for your Honest Lenses order. Before we can complete prescription verification, we need either a photo of your contact lens prescription or your prescribing doctor's name and contact information.
+Thanks for your Honest Lenses order. Before we can complete prescription verification, please reply with a clear photo or copy of your contact-lens prescription.
 
-Please reply to this email with either option so we can keep your order moving.
+If you do not have a copy available, please send the prescriber or practice name and phone number so Honest Lenses can verify it.
 
 Order ID: ${orderId}
 
@@ -137,26 +132,52 @@ Honest Lenses`;
 
   const html = `
     <p>Hi,</p>
-    <p>Thanks for your Honest Lenses order. Before we can complete prescription verification, we need either:</p>
-    <ul>
-      <li>a photo of your contact lens prescription, or</li>
-      <li>your prescribing doctor's name and contact information.</li>
-    </ul>
-    <p>Please reply to this email with either option so we can keep your order moving.</p>
+    <p>Thanks for your Honest Lenses order. Before we can complete prescription verification:</p>
+    <ol>
+      <li>First, please reply with a clear photo or copy of your contact-lens prescription.</li>
+      <li>If you do not have a copy available, please send the prescriber or practice name and phone number so Honest Lenses can verify it.</li>
+    </ol>
     <p><strong>Order ID:</strong> ${escapeHtml(orderId)}</p>
     <p>Honest Lenses</p>
   `;
 
-  return await sendEmail({
-    to,
+  return {
     subject,
     html,
     text,
+    emailType: "verification_information_needed" as const,
+    idempotencyKey: `verification-information-needed:${orderId}`,
+  };
+}
+
+export async function sendVerificationInformationNeededEmail({
+  to,
+  orderId,
+}: {
+  to: string;
+  orderId: string;
+}, {
+  hasExistingNotification = hasVerificationInformationNeededNotification,
+}: {
+  hasExistingNotification?: (orderId: string) => Promise<boolean>;
+} = {}) {
+  if (await hasExistingNotification(orderId)) {
+    return { data: null, error: null, suppressed: true as const };
+  }
+
+  const message = buildVerificationInformationNeededEmail(orderId);
+  const result = await sendEmail({
+    to,
+    subject: message.subject,
+    html: message.html,
+    text: message.text,
     tracking: {
       orderId,
-      emailType: "order_confirmation",
+      emailType: message.emailType,
     },
+    idempotencyKey: message.idempotencyKey,
   });
+  return { ...result, suppressed: false as const };
 }
 
 /* ======================================
