@@ -7,6 +7,7 @@ import type {
 export type TransactionalEmailTracking = {
   orderId: string;
   emailType: string;
+  updateOrderSummary?: boolean;
 };
 
 export const MANUAL_VERIFICATION_INFORMATION_REQUEST_EVENT =
@@ -55,6 +56,14 @@ export async function recordTransactionalEmailSend({
   tracking: TransactionalEmailTracking;
   sentAt?: string;
 }): Promise<void> {
+  if (tracking.updateOrderSummary === false) {
+    const { error } = await supabaseServer.from("order_email_deliveries").upsert({
+      resend_email_id: emailId, order_id: tracking.orderId, email_type: tracking.emailType,
+      recipient, delivery_status: "sent", last_event: "email.sent", last_event_at: sentAt, sent_at: sentAt,
+    }, { onConflict: "resend_email_id", ignoreDuplicates: true });
+    if (error) throw error;
+    return;
+  }
   const { data, error } = await supabaseServer.rpc(
     "record_transactional_email_send",
     {

@@ -166,6 +166,7 @@ export function buildCustomerOrderEmail({
   receiptUrl,
   isUploaded,
   uploadedVerificationComplete = false,
+  paidReceiptSummary,
   siteUrl,
 }: {
   orderId: string;
@@ -173,9 +174,15 @@ export function buildCustomerOrderEmail({
   receiptUrl: string;
   isUploaded: boolean;
   uploadedVerificationComplete?: boolean;
+  paidReceiptSummary?: string[];
   siteUrl?: string;
 }): { subject: string; html: string; text: string; orderUrl: string } {
   const orderUrl = getCustomerOrderUrl(orderId, siteUrl);
+  if (paidReceiptSummary) return {
+    subject: "Your receipt — Honest Lenses", orderUrl,
+    html: `<div style="font-family:Arial,sans-serif;color:#172033;max-width:640px;margin:auto;padding:24px"><h2>Honest Lenses — Order receipt</h2><p>Thank you for your purchase. Here is your receipt for the completed payment.</p>${paidReceiptSummary.map(line => `<p>${escapeHtml(line)}</p>`).join("")}<p><a href="${escapeHtml(orderUrl)}">View Your Order</a></p><p>Questions? Reply to this email or contact support@honestlenses.com.</p></div>`,
+    text: `Honest Lenses — Order receipt\n\nThank you for your purchase.\n${paidReceiptSummary.join("\n")}\n\nView Your Order: ${orderUrl}\n\nQuestions? support@honestlenses.com`,
+  };
   const verificationMessage = uploadedVerificationComplete
     ? "Your uploaded prescription was verified and your payment was completed."
     : isUploaded

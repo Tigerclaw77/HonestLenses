@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useRef } from "react";
+import ReceiptActions from "./ReceiptActions";
 import type { CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase-client";
 import { getLensDisplayName } from "@/lib/cart/display";
@@ -2255,6 +2256,9 @@ function OrderDetailsModal({
             heading="Customer / Shipping"
             patientName={showPatientName ? patientName : null}
           />
+
+          <ReceiptActions key={order.id} orderId={order.id} email={order.shipping_email}
+            paid={payment.status === "captured"} />
 
           <div style={mutedPanelStyle()}>
             <div style={{ fontWeight: 800, marginBottom: 5 }}>

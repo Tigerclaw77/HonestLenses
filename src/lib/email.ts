@@ -9,6 +9,15 @@ import { CUSTOMER_SUPPORT_EMAIL } from "@/lib/email/prescriptionSubmission";
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
 
+export class EmailSendError extends Error {
+  readonly definitivelyRejected: boolean;
+  constructor(statusCode: number | null) {
+    super("Email send failed");
+    this.name = "EmailSendError";
+    this.definitivelyRejected = statusCode !== null && [400, 401, 403, 404, 422, 429].includes(statusCode);
+  }
+}
+
 /* ======================================
 Sender Addresses
 ====================================== */
@@ -69,7 +78,7 @@ export async function sendEmail({
 
   if (result.error) {
     console.error("Resend error:", result.error);
-    throw new Error("Email send failed");
+    throw new EmailSendError(result.error.statusCode);
   }
 
   if (tracking && result.data?.id) {
