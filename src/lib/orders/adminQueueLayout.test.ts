@@ -109,8 +109,19 @@ assert.equal(
   "routine workflow actions do not route through Order Details",
 );
 const historyStart = source.indexOf("{archiveOrders.map");
-const abandonedStart = source.indexOf("{abandonedOrders.map", historyStart);
-const historyRows = source.slice(historyStart, abandonedStart);
+const historyEnd = source.indexOf("{detailsOrder &&", historyStart);
+const historyRows = source.slice(historyStart, historyEnd);
+assert.ok(historyStart >= 0 && historyEnd > historyStart, "history rows are present");
+assert.equal(
+  source.includes("{abandonedOrders.map"),
+  false,
+  "abandoned recovery candidates do not render in a second history list",
+);
+assert.equal(
+  source.includes('type="checkbox"'),
+  false,
+  "history has no abandoned-order bulk-selection checkboxes",
+);
 
 for (const legacyExpandedHeading of [
   "Order Summary",
@@ -438,7 +449,7 @@ assert.ok(systemHealthClient.includes("issue.message"));
 assert.equal(systemHealthClient.includes("Commerce v2"), false);
 assert.equal(systemHealthPage.includes("Commerce System Health"), false);
 assert.equal(systemHealthPage.includes("payment ledger"), false);
-assert.ok(historyStart >= 0 && abandonedStart > historyStart);
+assert.ok(historyStart >= 0 && historyEnd > historyStart);
 assert.ok(historyRows.includes("setDetailsOrderId(o.id)"));
 for (const inlineRecordSignal of [
   "expanded === o.id",

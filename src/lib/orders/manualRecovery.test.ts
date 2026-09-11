@@ -165,7 +165,14 @@ const migration = readFileSync(
 
 assert.match(page, /Send recovery email/);
 assert.match(page, /Ignore/);
-assert.match(page, /recoveryReview\?\.state === "unresolved"/);
+assert.match(page, /order\.recovery_review\?\.state === "unresolved"/);
+assert.match(page, /o\.recovery_review\?\.state === "unresolved"/);
+assert.match(page, /const archiveOrders = orders\.filter\(shouldDefaultCollapse\)\.sort\(archiveSort\)/);
+assert.match(page, /return getOrderCreatedTimestamp\(b\) - getOrderCreatedTimestamp\(a\)/);
+assert.doesNotMatch(page, /abandonedOrders/);
+assert.doesNotMatch(page, /selectedAbandonedOrderIds/);
+assert.doesNotMatch(page, /type="checkbox"/);
+assert.doesNotMatch(page, /Select all|Archive selected|Delete selected/);
 assert.match(page, /confirm\(/);
 assert.match(route, /body\.confirmed !== true/);
 assert.match(route, /sendManualRecovery/);
@@ -185,5 +192,5 @@ const runner = scheduler.slice(scheduler.indexOf("export async function runOrder
 assert.doesNotMatch(runner, /processRecovery\(/, "scheduled operations cannot send recovery email");
 
 console.log(
-  "Manual recovery cutoff, usable-email gate, terminal exclusions, sent/ignored persistence, confirmation, atomic claims, duplicate-send key, secure resume binding, and responsive UI checks passed.",
+  "Manual recovery eligibility, single chronological History/Archive list, row-only highlight, Details-only actions, no bulk controls, and backend safety checks passed.",
 );
