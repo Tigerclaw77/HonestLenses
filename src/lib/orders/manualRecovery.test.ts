@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { classifyAbandonedCheckout } from "@/lib/ops/abandonedCheckout";
 import { buildAbandonedCheckoutRecoveryEmail } from "@/lib/email/recoveryEmail";
+import { getResumeDestination } from "@/lib/order-recovery";
 import {
   getManualRecoveryReview,
   isManualRecoveryCandidate,
@@ -39,8 +40,7 @@ function review(
   },
   ledger: ManualRecoveryLedgerRow[] = [],
 ) {
-  const abandoned = classifyAbandonedCheckout(order, { now });
-  return getManualRecoveryReview(order, abandoned, ledger);
+  return getManualRecoveryReview(order, ledger);
 }
 
 assert.equal(review({ ...base, created_at: "2026-09-04T23:59:59.999Z" }), null);
@@ -64,8 +64,53 @@ assert.equal(review({ ...base, confirmation_email_sent_at: now.toISOString() }),
 assert.equal(review(base, [{ state: "sent", sent_at: now.toISOString() }])?.state, "sent");
 assert.equal(review(base, [{ state: "ignored", ignored_at: now.toISOString() }])?.state, "ignored");
 assert.equal(
-  isManualRecoveryCandidate(base, classifyAbandonedCheckout(base, { now })),
+  isManualRecoveryCandidate(base),
   true,
+);
+
+const productionRegressionShapes = [
+  {
+    id: "cdafcf6b-21b7-4310-b893-d882ed228af9",
+    sku: "BIOFINITY_6",
+    rx_upload_path: null,
+    updated_at: "2026-09-11T11:30:00.000Z",
+  },
+  {
+    id: "1de81bbd-5dbf-4068-9165-cbc3d66265c2",
+    sku: "OASYS_1D_90",
+    rx_upload_path: "private/fixture-rx.jpg",
+    updated_at: "2026-09-11T04:30:00.000Z",
+  },
+  {
+    id: "d6528f78-302f-4f13-90f7-a5cf57286d1b",
+    sku: "VITA_12",
+    rx_upload_path: null,
+    updated_at: "2026-09-10T16:00:00.000Z",
+  },
+] as const;
+
+for (const shape of productionRegressionShapes) {
+  const order = {
+    ...base,
+    ...shape,
+    payment_intent_id: `pi_fixture_${shape.id}`,
+    stripe_payment_intent_status: "requires_payment_method",
+  };
+  assert.ok(getResumeDestination(order), `${shape.id} can generate a secure resume destination`);
+  assert.equal(
+    getManualRecoveryReview(order, [])?.state,
+    "unresolved",
+    `${shape.id} is eligible without a pre-existing recovery record`,
+  );
+}
+
+assert.equal(
+  classifyAbandonedCheckout(
+    { ...base, updated_at: "2026-09-11T11:30:00.000Z" },
+    { now },
+  ).isAbandoned,
+  false,
+  "the regression proves manual incomplete-order eligibility is independent of the two-hour abandonment threshold",
 );
 
 const email = buildAbandonedCheckoutRecoveryEmail({

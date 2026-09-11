@@ -5,7 +5,6 @@ import {
   type RecoverableOrder,
 } from "@/lib/order-recovery";
 import { projectPaymentState } from "@/lib/orders/paymentState";
-import type { AbandonedCheckoutClassification } from "@/lib/ops/abandonedCheckout";
 
 export const MANUAL_RECOVERY_CUTOFF = "2026-09-05T00:00:00.000Z";
 
@@ -46,18 +45,19 @@ export function hasUsableRecoveryEmail(order: ManualRecoveryOrder): boolean {
 
 export function isManualRecoveryCandidate(
   order: ManualRecoveryOrder,
-  abandoned: AbandonedCheckoutClassification,
 ): boolean {
   const createdAt = Date.parse(order.created_at ?? "");
   if (
     !Number.isFinite(createdAt) ||
     createdAt < Date.parse(MANUAL_RECOVERY_CUTOFF) ||
-    !hasUsableRecoveryEmail(order) ||
-    !abandoned.isAbandoned
+    !hasUsableRecoveryEmail(order)
   ) {
     return false;
   }
 
+  // Manual review covers both abandoned and still-incomplete drafts. The
+  // shared abandonment classifier's inactivity threshold is useful for queue
+  // reasons, but must not hide an otherwise eligible incomplete order.
   const payment = projectPaymentState(order, { fallback: "strict" });
   if (payment.status !== "draft") return false;
 
@@ -72,10 +72,9 @@ export function isManualRecoveryCandidate(
 
 export function getManualRecoveryReview(
   order: ManualRecoveryOrder,
-  abandoned: AbandonedCheckoutClassification,
   ledger: ManualRecoveryLedgerRow[] = [],
 ): ManualRecoveryReview | null {
-  if (!isManualRecoveryCandidate(order, abandoned)) return null;
+  if (!isManualRecoveryCandidate(order)) return null;
 
   const sent = ledger.find((row) => row.state === "sent");
   if (sent) {

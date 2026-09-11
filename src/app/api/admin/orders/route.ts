@@ -28,6 +28,7 @@ import { collectLatestVerificationAttempts } from "@/lib/orders/verificationAtte
 import { reconcileAdminPaymentState } from "@/lib/payments/adminPaymentReconciliation";
 import {
   getManualRecoveryReview,
+  isManualRecoveryCandidate,
   type ManualRecoveryLedgerRow,
   type ManualRecoveryReview,
 } from "@/lib/orders/manualRecovery";
@@ -444,7 +445,8 @@ export async function GET(req: Request) {
         }),
       }))
       .filter((order): order is AbandonedOrderRow =>
-        order.abandoned_checkout.isAbandoned,
+        order.abandoned_checkout.isAbandoned ||
+        isManualRecoveryCandidate(order),
       );
 
     const recoveryRowsByOrder = new Map<string, ManualRecoveryLedgerRow[]>();
@@ -469,7 +471,6 @@ export async function GET(req: Request) {
       ...order,
       recovery_review: getManualRecoveryReview(
         order,
-        order.abandoned_checkout,
         recoveryRowsByOrder.get(order.id) ?? [],
       ),
     }));

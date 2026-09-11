@@ -3,11 +3,6 @@ import Stripe from "stripe";
 import { sendEmail } from "@/lib/email";
 import { buildAbandonedCheckoutRecoveryEmail } from "@/lib/email/recoveryEmail";
 import {
-  classifyAbandonedCheckout,
-  getAbandonedCheckoutThresholdHours,
-  getStaleCheckoutThresholdHours,
-} from "@/lib/ops/abandonedCheckout";
-import {
   createOrderResumeToken,
   hashOrderResumeToken,
   normalizeRecoveryEmail,
@@ -77,17 +72,6 @@ async function loadOrder(orderId: string): Promise<ManualOrder | null> {
   return data;
 }
 
-function classify(order: ManualOrder) {
-  return classifyAbandonedCheckout(order, {
-    thresholdHours: getAbandonedCheckoutThresholdHours(
-      process.env.ABANDONED_CHECKOUT_THRESHOLD_HOURS,
-    ),
-    staleThresholdHours: getStaleCheckoutThresholdHours(
-      process.env.STALE_CHECKOUT_THRESHOLD_HOURS,
-    ),
-  });
-}
-
 async function retrieveStripeIntent(order: ManualOrder): Promise<RecoveryIntent | null> {
   if (!order.payment_intent_id) return null;
   const secret = process.env.STRIPE_SECRET_KEY?.trim();
@@ -121,7 +105,7 @@ async function getAuthoritativeCandidate(orderId: string): Promise<ManualOrder |
     authoritative,
     async () => intent!,
   );
-  return resume && isManualRecoveryCandidate(authoritative, classify(authoritative))
+  return resume && isManualRecoveryCandidate(authoritative)
     ? authoritative
     : null;
 }
