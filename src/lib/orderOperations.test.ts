@@ -89,7 +89,9 @@ async function main(){
   tables.order_operations_control[0].recovery_enabled=true;
   await Promise.all(Array.from({length:5},()=>processRecovery(base,[base],send)));
   assert.equal(sends.length,1);assert.equal(tables.recovery_touch_drafts.length,1);assert.equal(tables.recovery_touch_drafts[0].state,'sent');
-  assert.match(sends[0].text,/Commercial reminder/);assert.match(sends[0].text,/Synthetic fixture postal/);assert.doesNotMatch(sends[0].text,/discount|coupon/i);
+  assert.equal(sends[0].subject,'Complete your Honest Lenses order');
+  assert.match(sends[0].text,/It looks like you started an order with Honest Lenses but didn’t finish checking out\./);
+  assert.doesNotMatch(sends[0].text,/discount|coupon|Synthetic fixture postal/i);
   assert.ok(sends[0].headers['List-Unsubscribe']);
   await processRecovery(base,[base],send);assert.equal(sends.length,1,'Restart does not resend');
   assert.ok(replacementOrSuppression(base,[base,{...base,id:'new',status:'authorized',created_at:ago(1)}]));

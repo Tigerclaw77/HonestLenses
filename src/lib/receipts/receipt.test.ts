@@ -234,7 +234,7 @@ assert.doesNotMatch(recoveryRoute, /receipt_url/);
 const migration = readFileSync(
   resolve(
     process.cwd(),
-    "supabase/migrations/20260901161929_add_secure_receipt_system.sql",
+    "supabase/migrations/20260905233153_add_secure_receipt_system.sql",
   ),
   "utf8",
 );

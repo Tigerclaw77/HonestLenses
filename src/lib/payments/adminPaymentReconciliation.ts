@@ -26,7 +26,11 @@ export async function reconcileAdminPaymentState({
   order: AdminPaymentOrder;
   stripeStatus: string | null | undefined;
   actor: string;
-  source: "queue_refresh" | "operator_sync" | "operator_capture";
+  source:
+    | "queue_refresh"
+    | "operator_sync"
+    | "operator_capture"
+    | "admin_manual_recovery";
 }): Promise<{ status: string | null; changed: boolean; eventLogged: boolean }> {
   const decision = getPaymentReconciliationDecision(order, stripeStatus);
   if (!decision.targetStatus || !decision.changed) {

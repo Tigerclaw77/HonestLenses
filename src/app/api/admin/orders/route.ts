@@ -26,6 +26,11 @@ import {
 } from "@/lib/orders/paymentState";
 import { collectLatestVerificationAttempts } from "@/lib/orders/verificationAttempts";
 import { reconcileAdminPaymentState } from "@/lib/payments/adminPaymentReconciliation";
+import {
+  getManualRecoveryReview,
+  type ManualRecoveryLedgerRow,
+  type ManualRecoveryReview,
+} from "@/lib/orders/manualRecovery";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
@@ -114,6 +119,7 @@ type OrderRow = {
   lastOperationalActivityAt?: string | null;
   lastOperationalActivityReason?: string | null;
   admin_notes?: string | null;
+  recovery_review?: ManualRecoveryReview | null;
 };
 
 type AdminOrderRow = ClassifiedOperationalOrder<OrderRow>;
@@ -429,7 +435,7 @@ export async function GET(req: Request) {
       process.env.STALE_CHECKOUT_THRESHOLD_HOURS,
     );
 
-    const abandoned: AbandonedOrderRow[] = orders
+    const abandonedBase: AbandonedOrderRow[] = orders
       .map((order) => ({
         ...order,
         abandoned_checkout: classifyAbandonedCheckout(order, {
@@ -440,6 +446,33 @@ export async function GET(req: Request) {
       .filter((order): order is AbandonedOrderRow =>
         order.abandoned_checkout.isAbandoned,
       );
+
+    const recoveryRowsByOrder = new Map<string, ManualRecoveryLedgerRow[]>();
+    if (abandonedBase.length > 0) {
+      const { data: recoveryRows, error: recoveryError } = await supabaseServer
+        .from("recovery_touch_drafts")
+        .select("order_id,state,sent_at,ignored_at")
+        .in("order_id", abandonedBase.map((order) => order.id));
+      if (recoveryError) {
+        throw new Error("Manual recovery review state unavailable", {
+          cause: recoveryError,
+        });
+      }
+      for (const row of recoveryRows ?? []) {
+        const current = recoveryRowsByOrder.get(row.order_id) ?? [];
+        current.push(row);
+        recoveryRowsByOrder.set(row.order_id, current);
+      }
+    }
+
+    const abandoned: AbandonedOrderRow[] = abandonedBase.map((order) => ({
+      ...order,
+      recovery_review: getManualRecoveryReview(
+        order,
+        order.abandoned_checkout,
+        recoveryRowsByOrder.get(order.id) ?? [],
+      ),
+    }));
 
     if (abandoned.length > 0) {
       const reasonCounts = summarizeAbandonedReasons(

@@ -813,10 +813,10 @@ async function runGate(client, connectionConfig) {
       client,
       path.join(
         migrationDirectory,
-        "20260901161929_add_secure_receipt_system.sql",
+        "20260905233153_add_secure_receipt_system.sql",
       ),
       {
-        version: "20260901161929",
+        version: "20260905233153",
         name: "add_secure_receipt_system",
       },
     ),
@@ -866,6 +866,64 @@ async function runGate(client, connectionConfig) {
     assert((await client.query('select public.try_order_operations_run(gen_random_uuid()) as claimed')).rows[0].claimed, 'Runner claims durable lease');
     assert(!(await client.query('select public.try_order_operations_run(gen_random_uuid()) as claimed')).rows[0].claimed, 'Runner overlap blocked');
   } finally { await client.query('rollback'); }
+
+  applied.push(await applySqlFile(client,
+    path.join(migrationDirectory, '20260911120000_manual_abandoned_order_recovery.sql'),
+    { version: '20260911120000', name: 'manual_abandoned_order_recovery' }));
+  for (const role of ['anon', 'authenticated']) {
+    await expectDenied(client, role, `select public.claim_manual_recovery_delivery(
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',gen_random_uuid(),'fixture@example.test',
+      '${'c'.repeat(64)}',now(),now()+interval '7 days','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')`);
+    await expectDenied(client, role, `select public.ignore_manual_recovery(
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',gen_random_uuid(),'fixture@example.test',
+      '${'d'.repeat(64)}',now(),now()+interval '7 days','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')`);
+  }
+  await client.query(`update public.orders set status='draft',created_at=now(),updated_at=now()-interval '3 hours',
+    archived=false,archived_at=null,fulfillment_status='review',confirmation_email_sent_at=null,
+    shipping_email='fixture@example.test' where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'`);
+  await client.query(`update public.recovery_touch_drafts set state='pending_founder_approval',
+    first_attempt_at=null,last_attempt_at=null,sent_at=null,ignored_at=null,reviewed_at=null,reviewed_by=null`);
+  const manualArgs=[
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    'fixture@example.test',
+    'c'.repeat(64),
+    new Date(Date.now()-3_600_000),
+    new Date(Date.now()+7*86_400_000),
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  ];
+  const claimSql=`select public.claim_manual_recovery_delivery($1,$2,$3,$4,$5,$6,$7) as result`;
+  const firstClaim=(await executeAs(client,'service_role',claimSql,manualArgs)).rows[0].result;
+  const doubleClick=(await queryAs(client,'service_role',claimSql,manualArgs)).rows[0].result;
+  assert(firstClaim.claimed, 'Manual recovery must atomically claim an eligible order');
+  assert(!doubleClick.claimed, 'Manual recovery double click must not claim twice');
+  const ignoreAfterClaim=(await queryAs(client,'service_role',
+    `select public.ignore_manual_recovery($1,$2,$3,$4,$5,$6,$7) as result`,manualArgs)).rows[0].result;
+  assert(!ignoreAfterClaim.claimed, 'Ignore cannot race past an in-progress recovery send');
+
+  await client.query(`update public.recovery_touch_drafts set state='sent',sent_at=now()
+    where order_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'`);
+  const sentReplay=(await queryAs(client,'service_role',claimSql,manualArgs)).rows[0].result;
+  assert(!sentReplay.claimed, 'A sent recovery order must never be claimed again');
+
+  await client.query(`update public.recovery_touch_drafts set state='pending_founder_approval',sent_at=null`);
+  await client.query(`update public.orders set status='completed'
+    where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'`);
+  const completedClaim=(await queryAs(client,'service_role',claimSql,manualArgs)).rows[0].result;
+  assert(!completedClaim.claimed, 'A stale abandoned record completed before send must be blocked');
+
+  await client.query(`update public.orders set status='draft'
+    where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'`);
+  await client.query(`update public.recovery_touch_drafts set state='pending_founder_approval',
+    first_attempt_at=null,last_attempt_at=null,sent_at=null,ignored_at=null,reviewed_at=null,reviewed_by=null`);
+  const ignored=(await executeAs(client,'service_role',`select public.ignore_manual_recovery(
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    'fixture@example.test','${'d'.repeat(64)}',now()-interval '3 hours',now()+interval '7 days',
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb') as result`)).rows[0].result;
+  assert(ignored.claimed, 'Ignore must durably resolve an eligible recovery candidate');
+  const ignoredRow=(await client.query(`select state,ignored_at from public.recovery_touch_drafts
+    where order_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' and state='ignored'`)).rows[0];
+  assert(ignoredRow?.state==='ignored' && ignoredRow.ignored_at, 'Ignored state must survive reload');
 
   for (const name of ['suppress_individual_stuck_emails','disable_stuck_order_monitor']) {
     const filename=(await readdir(migrationDirectory)).find(file=>file.endsWith(`_${name}.sql`));

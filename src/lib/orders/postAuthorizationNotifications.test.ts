@@ -251,10 +251,12 @@ assert.doesNotMatch(
   /sendVerificationInformationNeededEmail|finalizeCheckoutAuthorization/,
   "order-operations cron cannot send the transactional missing-information email",
 );
-assert.match(
-  orderOperationsSource,
-  /if\(order\.status==='draft'\)await processRecovery/,
-  "abandoned-order recovery remains limited to drafts",
+assert.doesNotMatch(
+  orderOperationsSource.slice(
+    orderOperationsSource.indexOf("export async function runOrderOperations"),
+  ),
+  /processRecovery\(/,
+  "the scheduled operations runner cannot send abandoned-order recovery email",
 );
 assert.match(
   emailSource,

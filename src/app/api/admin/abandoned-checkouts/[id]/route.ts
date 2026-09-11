@@ -4,7 +4,10 @@ import {
   getAbandonedCheckoutThresholdHours,
   getStaleCheckoutThresholdHours,
 } from "@/lib/ops/abandonedCheckout";
-import { prepareRecoveryDraft } from "@/lib/recoveryServer";
+import {
+  ignoreManualRecovery,
+  sendManualRecovery,
+} from "@/lib/orders/manualRecoveryServer";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { captureServerEvent } from "@/lib/posthog/server";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -17,10 +20,12 @@ import {
 type AdminAbandonedAction =
   | "archive"
   | "delete_permanently"
-  | "draft_recovery_email";
+  | "send_recovery_email"
+  | "ignore_recovery";
 
 type ActionBody = {
   action?: AdminAbandonedAction;
+  confirmed?: boolean;
 };
 
 type OrderRow = {
@@ -50,7 +55,8 @@ function isAction(value: unknown): value is AdminAbandonedAction {
   return (
     value === "archive" ||
     value === "delete_permanently" ||
-    value === "draft_recovery_email"
+    value === "send_recovery_email" ||
+    value === "ignore_recovery"
   );
 }
 
@@ -80,20 +86,41 @@ export async function POST(
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   }
 
-  if (body.action === "draft_recovery_email") {
+  if (
+    body.action === "send_recovery_email" ||
+    body.action === "ignore_recovery"
+  ) {
+    if (body.confirmed !== true) {
+      return NextResponse.json(
+        { error: "Admin confirmation is required", code: "CONFIRMATION_REQUIRED" },
+        { status: 400 },
+      );
+    }
+
     try {
-      const result = await prepareRecoveryDraft(id);
-      if (!result.eligible || ("duplicate" in result && result.duplicate)) {
-        return NextResponse.json({ error: result.eligible
-          ? "This recovery touch was already drafted. Sending remains disabled."
-          : "This checkout is not currently eligible for a 1-hour or 24-hour recovery touch." }, { status: 409 });
+      const actor = auth.user.email ?? auth.user.id;
+      const result = body.action === "send_recovery_email"
+        ? await sendManualRecovery(id, auth.user.id, actor)
+        : await ignoreManualRecovery(id, auth.user.id, actor);
+      if (!result.ok) {
+        return NextResponse.json(
+          { error: result.message, code: result.code },
+          { status: 409 },
+        );
       }
-      return NextResponse.json({ ok: true, ...result }, {
+      return NextResponse.json({ action: body.action, ...result }, {
         headers: { "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" },
       });
     } catch (error) {
-      console.error("Recovery draft preparation failed", { orderId: id, error });
-      return NextResponse.json({ error: "Recovery preview unavailable. Check payment provider and recovery schema." }, { status: 503 });
+      console.error("Manual recovery action failed", {
+        orderId: id,
+        action: body.action,
+        error,
+      });
+      return NextResponse.json(
+        { error: "Recovery action could not be completed safely. No retry was sent.", code: "RECOVERY_ACTION_FAILED" },
+        { status: 503 },
+      );
     }
   }
 

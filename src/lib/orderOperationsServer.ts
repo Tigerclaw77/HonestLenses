@@ -102,23 +102,15 @@ export async function processRecovery(order:Order,all:Order[],send:typeof sendEm
 export async function runOrderOperations() {
   const lease=randomUUID();const claim=await db.rpc('try_order_operations_run',{p_lease:lease});check(claim.error);
   if(!claim.data)return {busy:true};
-  let failures=0;
+  const failures=0;
   try {
     const orders=await loadOperationsOrders();
-    const pending=await db.from('recovery_touch_drafts').select('order_id,touch_hours').eq('state','sending');check(pending.error);
-    for(const attempt of pending.data??[]) {
-      const order=orders.find(o=>o.id===attempt.order_id);
-      if(order)try {await processRecovery(order,orders,sendEmail,attempt.touch_hours);}catch{failures++;}
-    }
-    for(const order of orders) {
-      try {
-        if(order.status==='draft')await processRecovery(order,orders);
-      } catch {failures++;}
-    }
+    // Recovery is admin-reviewed/manual only. The scheduled operations runner
+    // intentionally performs no recovery claims, retries, or delivery calls.
     const result=await db.from('order_operations_control').update({lease_id:null,lease_until:null,
       ...(failures?{last_error:`${failures} order operations failed; inspect provider/schema. Existing alerts retained.`}:{last_succeeded_at:new Date().toISOString(),last_error:null})}).eq('id',true).eq('lease_id',lease);check(result.error);
     if(failures)throw new Error('Some order operations failed');
-    return {checked:orders.length,recoveryEnabled:Boolean((await operationsControl()).recovery_enabled)};
+    return {checked:orders.length,recoveryEnabled:false};
   } catch(error) {
     await db.from('order_operations_control').update({lease_until:null,last_error:'Order operations did not complete; existing alerts retained.'}).eq('id',true).eq('lease_id',lease);
     throw error;

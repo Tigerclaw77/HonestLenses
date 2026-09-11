@@ -175,6 +175,11 @@ type Order = {
 
   payment_intent_id?: string | null;
   abandoned_checkout?: AbandonedCheckoutClassification;
+  recovery_review?: {
+    state: "unresolved" | "sent" | "ignored";
+    sentAt: string | null;
+    ignoredAt: string | null;
+  } | null;
 };
 
 type PaymentStatus = PaymentLifecycleStatus;
@@ -267,14 +272,8 @@ type AbandonedCheckoutClassification = {
 type AbandonedAdminAction =
   | "archive"
   | "delete_permanently"
-  | "draft_recovery_email";
-
-type RecoveryEmailDraft = {
-  to: string | null;
-  subject: string;
-  text: string;
-  html: string;
-};
+  | "send_recovery_email"
+  | "ignore_recovery";
 
 type AdminNotice = {
   tone: "info" | "success";
@@ -291,7 +290,6 @@ type OptimisticOrdersSnapshot = {
   abandonedOrders: Order[];
   selectedAbandonedOrderIds: Set<string>;
   expanded: string | null;
-  recoveryDrafts: Record<string, RecoveryEmailDraft>;
 };
 
 type AdminApiPayload = {
@@ -309,7 +307,8 @@ type AdminApiPayload = {
   resolve_exception?: Order[];
   archive?: Order[];
   abandoned?: Order[];
-  draft?: RecoveryEmailDraft;
+  state?: "sent" | "ignored";
+  at?: string;
   warnings?: string[];
   event_logged?: boolean;
   already_done?: boolean;
@@ -2400,9 +2399,6 @@ export default function AdminOrdersPage() {
   const [abandonedOrders, setAbandonedOrders] = useState<Order[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [detailsOrderId, setDetailsOrderId] = useState<string | null>(null);
-  const [recoveryDrafts, setRecoveryDrafts] = useState<
-    Record<string, RecoveryEmailDraft>
-  >({});
   const [notesModal, setNotesModal] = useState<NotesModalState | null>(null);
   const [captureAdjustmentModal, setCaptureAdjustmentModal] =
     useState<CaptureAdjustmentModalState | null>(null);
@@ -2520,10 +2516,14 @@ export default function AdminOrdersPage() {
       ...(json.resolve_exception ?? []),
     ];
     const hiddenIds = optimisticallyHiddenOrderIds.current;
-    const combined: Order[] = [...activeOrders, ...(json.archive ?? [])].filter(
+    const abandoned: Order[] = (json.abandoned ?? []).filter(
       (order) => !hiddenIds.has(order.id),
     );
-    const abandoned: Order[] = [];
+    const abandonedIds = new Set(abandoned.map((order) => order.id));
+    const combined: Order[] = [
+      ...activeOrders,
+      ...(json.archive ?? []).filter((order) => !abandonedIds.has(order.id)),
+    ].filter((order) => !hiddenIds.has(order.id));
 
     const paymentIntentOrders = activeOrders.filter(isNewPaymentIntentOrder);
 
@@ -3182,7 +3182,6 @@ export default function AdminOrdersPage() {
       abandonedOrders,
       selectedAbandonedOrderIds,
       expanded,
-      recoveryDrafts,
     };
 
     orderIds.forEach((orderId) =>
@@ -3196,11 +3195,6 @@ export default function AdminOrdersPage() {
     setSelectedAbandonedOrderIds((current) =>
       new Set([...current].filter((orderId) => !idSet.has(orderId))),
     );
-    setRecoveryDrafts((current) => {
-      const next = { ...current };
-      orderIds.forEach((orderId) => delete next[orderId]);
-      return next;
-    });
     setExpanded((current) => {
       if (!current) return current;
       if (idSet.has(current)) return null;
@@ -3246,13 +3240,6 @@ export default function AdminOrdersPage() {
       });
       return next;
     });
-    setRecoveryDrafts((current) => {
-      const next = { ...current };
-      Object.entries(snapshot.recoveryDrafts).forEach(([orderId, draft]) => {
-        if (failedIdSet.has(orderId)) next[orderId] = draft;
-      });
-      return next;
-    });
     setExpanded((current) => current ?? snapshot.expanded);
   }
 
@@ -3293,18 +3280,49 @@ export default function AdminOrdersPage() {
     orderId: string,
     action: AbandonedAdminAction,
   ): Promise<boolean> {
+    if (action === "send_recovery_email" || action === "ignore_recovery") {
+      const confirmed = confirm(
+        action === "send_recovery_email"
+          ? "Send the approved recovery email to this customer?"
+          : "Ignore recovery for this order and remove its yellow indication?",
+      );
+      if (!confirmed) return false;
+
+      setAbandonedPending([orderId], true);
+      setAdminError(null);
+      const result = await postAbandonedAction(orderId, action, true);
+      setAbandonedPending([orderId], false);
+      if (!result.ok) {
+        setAdminError(
+          adminApiErrorMessage(result.json, "Recovery action failed."),
+        );
+        await fetchData();
+        return false;
+      }
+
+      await fetchData();
+      setAdminNotice({
+        tone: "success",
+        message:
+          action === "send_recovery_email"
+            ? "Recovery email sent."
+            : "Recovery indication ignored.",
+      });
+      return true;
+    }
     return runAbandonedActions([orderId], action);
   }
 
   async function postAbandonedAction(
     orderId: string,
     action: AbandonedAdminAction,
+    confirmed = false,
   ): Promise<{ ok: boolean; status: number; json: AdminApiPayload }> {
     const res = await fetch(`/api/admin/abandoned-checkouts/${orderId}`, {
       method: "POST",
       headers: await authHeaders(),
       credentials: "same-origin",
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, confirmed }),
     });
 
     return {
@@ -3322,42 +3340,6 @@ export default function AdminOrdersPage() {
     if (uniqueOrderIds.length === 0) return true;
 
     setAdminError(null);
-
-    if (action === "draft_recovery_email") {
-      const [orderId] = uniqueOrderIds;
-      const result = await postAbandonedAction(orderId, action);
-
-      if (!result.ok) {
-        const message = adminApiErrorMessage(
-          result.json,
-          "Abandoned checkout action failed.",
-        );
-        setAdminError(message);
-        if (process.env.NODE_ENV !== "production") {
-          console.warn("[AdminOrdersPage] abandoned checkout action failed", {
-            orderId,
-            action,
-            status: result.status,
-            error: result.json.error,
-            code: result.json.code,
-          });
-        }
-        return false;
-      }
-
-      if (result.json.draft) {
-        const draft = result.json.draft;
-        setRecoveryDrafts((prev) => ({ ...prev, [orderId]: draft }));
-
-        try {
-          await navigator.clipboard.writeText(draft.text);
-        } catch {
-          // Clipboard access can be blocked by the browser; the draft remains visible.
-        }
-      }
-
-      return true;
-    }
 
     const snapshot = removeOrderOptimistically(uniqueOrderIds);
     setAbandonedPending(uniqueOrderIds, true);
@@ -3770,9 +3752,9 @@ export default function AdminOrdersPage() {
                   gap: 8,
                   flexWrap: "wrap",
                   padding: "8px 10px",
-                  border: "1px solid rgba(251,191,36,0.2)",
+                  border: "1px solid rgba(148,163,184,0.18)",
                   borderRadius: 8,
-                  background: "rgba(120,53,15,0.08)",
+                  background: "rgba(15,23,42,0.22)",
                   fontSize: 12,
                 }}
               >
@@ -3843,6 +3825,7 @@ export default function AdminOrdersPage() {
 
               return (
                 <button
+                  className="admin-history-row"
                   key={o.id}
                   type="button"
                   onClick={() => setDetailsOrderId(o.id)}
@@ -3889,7 +3872,8 @@ export default function AdminOrdersPage() {
               const info = o.abandoned_checkout;
               const reasons = info?.reasons ?? [];
               const patientName = getCustomerName(o);
-              const draft = recoveryDrafts[o.id];
+              const recoveryReview = o.recovery_review;
+              const recoveryUnresolved = recoveryReview?.state === "unresolved";
               const rowId = `abandoned:${o.id}`;
               const isOpen = expanded === rowId;
               const dateTime = formatOrderCreatedDate(o);
@@ -3919,6 +3903,7 @@ export default function AdminOrdersPage() {
                       }
                     />
                     <button
+                      className="admin-history-row"
                       type="button"
                       onClick={() => setExpanded(isOpen ? null : rowId)}
                       aria-expanded={isOpen}
@@ -3930,15 +3915,17 @@ export default function AdminOrdersPage() {
                           "92px minmax(160px, 1fr) 100px 150px 80px",
                         gap: 10,
                         alignItems: "center",
-                        border: isSelected
-                          ? "1px solid rgba(251,191,36,0.55)"
-                          : "1px solid rgba(251,191,36,0.24)",
+                        border: recoveryUnresolved || isSelected
+                          ? "1px solid rgba(251,191,36,0.48)"
+                          : "1px solid rgba(148,163,184,0.14)",
                         borderRadius: 8,
-                        background: isOpen
-                          ? "rgba(120,53,15,0.22)"
-                          : isSelected
-                            ? "rgba(251,191,36,0.14)"
-                            : "rgba(120,53,15,0.1)",
+                        background: recoveryUnresolved
+                          ? isOpen
+                            ? "rgba(120,53,15,0.22)"
+                            : "rgba(120,53,15,0.1)"
+                          : isOpen || isSelected
+                            ? "rgba(30,41,59,0.42)"
+                            : "rgba(15,23,42,0.22)",
                         color: "inherit",
                         padding: "6px 10px",
                         textAlign: "left",
@@ -3958,7 +3945,9 @@ export default function AdminOrdersPage() {
                         {patientName}
                       </span>
                       <span>{formatMoney(o.total_amount_cents)}</span>
-                      <span style={badgeStyle("warning")}>{primaryReason}</span>
+                      <span style={badgeStyle(recoveryUnresolved ? "warning" : "neutral")}>
+                        {primaryReason}
+                      </span>
                       <span style={{ textAlign: "right", opacity: 0.7 }}>
                         {isOpen ? "Hide" : "Details"}
                       </span>
@@ -3971,7 +3960,9 @@ export default function AdminOrdersPage() {
                         ...mutedPanelStyle(),
                         marginTop: 6,
                         marginBottom: 8,
-                        background: "rgba(120,53,15,0.12)",
+                        background: recoveryUnresolved
+                          ? "rgba(120,53,15,0.12)"
+                          : "rgba(15,23,42,0.22)",
                         fontSize: 13,
                       }}
                     >
@@ -3984,7 +3975,10 @@ export default function AdminOrdersPage() {
                         }}
                       >
                         {reasons.map((reason) => (
-                          <span key={reason} style={badgeStyle("warning")}>
+                          <span
+                            key={reason}
+                            style={badgeStyle(recoveryUnresolved ? "warning" : "neutral")}
+                          >
                             {abandonedReasonLabel(reason)}
                           </span>
                         ))}
@@ -4036,15 +4030,30 @@ export default function AdminOrdersPage() {
                         >
                           Archive
                         </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            runAbandonedAction(o.id, "draft_recovery_email")
-                          }
-                          style={{ padding: "4px 8px", borderRadius: 4 }}
-                        >
-                          Draft recovery email
-                        </button>
+                        {recoveryUnresolved && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isPending}
+                              onClick={() =>
+                                runAbandonedAction(o.id, "send_recovery_email")
+                              }
+                              style={{ padding: "4px 8px", borderRadius: 4 }}
+                            >
+                              Send recovery email
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isPending}
+                              onClick={() =>
+                                runAbandonedAction(o.id, "ignore_recovery")
+                              }
+                              style={{ padding: "4px 8px", borderRadius: 4 }}
+                            >
+                              Ignore
+                            </button>
+                          </>
+                        )}
                         {canPermanentlyDelete(o) && (
                           <button
                             type="button"
@@ -4067,29 +4076,16 @@ export default function AdminOrdersPage() {
                         )}
                       </div>
 
-                      {draft && (
-                        <div
-                        style={{
-                            marginTop: 12,
-                            padding: 12,
-                            borderRadius: 8,
-                            border: "1px solid rgba(148,163,184,0.25)",
-                            background: "rgba(15,23,42,0.35)",
-                        }}
-                        >
-                          <div style={{ fontWeight: 700 }}>{draft.subject}</div>
-                          <div style={{ opacity: 0.75 }}>
-                            To: {draft.to ?? "-"}
-                          </div>
-                          <pre
-                            style={{
-                              whiteSpace: "pre-wrap",
-                              marginBottom: 0,
-                              fontFamily: "monospace",
-                            }}
-                          >
-                            {draft.text}
-                          </pre>
+                      {recoveryReview?.state === "sent" && (
+                        <div style={{ marginTop: 10, opacity: 0.72 }}>
+                          Recovery sent{recoveryReview.sentAt
+                            ? ` ${formatAdminDateTime(recoveryReview.sentAt)}`
+                            : ""}.
+                        </div>
+                      )}
+                      {recoveryReview?.state === "ignored" && (
+                        <div style={{ marginTop: 10, opacity: 0.72 }}>
+                          Recovery ignored.
                         </div>
                       )}
                     </div>

@@ -6,7 +6,7 @@ export const REQUIRED_SCHEMA = {
   order_email_deliveries: "order_id,email_type,resend_email_id",
   order_resume_tokens: "order_id,token_hash,expires_at,used_at",
   cart_save_tokens: "order_id,token_hash,expires_at",
-  recovery_touch_drafts: "order_id,touch_hours,email,token_hash,activity_at,expires_at,state,first_attempt_at,last_attempt_at,provider_id,sent_at",
+  recovery_touch_drafts: "order_id,touch_hours,email,token_hash,activity_at,expires_at,state,first_attempt_at,last_attempt_at,provider_id,sent_at,ignored_at,reviewed_at,reviewed_by",
   order_operations_control: "id,recovery_enabled,postal_address,lease_id,last_succeeded_at,last_error",
   commercial_email_suppressions: "email_hash,created_at",
   order_stuck_alerts: "order_id,state_key,state_since,active,acknowledged_until,notification_claimed_at,notified_at",

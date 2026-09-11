@@ -31,42 +31,36 @@ function normalizeSiteUrl(value?: string | null): string {
 export function buildAbandonedCheckoutRecoveryEmail({
   customerName,
   customerEmail,
-  orderId,
   siteUrl,
   resumeUrl,
-  postalAddress,
-  unsubscribeUrl,
 }: RecoveryEmailDraftInput): RecoveryEmailDraft {
-  const name = customerName?.trim() || "there";
+  const firstName = customerName?.trim() || null;
+  const greeting = firstName ? `Hi ${firstName},` : "Hi,";
   const cartUrl = resumeUrl ?? `${normalizeSiteUrl(siteUrl)}/resume-order`;
-  const subject = "Need help finishing your HonestLenses order?";
+  const subject = "Complete your Honest Lenses order";
   const text = [
-    `Hi ${name},`,
+    greeting,
     "",
-    "It looks like your HonestLenses order was started but not finished.",
+    "It looks like you started an order with Honest Lenses but didn’t finish checking out.",
     "",
-    "If you still need lenses, you can return to your cart and complete the remaining steps. If anything felt confusing or you need help with prescription details, reply to this email and we can help.",
+    "If you’d still like to complete your order, you can securely pick up where you left off here:",
     "",
-    "We will not ship or capture payment unless checkout is completed and the order is authorized.",
+    cartUrl,
     "",
-    `Return to cart: ${cartUrl}`,
+    "If you no longer wish to complete the order, no action is needed.",
     "",
-    `Order reference: ${orderId}`,
-    "",
-    "HonestLenses",
-    ...(postalAddress && unsubscribeUrl ? ["Commercial reminder about your unfinished checkout.",postalAddress,`Stop commercial emails: ${unsubscribeUrl}`] : []),
+    "Thank you,",
+    "Honest Lenses",
   ].join("\n");
 
-  const html = `
-    <p>Hi ${escapeHtml(name)},</p>
-    <p>It looks like your HonestLenses order was started but not finished.</p>
-    <p>If you still need lenses, you can return to your cart and complete the remaining steps. If anything felt confusing or you need help with prescription details, reply to this email and we can help.</p>
-    <p>We will not ship or capture payment unless checkout is completed and the order is authorized.</p>
-    <p><a href="${escapeHtml(cartUrl)}">Return to cart</a></p>
-    <p style="color:#555;font-size:13px;">Order reference: ${escapeHtml(orderId)}</p>
-    <p>HonestLenses</p>
-    ${postalAddress && unsubscribeUrl ? `<p>Commercial reminder about your unfinished checkout.</p><p>${escapeHtml(postalAddress)}</p><p><a href="${escapeHtml(unsubscribeUrl)}">Stop commercial emails</a></p>` : ""}
-  `;
+  const html = [
+    `<p>${escapeHtml(greeting)}</p>`,
+    "<p>It looks like you started an order with Honest Lenses but didn’t finish checking out.</p>",
+    "<p>If you’d still like to complete your order, you can securely pick up where you left off here:</p>",
+    `<p><a href="${escapeHtml(cartUrl)}">${escapeHtml(cartUrl)}</a></p>`,
+    "<p>If you no longer wish to complete the order, no action is needed.</p>",
+    "<p>Thank you,<br>Honest Lenses</p>",
+  ].join("\n");
 
   return {
     to: customerEmail?.trim().toLowerCase() || null,

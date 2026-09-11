@@ -3721,3 +3721,12 @@ body:has(.hl-overlay) {
     padding: 0 16px;
   }
 }
+@media (max-width: 640px) {
+  .admin-history-row {
+    grid-template-columns: minmax(78px, 0.7fr) minmax(120px, 1.5fr) !important;
+  }
+
+  .admin-history-row > :nth-child(n + 3) {
+    text-align: left !important;
+  }
+}
