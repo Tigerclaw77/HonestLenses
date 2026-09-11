@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import styles from "./cart.module.css";
 import { supabase } from "../../lib/supabase-client";
 
 import Header from "../../components/Header";
@@ -332,7 +333,20 @@ export default function CartPage() {
       <>
         <Header variant="shop" />
         <main className="content-shell">
-          <p className="order-error">{error ?? "Cart unavailable."}</p>
+          {error === "No active cart found." ? (
+            <section className={styles.emptyCart} aria-labelledby="empty-cart-title">
+              <h1 id="empty-cart-title">No active cart found.</h1>
+              <p>
+                Started an order previously? You can securely resume it using
+                your email address.
+              </p>
+              <Link href="/resume-order" className="primary-btn">
+                Resume an order
+              </Link>
+            </section>
+          ) : (
+            <p className="order-error">{error ?? "Cart unavailable."}</p>
+          )}
         </main>
       </>
     );
