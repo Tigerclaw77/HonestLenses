@@ -27,6 +27,7 @@ const order = {
 const activeOrder = {...order,id:"00000000-0000-4000-8000-000000000002",status:"authorized",verification_status:"verified",
   shipping_first_name:"Active",shipping_last_name:"Fixture",shipping_email:"fixture@invalid.invalid",payment_intent_id:"pi_active"};
 let failure = "";
+let primaryResults = null;
 const serviceCalls = [];
 globalThis.__queueTestDb = {from(table) {
   let columns, head;
@@ -36,6 +37,7 @@ globalThis.__queueTestDb = {from(table) {
     then(resolve, reject) {
       const name = table === "orders" ? "orders" : table === "order_events" ? "activity" : head ? "count" : "review";
       serviceCalls.push(name);
+      if (name === "orders" && primaryResults?.length) return Promise.resolve(primaryResults.shift()).then(resolve,reject);
       if (failure === `${name}_throw`) return Promise.reject(new Error("Network fetch failed")).then(resolve,reject);
       const result = failure === name ? {data:null,count:null,error:{message:"Gateway Timeout",code:"PGRST003"},status:504}
         : {data:table === "orders" ? [order,activeOrder] : [], count:0,error:null,status:200};
@@ -55,10 +57,11 @@ await build({entryPoints:["src/app/api/admin/orders/route.ts"],outfile:path.join
     "@/lib/supabase-server":"export const supabaseServer=globalThis.__queueTestDb;",
     "stripe":"export default class Stripe {paymentIntents={retrieve:async(id)=>globalThis.__queueTestStripe(id)}}",
     "@/lib/payments/adminPaymentReconciliation":"export const reconcileAdminPaymentState=async(input)=>globalThis.__queueTestReconcile(input);",
-    "@/lib/posthog/server":"export const captureServerEvent=async()=>{};",
+    "@/lib/posthog/server":"export const captureServerEvent=async()=>globalThis.__queueTestPosthog();",
   })],
 });
 const { GET } = await import(pathToFileURL(path.join(out,"route.mjs")));
+globalThis.__queueTestPosthog = () => serviceCalls.push("posthog");
 let normalPayload;
 for (const mode of ["", "count", "review", "orders", "count_throw", "review_throw", "orders_throw", "activity"]) {
   failure=mode; serviceCalls.length=0;
@@ -66,7 +69,7 @@ for (const mode of ["", "count", "review", "orders", "count_throw", "review_thro
   const body=await response.json();
   if (mode.startsWith("orders")) {
     assert.equal(response.status,500); assert.equal(body.code,"ORDERS_FETCH_FAILED");
-    assert.deepEqual(serviceCalls,["orders"]);
+    assert.deepEqual(serviceCalls,["orders","orders"]);
   } else {
     assert.equal(response.status,200);
     assert.equal(body.abandoned[0].id,order.id);
@@ -83,6 +86,51 @@ for (const mode of ["", "count", "review", "orders", "count_throw", "review_thro
     if (!mode) normalPayload=body;
   }
   console.log(`PASS real route ${mode || "healthy"}`);
+}
+
+const success = {data:[order,activeOrder],error:null,status:200};
+const errorResult = (status,code,message="fixture failure") => ({data:null,error:{code,message},status});
+const retryCases = [
+  ["first success",[success],200,1],
+  ...[502,503,504].map(status=>[`${status} recovered`,[errorResult(status,null),success],200,2]),
+  ["504 exhausted",[errorResult(504,null),errorResult(504,null)],500,2],
+  ["PostgREST pool timeout",[errorResult(504,"PGRST003"),success],200,2],
+  ["network error",[errorResult(0,"","TypeError: fetch failed"),success],200,2],
+  ["unrecognized application error",[errorResult(0,null,"Validation failed")],500,1],
+  ["invalid upstream code",[errorResult(504,"invalid code")],500,1],
+  ...[[401,null],[403,"42501"],[400,"42703"],[404,"42P01"],[400,"PGRST100"],[500,"XX000"],[504,"42501"]]
+    .map(([status,code])=>[`${status}/${code} deterministic`,[errorResult(status,code,"Gateway Timeout")],500,1]),
+];
+for (const [label,results,expectedStatus,reads] of retryCases) {
+  failure="";primaryResults=[...results];serviceCalls.length=0;
+  const logs=[];
+  const delays=[];
+  const originalTimer=globalThis.setTimeout;
+  globalThis.setTimeout=(callback,delay)=>{delays.push(delay);return originalTimer(callback,0);};
+  const originals=[console.info,console.warn,console.error];
+  console.info=console.warn=console.error=(message,fields)=>logs.push({message,...fields});
+  let response;
+  try {response=await GET(new Request("http://fixture.test/api/admin/orders"));}
+  finally {[console.info,console.warn,console.error]=originals;globalThis.setTimeout=originalTimer;primaryResults=null;}
+  const body=await response.json();
+  assert.equal(response.status,expectedStatus,label);
+  assert.equal(serviceCalls.filter(c=>c==="orders").length,reads,label);
+  const attempts=logs.filter(l=>l.query==="orders");
+  assert.equal(attempts.length,reads);
+  assert.deepEqual(attempts.map(l=>l.attempt),Array.from({length:reads},(_,i)=>i+1));
+  assert.ok(attempts.every(l=>l.requestId===response.headers.get("X-Queue-Request-Id") && l.elapsedMs>=0));
+  assert.equal(attempts[0].retryScheduled,reads===2);
+  assert.equal(attempts.at(-1).recovered,reads===2 && expectedStatus===200);
+  assert.equal(delays.length,reads-1);
+  assert.ok(delays.every(delay=>delay>=150 && delay<=250));
+  if(expectedStatus===500 && reads===1)assert.equal(attempts[0].category,"non_retryable");
+  assert.ok(!JSON.stringify(logs).includes("fixture failure"));
+  if(expectedStatus===200) {
+    assert.equal(body.ready_to_order.length,normalPayload.ready_to_order.length);
+    for(const call of ["count","activity","review","posthog"])assert.equal(serviceCalls.filter(c=>c===call).length,1,call);
+    for(const call of ["stripe","reconcile"])assert.equal(serviceCalls.filter(c=>c===call).length,2,call); // Once per fixture order.
+  } else {assert.equal(body.code,"ORDERS_FETCH_FAILED");assert.ok(serviceCalls.every(c=>c==="orders"));}
+  console.log(`PASS primary retry ${label}`);
 }
 
 // Deterministic concurrency, coalescing, backoff and unmount/remount checks.

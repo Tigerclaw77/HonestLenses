@@ -35,7 +35,7 @@ import {
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { randomUUID } from "node:crypto";
-import { readQueueQuery } from "@/lib/admin/queueQuery";
+import { readPrimaryOrders, readQueueQuery } from "@/lib/admin/queueQuery";
 
 export const runtime = "nodejs";
 
@@ -366,7 +366,7 @@ export async function GET(req: Request) {
     ========================= */
 
     const requestId = randomUUID();
-    const primary = await readQueueQuery("orders", requestId, () => supabaseServer
+    const primary = await readPrimaryOrders(requestId, () => supabaseServer
       .from("orders")
       .select("*")
       .order("created_at", { ascending: false }));
