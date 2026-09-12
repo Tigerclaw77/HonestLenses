@@ -34,6 +34,8 @@ import {
 } from "@/lib/orders/manualRecovery";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { randomUUID } from "node:crypto";
+import { readQueueQuery } from "@/lib/admin/queueQuery";
 
 export const runtime = "nodejs";
 
@@ -363,22 +365,25 @@ export async function GET(req: Request) {
        Fetch orders (MOST RECENT FIRST)
     ========================= */
 
-    const { data, error } = await supabaseServer
+    const requestId = randomUUID();
+    const primary = await readQueueQuery("orders", requestId, () => supabaseServer
       .from("orders")
       .select("*")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false }));
 
-    if (error) {
-      console.error("Admin orders fetch error:", error);
+    if (!primary.ok) {
       return NextResponse.json(
         { error: "Failed to fetch orders", code: "ORDERS_FETCH_FAILED" },
-        { status: 500 },
+        { status: 500, headers: { "X-Queue-Request-Id": requestId } },
       );
     }
+    const data = primary.result.data;
 
-    const review=await supabaseServer.from('recovery_touch_drafts').select('id',{count:'exact',head:true}).eq('state','needs_review');
-    if(review.error)throw new Error('Recovery delivery status unavailable');
-    const operationsWarning=review.count ? `${review.count} recovery deliveries require provider review; automatic retries stopped.` : null;
+    const review = await readQueueQuery("recovery_count", requestId, () =>
+      supabaseServer.from("recovery_touch_drafts").select("id", { count: "exact", head: true }).eq("state", "needs_review"));
+    let recoveryAvailable = review.ok;
+    const reviewCount = review.ok ? review.result.count : null;
+    const operationsWarning = reviewCount ? `${reviewCount} recovery deliveries require provider review; automatic retries stopped.` : null;
     const baseOrders: OrderRow[] = (data ?? [])
       .filter((o): o is OrderRow => !!o && !!o.id && !!o.created_at)
       .map((o) => ({
@@ -386,14 +391,11 @@ export async function GET(req: Request) {
         rx: normalizeRx(o.rx ?? null),
       }));
 
-    const { data: eventData, error: eventError } = await supabaseServer
+    const events = await readQueueQuery("order_activity", requestId, () => supabaseServer
       .from("order_events")
       .select("order_id, event_type, created_at")
-      .order("created_at", { ascending: false });
-
-    if (eventError) {
-      console.warn("Admin order activity fetch failed:", eventError);
-    }
+      .order("created_at", { ascending: false }));
+    const eventData = events.ok ? events.result.data : null;
 
     const latestEventByOrder = new Map<string, OrderEventRow>();
     for (const event of (eventData ?? []) as OrderEventRow[]) {
@@ -451,15 +453,12 @@ export async function GET(req: Request) {
 
     const recoveryRowsByOrder = new Map<string, ManualRecoveryLedgerRow[]>();
     if (abandonedBase.length > 0) {
-      const { data: recoveryRows, error: recoveryError } = await supabaseServer
+      const recovery = await readQueueQuery("manual_recovery_review", requestId, () => supabaseServer
         .from("recovery_touch_drafts")
         .select("order_id,state,sent_at,ignored_at")
-        .in("order_id", abandonedBase.map((order) => order.id));
-      if (recoveryError) {
-        throw new Error("Manual recovery review state unavailable", {
-          cause: recoveryError,
-        });
-      }
+        .in("order_id", abandonedBase.map((order) => order.id)));
+      if (!recovery.ok) recoveryAvailable = false;
+      const recoveryRows = recovery.ok ? recovery.result.data : null;
       for (const row of recoveryRows ?? []) {
         const current = recoveryRowsByOrder.get(row.order_id) ?? [];
         current.push(row);
@@ -469,7 +468,9 @@ export async function GET(req: Request) {
 
     const abandoned: AbandonedOrderRow[] = abandonedBase.map((order) => ({
       ...order,
-      recovery_review: getManualRecoveryReview(
+      recovery_review: !recoveryAvailable && isManualRecoveryCandidate(order)
+        ? { state: "unavailable" as const, sentAt: null, ignoredAt: null }
+        : getManualRecoveryReview(
         order,
         recoveryRowsByOrder.get(order.id) ?? [],
       ),
@@ -547,7 +548,9 @@ export async function GET(req: Request) {
       abandoned,
       integrity_issues: integrityIssues,
       operations_warning: operationsWarning,
-    });
+      recovery_warning: recoveryAvailable ? null : "Recovery status unavailable. Recovery actions are disabled until a successful refresh.",
+      activity_warning: events.ok ? null : "Order activity could not be refreshed; activity times may be incomplete.",
+    }, { headers: { "Cache-Control": "private, no-store", "X-Queue-Request-Id": requestId } });
   } catch (err) {
     console.error("Admin route crash:", err);
     return NextResponse.json(

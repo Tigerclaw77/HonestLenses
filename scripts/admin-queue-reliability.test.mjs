@@ -1,0 +1,194 @@
+// Isolated real-route/component regression. No env files or live service calls.
+import assert from "node:assert/strict";
+import { build } from "esbuild";
+import { mkdir, readFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+import path from "node:path";
+
+const out = path.resolve("output/admin-queue-reliability-tests");
+await mkdir(out, { recursive: true });
+await build({entryPoints:["src/lib/admin/queueRefresh.ts"],outfile:path.join(out,"refresh.mjs"),bundle:true,platform:"node",format:"esm"});
+const { createQueueRefresh } = await import(pathToFileURL(path.join(out,"refresh.mjs")));
+function mockPlugin(mocks) {
+  return {name: "isolated-services", setup(b) {
+    b.onResolve({filter: /.*/}, a => mocks[a.path] ? {path:a.path,namespace:"mock"} : undefined);
+    b.onLoad({filter: /.*/,namespace:"mock"}, a => ({contents:mocks[a.path],loader:"jsx",resolveDir:process.cwd()}));
+  }};
+}
+const order = {
+  id:"00000000-0000-4000-8000-000000000001", status:"draft", fulfillment_status:"review",
+  verification_status:"unverified", sku:"VITA_12", shipping_email:"fixture@example.test",
+  shipping_first_name:"Fixture", shipping_last_name:"Customer", total_amount_cents:20998,
+  created_at:new Date().toISOString(), updated_at:new Date().toISOString(),
+  payment_intent_id:"pi_fixture", rx:{right:{coreId:"VITA",sphere:-2},expires:"2099-01-01"},
+};
+const activeOrder = {...order,id:"00000000-0000-4000-8000-000000000002",status:"authorized",verification_status:"verified",
+  shipping_first_name:"Active",shipping_last_name:"Fixture",shipping_email:"fixture@invalid.invalid",payment_intent_id:"pi_active"};
+let failure = "";
+const serviceCalls = [];
+globalThis.__queueTestDb = {from(table) {
+  let columns, head;
+  const query = {
+    select(c, options) { columns=c; head=options?.head; return query; },
+    order() { return query; }, eq() { return query; }, in() { return query; },
+    then(resolve, reject) {
+      const name = table === "orders" ? "orders" : table === "order_events" ? "activity" : head ? "count" : "review";
+      serviceCalls.push(name);
+      if (failure === `${name}_throw`) return Promise.reject(new Error("Network fetch failed")).then(resolve,reject);
+      const result = failure === name ? {data:null,count:null,error:{message:"Gateway Timeout",code:"PGRST003"},status:504}
+        : {data:table === "orders" ? [order,activeOrder] : [], count:0,error:null,status:200};
+      assert.ok(columns);
+      return Promise.resolve(result).then(resolve,reject);
+    },
+  };
+  return query;
+}};
+globalThis.__queueTestStripe = id => { serviceCalls.push("stripe"); return {id,status:id==="pi_active"?"requires_capture":"requires_payment_method",amount:20998,amount_received:0,created:1789160000}; };
+globalThis.__queueTestReconcile = ({order}) => { serviceCalls.push("reconcile"); return {status:order.status,changed:false,eventLogged:true}; };
+await build({entryPoints:["src/app/api/admin/orders/route.ts"],outfile:path.join(out,"route.mjs"),bundle:true,platform:"node",format:"esm",
+  define:{"process.env.STRIPE_SECRET_KEY":'"fixture-only"'},
+  plugins:[mockPlugin({
+    "next/server":"export const NextResponse={json:(body,init)=>Response.json(body,init)};",
+    "@/lib/admin-auth":"export const requireAdminUser=async()=>({ok:true}); export const logAdminAuthFailure=()=>{}; export const adminAuthErrorResponse=()=>{throw Error('unexpected auth failure')};",
+    "@/lib/supabase-server":"export const supabaseServer=globalThis.__queueTestDb;",
+    "stripe":"export default class Stripe {paymentIntents={retrieve:async(id)=>globalThis.__queueTestStripe(id)}}",
+    "@/lib/payments/adminPaymentReconciliation":"export const reconcileAdminPaymentState=async(input)=>globalThis.__queueTestReconcile(input);",
+    "@/lib/posthog/server":"export const captureServerEvent=async()=>{};",
+  })],
+});
+const { GET } = await import(pathToFileURL(path.join(out,"route.mjs")));
+let normalPayload;
+for (const mode of ["", "count", "review", "orders", "count_throw", "review_throw", "orders_throw", "activity"]) {
+  failure=mode; serviceCalls.length=0;
+  const response=await GET(new Request("http://fixture.test/api/admin/orders"));
+  const body=await response.json();
+  if (mode.startsWith("orders")) {
+    assert.equal(response.status,500); assert.equal(body.code,"ORDERS_FETCH_FAILED");
+    assert.deepEqual(serviceCalls,["orders"]);
+  } else {
+    assert.equal(response.status,200);
+    assert.equal(body.abandoned[0].id,order.id);
+    assert.ok([...body.awaiting_verification,...body.founder_review,...body.ready_to_order,...body.resolve_exception].some(o=>o.id===activeOrder.id));
+    assert.ok(serviceCalls.includes("stripe") && serviceCalls.includes("reconcile"));
+    if (/count|review/.test(mode)) {
+      assert.match(body.recovery_warning,/unavailable/);
+      assert.equal(body.abandoned[0].recovery_review.state,"unavailable");
+    } else {
+      assert.equal(body.recovery_warning,null);
+      assert.equal(body.abandoned[0].recovery_review.state,"unresolved");
+    }
+    if (mode === "activity") assert.match(body.activity_warning,/could not be refreshed/);
+    if (!mode) normalPayload=body;
+  }
+  console.log(`PASS real route ${mode || "healthy"}`);
+}
+
+// Deterministic concurrency, coalescing, backoff and unmount/remount checks.
+let release, runs=0, concurrent=0, maxConcurrent=0, clock=0, succeeds=true;
+const coordinator=createQueueRefresh(async current => {
+  runs++; concurrent++; maxConcurrent=Math.max(maxConcurrent,concurrent);
+  await new Promise(resolve=>{release=resolve;});
+  concurrent--; return current() && succeeds;
+},()=>clock);
+coordinator.activate();
+const first=coordinator.request();
+for(let i=0;i<10;i++) void coordinator.request(false);
+assert.equal(runs,1); release(); await new Promise(setImmediate);
+assert.equal(runs,2); release(); await first; assert.equal(maxConcurrent,1);
+succeeds=false;
+let attempt=coordinator.request(); release(); await attempt;
+await coordinator.request(false); assert.equal(runs,3);
+clock=30_000; attempt=coordinator.request(false); release(); await attempt;
+clock=60_000; await coordinator.request(false); assert.equal(runs,4);
+// Explicit action bypasses failure backoff.
+succeeds=true; attempt=coordinator.request(true); release(); await attempt;
+attempt=coordinator.request(false); release(); await attempt; assert.equal(runs,6);
+let backoffCalls=0, backoffClock=0;
+const backoff=createQueueRefresh(async()=>{backoffCalls++;return false;},()=>backoffClock);
+backoff.activate();
+for (const due of [0,30_000,90_000,210_000,330_000]) {
+  if(due) {backoffClock=due-1;const before=backoffCalls;await backoff.request(false);assert.equal(backoffCalls,before);}
+  backoffClock=due;await backoff.request(false);
+}
+assert.equal(backoffCalls,5);
+let accepted=0, finish;
+const lifecycle=createQueueRefresh(async current=>{await new Promise(r=>{finish=r;});if(current())accepted++;return true;});
+lifecycle.activate(); const old=lifecycle.request(); lifecycle.deactivate(); lifecycle.activate(); void lifecycle.request();
+finish(); await new Promise(setImmediate); assert.equal(accepted,0); finish(); await old; assert.equal(accepted,1);
+console.log("PASS serialized/coalesced refresh, backoff, explicit bypass, stale lifecycle result rejection");
+
+// Browser tests render the real admin page and CSS with all IO replaced.
+await build({stdin:{contents:`import {createRoot} from 'react-dom/client'; import Page from './src/app/admin/orders/page'; import './src/styles/globals.css'; createRoot(document.getElementById('root')).render(<Page/>);`,resolveDir:process.cwd(),loader:"tsx"},
+  outfile:path.join(out,"app.js"),bundle:true,jsx:"automatic",external:["/*.png"],define:{"process.env.NODE_ENV":'"production"'},
+  plugins:[mockPlugin({"@/lib/supabase-client":`export const supabase={auth:{getSession:async()=>({data:{session:{access_token:'fixture'}}})},channel:()=>({on(_e,_f,cb){window.queueRefresh=cb;return this;},subscribe(){return this;}}),removeChannel(){}};`})],
+});
+const server=createServer(async(req,res)=>{
+  if(req.url==="/app.js"||req.url==="/app.css") {res.setHeader("Content-Type",req.url.endsWith("css")?"text/css":"application/javascript");res.end(await readFile(path.join(out,req.url.slice(1))));}
+  else res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/app.css"><div id="root"></div><script src="/app.js"></script>');
+});
+await new Promise(r=>server.listen(0,"127.0.0.1",r));
+const origin=`http://127.0.0.1:${server.address().port}`;
+const require=createRequire(import.meta.url);
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||"playwright");
+const browser=await chromium.launch({headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{})});
+try {
+  for(const width of [1440,390]) {
+    const page=await browser.newPage({viewport:{width,height:950}});
+    const pageErrors=[]; page.on("pageerror",e=>pageErrors.push(e.message));
+    await page.route("**/*",r=>r.request().url().startsWith(origin)?r.continue():r.abort());
+    await page.addInitScript(payload=>{
+      window.mode="initial"; window.fixture=payload; window.calls=[];
+      window.fetch=async(url,options={})=>{
+        window.calls.push({url,method:options.method||"GET"});
+        if(url.endsWith("/receipts"))return Response.json({receipt:null,itemized:null});
+        if(url!=="/api/admin/orders")throw Error("Forbidden fixture request "+url);
+        if(window.mode==="network")throw TypeError("Failed to fetch");
+        if(window.mode==="initial"||window.mode==="failure")return Response.json({error:"Failed to fetch orders",code:"ORDERS_FETCH_FAILED"},{status:500});
+        if(window.mode==="malformed")return Response.json({});
+        const body=structuredClone(window.fixture);
+        if(window.mode==="degraded") {body.recovery_warning="Recovery status unavailable. Recovery actions are disabled until a successful refresh.";body.abandoned[0].recovery_review={state:"unavailable",sentAt:null,ignoredAt:null};}
+        if(window.mode==="warning")body.operations_warning="Fixture operational warning";
+        return Response.json(body);
+      };
+    },normalPayload);
+    await page.goto(origin);
+    await page.getByText("Unable to load orders. Queue contents are unavailable.",{exact:true}).waitFor();
+    await page.screenshot({path:path.join(out,`initial-failure-${width}.png`),fullPage:true});
+    assert.equal(await page.getByText("No orders in this section.",{exact:true}).count(),0);
+    assert.equal(await page.getByText("Loading current order and Stripe status…",{exact:true}).count(),0);
+    await page.evaluate(()=>{window.mode="healthy";});
+    await page.getByRole("button",{name:"Retry order refresh"}).click();
+    await page.getByText("Fixture Customer",{exact:true}).waitFor();
+    assert.equal(await page.getByRole("alert").count(),0);
+    for(const mode of ["failure","network","malformed"]) {
+      await page.evaluate(mode=>{window.mode=mode;window.queueRefresh();},mode);
+      await page.getByText("Order refresh failed. Displayed orders may be stale.",{exact:true}).waitFor();
+      assert.equal(await page.getByText("Fixture Customer",{exact:true}).count(),1);
+      assert.ok((await page.locator("main").innerText()).includes("Active Fixture"));
+      if(mode==="network")assert.match(await page.getByRole("alert").innerText(),/Network or connection failure/);
+      if(mode==="malformed")assert.match(await page.getByRole("alert").innerText(),/invalid order-list response/);
+      await page.evaluate(()=>{window.mode="healthy";});
+      await page.getByRole("button",{name:"Retry order refresh"}).click();
+      await page.getByRole("alert").waitFor({state:"hidden"});
+    }
+    await page.evaluate(()=>{window.mode="degraded";window.queueRefresh();});
+    await page.getByText("Recovery status unavailable. Recovery actions are disabled until a successful refresh.",{exact:true}).waitFor();
+    await page.screenshot({path:path.join(out,`degraded-queue-${width}.png`),fullPage:true});
+    assert.equal(await page.getByRole("alert").count(),0);
+    await page.getByRole("button").filter({hasText:"Fixture Customer"}).click();
+    assert.equal(await page.getByRole("button",{name:"Send recovery email",exact:true}).isEnabled(),false);
+    assert.equal(await page.getByRole("button",{name:"Ignore",exact:true}).isEnabled(),false);
+    await page.screenshot({path:path.join(out,`degraded-${width}.png`),fullPage:true});
+    await page.evaluate(()=>{window.mode="warning";window.queueRefresh();});
+    await page.getByText("Fixture operational warning",{exact:true}).waitFor();
+    await page.getByRole("button",{name:"Send recovery email",exact:true}).waitFor();
+    assert.equal(await page.getByRole("button",{name:"Send recovery email",exact:true}).isEnabled(),true);
+    assert.equal(await page.getByText("Recovery status unavailable. Recovery actions are disabled until a successful refresh.",{exact:true}).count(),0);
+    assert.equal(await page.getByRole("alert").count(),0);
+    assert.deepEqual(pageErrors,[]);
+    assert.ok((await page.evaluate(()=>window.calls)).every(c=>c.method==="GET"));
+    await page.close(); console.log(`PASS real client ${width}px initial/refresh/network/malformed/recovered/degraded/operational-warning`);
+  }
+} finally {await browser.close(); await new Promise(r=>server.close(r));}

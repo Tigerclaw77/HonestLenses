@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:admin-queue-reliability": "node scripts/admin-queue-reliability.test.mjs",
     "test:cart-empty-state": "node scripts/cart-empty-state.test.mjs",
     "governance:check": "node scripts/governance/check-founder-authority.mjs",
     "test:governance": "node scripts/governance/founder-authority.test.mjs",

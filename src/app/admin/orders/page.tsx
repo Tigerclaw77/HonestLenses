@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo } from "react";
+import { createQueueRefresh, isQueuePayload } from "@/lib/admin/queueRefresh";
 import ReceiptActions from "./ReceiptActions";
 import type { CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase-client";
@@ -176,7 +177,7 @@ type Order = {
   payment_intent_id?: string | null;
   abandoned_checkout?: AbandonedCheckoutClassification;
   recovery_review?: {
-    state: "unresolved" | "sent" | "ignored";
+    state: "unresolved" | "sent" | "ignored" | "unavailable";
     sentAt: string | null;
     ignoredAt: string | null;
   } | null;
@@ -292,6 +293,8 @@ type OptimisticOrdersSnapshot = {
 
 type AdminApiPayload = {
   operations_warning?: string | null;
+  recovery_warning?: string | null;
+  activity_warning?: string | null;
   error?: string;
   code?: string;
   payment_captured?: boolean;
@@ -2345,11 +2348,14 @@ function OrderDetailsModal({
               Mark email issue resolved
             </button>
           )}
-          {order.recovery_review?.state === "unresolved" && (
+          {order.recovery_review?.state === "unavailable" && (
+            <p role="status">Recovery status unavailable. Refresh before taking a recovery action.</p>
+          )}
+          {(order.recovery_review?.state === "unresolved" || order.recovery_review?.state === "unavailable") && (
             <>
               <button
                 type="button"
-                disabled={recoveryPending}
+                disabled={recoveryPending || order.recovery_review?.state === "unavailable"}
                 onClick={() => onRecoveryAction("send_recovery_email")}
                 style={buttonStyle({ opacity: recoveryPending ? 0.55 : 1 })}
               >
@@ -2357,7 +2363,7 @@ function OrderDetailsModal({
               </button>
               <button
                 type="button"
-                disabled={recoveryPending}
+                disabled={recoveryPending || order.recovery_review?.state === "unavailable"}
                 onClick={() => onRecoveryAction("ignore_recovery")}
                 style={buttonStyle({ opacity: recoveryPending ? 0.55 : 1 })}
               >
@@ -2403,6 +2409,9 @@ function OrderDetailsModal({
 
 export default function AdminOrdersPage() {
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [queueWarnings, setQueueWarnings] = useState<string[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [detailsOrderId, setDetailsOrderId] = useState<string | null>(null);
@@ -2489,92 +2498,107 @@ export default function AdminOrdersPage() {
     });
   }, [clearOrderHighlight]);
 
-  const fetchData = useCallback(async () => {
-    const res = await fetch("/api/admin/orders", {
-      headers: await authHeaders(),
-      credentials: "same-origin",
-    });
-    const json = await readAdminApiPayload(res);
+  const fetchOnce = useCallback(async (isCurrent: () => boolean): Promise<boolean> => {
+    let responseReceived = false;
+    try {
+      const res = await fetch("/api/admin/orders", {
+        headers: await authHeaders(),
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      responseReceived = true;
+      const json = await readAdminApiPayload(res);
+      if (!isCurrent()) return false;
 
-    if (!res.ok) {
-      const message = adminApiErrorMessage(json, "Failed to fetch orders.");
-      setAdminError(message);
-      setIsLoading(false);
-      if (process.env.NODE_ENV !== "production") {
-        console.warn("[AdminOrdersPage] orders fetch failed", {
-          status: res.status,
-          error: json.error,
-          code: json.code,
-        });
+      if (!res.ok) {
+        const message = adminApiErrorMessage(json, "Failed to fetch orders.");
+        setLoadError(message);
+        return false;
       }
-      return;
-    }
+      if (!isQueuePayload(json)) {
+        setLoadError("The server returned an invalid order-list response.");
+        return false;
+      }
 
-    setAdminError(json.operations_warning ?? null);
-    setQueueIntegrityIssues(json.integrity_issues ?? []);
-
-    const activeOrders: Order[] = [
-      ...(json.awaiting_verification ?? []),
-      ...(json.founder_review ?? []),
-      ...(json.ready_to_order ?? []),
-      ...(json.resolve_exception ?? []),
-    ];
-    const hiddenIds = optimisticallyHiddenOrderIds.current;
-    const abandoned: Order[] = (json.abandoned ?? []).filter(
-      (order) => !hiddenIds.has(order.id),
-    );
-    const combinedById = new Map<string, Order>([
-      ...activeOrders,
-      ...(json.archive ?? []),
-    ].map((order) => [order.id, order]));
-    abandoned.forEach((order) => {
-      combinedById.set(order.id, {
-        ...(combinedById.get(order.id) ?? {}),
-        ...order,
-      } as Order);
-    });
-    const combined = [...combinedById.values()].filter(
-      (order) => !hiddenIds.has(order.id),
-    );
-
-    const paymentIntentOrders = activeOrders.filter(isNewPaymentIntentOrder);
-
-    if (!isInitialLoad.current) {
-      const newPaymentIntentOrders = paymentIntentOrders.filter(
-        (order) =>
-          !knownPaymentIntentOrderIds.current.has(order.id) &&
-          !notifiedPaymentIntentOrderIds.current.has(order.id),
+      const activeOrders: Order[] = [
+        ...(json.awaiting_verification ?? []),
+        ...(json.founder_review ?? []),
+        ...(json.ready_to_order ?? []),
+        ...(json.resolve_exception ?? []),
+      ];
+      const hiddenIds = optimisticallyHiddenOrderIds.current;
+      const abandoned: Order[] = (json.abandoned ?? []).filter(
+        (order) => !hiddenIds.has(order.id),
+      );
+      const combinedById = new Map<string, Order>([
+        ...activeOrders,
+        ...(json.archive ?? []),
+      ].map((order) => [order.id, order]));
+      abandoned.forEach((order) => {
+        combinedById.set(order.id, {
+          ...(combinedById.get(order.id) ?? {}),
+          ...order,
+        } as Order);
+      });
+      const combined = [...combinedById.values()].filter(
+        (order) => !hiddenIds.has(order.id),
       );
 
-      markHighlightedPaymentOrders(newPaymentIntentOrders);
+      const paymentIntentOrders = activeOrders.filter(isNewPaymentIntentOrder);
 
-      for (const order of newPaymentIntentOrders) {
-        const name =
-          order.patient_name ||
-          order.patient_full_name ||
-          `${order.shipping_first_name ?? ""} ${order.shipping_last_name ?? ""}`.trim();
+      if (!isInitialLoad.current) {
+        const newPaymentIntentOrders = paymentIntentOrders.filter(
+          (order) =>
+            !knownPaymentIntentOrderIds.current.has(order.id) &&
+            !notifiedPaymentIntentOrderIds.current.has(order.id),
+        );
 
-        const amount = formatMoney(order.total_amount_cents);
-        notifiedPaymentIntentOrderIds.current.add(order.id);
+        markHighlightedPaymentOrders(newPaymentIntentOrders);
 
-        if ("Notification" in window && Notification.permission === "granted") {
-          new Notification("New Order", {
-            body: `${name} - ${amount}`,
-          });
+        for (const order of newPaymentIntentOrders) {
+          const name =
+            order.patient_name ||
+            order.patient_full_name ||
+            `${order.shipping_first_name ?? ""} ${order.shipping_last_name ?? ""}`.trim();
+
+          const amount = formatMoney(order.total_amount_cents);
+          notifiedPaymentIntentOrderIds.current.add(order.id);
+
+          if ("Notification" in window && Notification.permission === "granted") {
+            new Notification("New Order", {
+              body: `${name} - ${amount}`,
+            });
+          }
         }
       }
+
+      paymentIntentOrders.forEach((o) =>
+        knownPaymentIntentOrderIds.current.add(o.id),
+      );
+      isInitialLoad.current = false;
+
+      setLoadError(null);
+      setHasLoaded(true);
+      setQueueWarnings([json.recovery_warning, json.activity_warning, json.operations_warning]
+        .filter((warning): warning is string => Boolean(warning)));
+      setQueueIntegrityIssues(json.integrity_issues ?? []);
+      setOrders(combined.sort(compareOperationalPriority));
+      return true;
+    } catch {
+      if (isCurrent()) setLoadError(responseReceived
+        ? "Unable to process the order-list response. Please try again."
+        : "Network or connection failure while refreshing orders. Please try again.");
+      return false;
+    } finally {
+      if (isCurrent()) setIsLoading(false);
     }
-
-    paymentIntentOrders.forEach((o) =>
-      knownPaymentIntentOrderIds.current.add(o.id),
-    );
-    isInitialLoad.current = false;
-
-    setOrders(combined.sort(compareOperationalPriority));
   }, [authHeaders, markHighlightedPaymentOrders]);
+  const refresh = useMemo(() => createQueueRefresh(fetchOnce), [fetchOnce]);
+  const fetchData = useCallback(() => refresh.request(true), [refresh]);
 
   useEffect(() => {
     let mounted = true;
+    refresh.activate();
 
     async function init() {
       if (!mounted) return;
@@ -2594,20 +2618,21 @@ export default function AdminOrdersPage() {
         },
         () => {
           if (!mounted) return;
-          fetchData();
+          void refresh.request(false);
         },
       )
       .subscribe();
     const refreshInterval = window.setInterval(() => {
-      if (mounted) void fetchData();
+      if (mounted) void refresh.request(false);
     }, 30_000);
 
     return () => {
       mounted = false;
+      refresh.deactivate();
       window.clearInterval(refreshInterval);
       supabase.removeChannel(channel);
     };
-  }, [fetchData]);
+  }, [fetchData, refresh]);
 
   useEffect(() => {
     const timeoutMap = highlightTimeouts.current;
@@ -3261,6 +3286,10 @@ export default function AdminOrdersPage() {
     action: AbandonedAdminAction,
   ): Promise<boolean> {
     if (action === "send_recovery_email" || action === "ignore_recovery") {
+      if (loadError || orders.find(order => order.id === orderId)?.recovery_review?.state !== "unresolved") {
+        setAdminError("Recovery status is unavailable or stale. Refresh orders before taking this action.");
+        return false;
+      }
       const confirmed = confirm(
         action === "send_recovery_email"
           ? "Send the approved recovery email to this customer?"
@@ -3491,6 +3520,17 @@ export default function AdminOrdersPage() {
         </div>
       )}
 
+      {loadError && (
+        <div role="alert" style={{ padding: 12, marginBottom: 12, border: "1px solid #f87171", borderRadius: 8, color: "#fecaca" }}>
+          <strong>{hasLoaded ? "Order refresh failed. Displayed orders may be stale." : "Unable to load orders. Queue contents are unavailable."}</strong>
+          <p>{loadError}</p>
+          <button type="button" onClick={() => void fetchData()} style={buttonStyle()}>Retry order refresh</button>
+        </div>
+      )}
+      {queueWarnings.map(warning => (
+        <div key={warning} role="status" style={{ padding: 12, marginBottom: 12, border: "1px solid #fbbf24", borderRadius: 8, color: "#fde68a" }}>{warning}</div>
+      ))}
+
       {adminError && (
         <div
           role="status"
@@ -3593,7 +3633,7 @@ export default function AdminOrdersPage() {
             >
               <div>
                 <h2 style={{ fontSize: 16, margin: 0, fontWeight: 900 }}>
-                  {section.title} ({isLoading ? "…" : section.orders.length})
+                  {section.title} ({!hasLoaded ? "—" : section.orders.length})
                 </h2>
                 <div style={{ fontSize: 12, opacity: 0.68, marginTop: 3 }}>
                   {section.description}
@@ -3611,7 +3651,7 @@ export default function AdminOrdersPage() {
                   fontSize: 13,
                 }}
               >
-                {isLoading ? "Loading current orders…" : "No orders in this section."}
+                {!hasLoaded ? (isLoading ? "Loading current orders…" : "Order list unavailable.") : "No orders in this section."}
               </div>
             ) : (
               <div
@@ -3663,7 +3703,7 @@ export default function AdminOrdersPage() {
         </p>
         {archiveCount === 0 ? (
           <div style={{ ...mutedPanelStyle(), opacity: 0.72 }}>
-            No historical orders yet.
+            {hasLoaded ? "No historical orders yet." : "Order history unavailable until orders load successfully."}
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -3775,7 +3815,7 @@ export default function AdminOrdersPage() {
           onAdjustCapture={() =>
             openCaptureAdjustment(detailsOrder, getCustomerName(detailsOrder))
           }
-          recoveryPending={pendingAbandonedOrderIds.has(detailsOrder.id)}
+          recoveryPending={Boolean(loadError) || pendingAbandonedOrderIds.has(detailsOrder.id)}
           onRecoveryAction={(action) => {
             void runAbandonedAction(detailsOrder.id, action);
           }}

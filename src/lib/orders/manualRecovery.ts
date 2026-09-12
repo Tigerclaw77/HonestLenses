@@ -15,7 +15,7 @@ export type ManualRecoveryLedgerRow = {
 };
 
 export type ManualRecoveryReview = {
-  state: "unresolved" | "sent" | "ignored";
+  state: "unresolved" | "sent" | "ignored" | "unavailable";
   sentAt: string | null;
   ignoredAt: string | null;
 };
