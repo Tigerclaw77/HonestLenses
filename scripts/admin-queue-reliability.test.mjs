@@ -28,15 +28,22 @@ const activeOrder = {...order,id:"00000000-0000-4000-8000-000000000002",status:"
   shipping_first_name:"Active",shipping_last_name:"Fixture",shipping_email:"fixture@invalid.invalid",payment_intent_id:"pi_active"};
 let failure = "";
 let primaryResults = null;
+let auxiliaryResults = {};
+const abortSignals = [];
 const serviceCalls = [];
 globalThis.__queueTestDb = {from(table) {
   let columns, head;
   const query = {
     select(c, options) { columns=c; head=options?.head; return query; },
     order() { return query; }, eq() { return query; }, in() { return query; },
+    abortSignal(signal) { abortSignals.push(signal); return query; },
     then(resolve, reject) {
       const name = table === "orders" ? "orders" : table === "order_events" ? "activity" : head ? "count" : "review";
       serviceCalls.push(name);
+      if (auxiliaryResults[name]?.length) {
+        const next=auxiliaryResults[name].shift();
+        return next === "hang" ? new Promise(()=>{}) : Promise.resolve(next).then(resolve,reject);
+      }
       if (name === "orders" && primaryResults?.length) return Promise.resolve(primaryResults.shift()).then(resolve,reject);
       if (failure === `${name}_throw`) return Promise.reject(new Error("Network fetch failed")).then(resolve,reject);
       const result = failure === name ? {data:null,count:null,error:{message:"Gateway Timeout",code:"PGRST003"},status:504}
@@ -106,7 +113,7 @@ for (const [label,results,expectedStatus,reads] of retryCases) {
   const logs=[];
   const delays=[];
   const originalTimer=globalThis.setTimeout;
-  globalThis.setTimeout=(callback,delay)=>{delays.push(delay);return originalTimer(callback,0);};
+  globalThis.setTimeout=(callback,delay)=>{if(delay<=250)delays.push(delay);return originalTimer(callback,delay<=250?0:delay);};
   const originals=[console.info,console.warn,console.error];
   console.info=console.warn=console.error=(message,fields)=>logs.push({message,...fields});
   let response;
@@ -131,6 +138,63 @@ for (const [label,results,expectedStatus,reads] of retryCases) {
     for(const call of ["stripe","reconcile"])assert.equal(serviceCalls.filter(c=>c===call).length,2,call); // Once per fixture order.
   } else {assert.equal(body.code,"ORDERS_FETCH_FAILED");assert.ok(serviceCalls.every(c=>c==="orders"));}
   console.log(`PASS primary retry ${label}`);
+}
+
+// Every auxiliary read owns its retry/deadline budget, including simultaneous degradation.
+const auxiliarySuccess={data:[],count:0,error:null,status:200};
+const stages={count:"recovery_count",activity:"order_activity",review:"manual_recovery_review"};
+const auxiliaryCases=[
+  ["success",[auxiliarySuccess],1,false],
+  ...[502,503,504].map(status=>[`${status} recovered`,[errorResult(status,null),auxiliarySuccess],2,false]),
+  ["504 exhausted",[errorResult(504,null),errorResult(504,null)],2,true],
+  ["network recovered",[errorResult(0,"","TypeError: fetch failed"),auxiliarySuccess],2,false],
+  ...[[401,null],[403,"42501"],[400,"42703"],[404,"42P01"],[400,"PGRST100"],[500,"XX000"],[504,"42501"]]
+    .map(([status,code])=>[`${status}/${code} deterministic`,[errorResult(status,code,"Gateway Timeout")],1,true]),
+  ["deadline exhausted",["hang","hang"],2,true],
+];
+for (const targets of [["count"],["activity"],["review"],["count","activity","review"]]) {
+  for(const [label,results,reads,degraded] of auxiliaryCases) {
+    failure="";serviceCalls.length=0;abortSignals.length=0;
+    auxiliaryResults=Object.fromEntries(targets.map(name=>[name,[...results]]));
+    const logs=[],delays=[],deadlines=[];
+    const originalTimer=globalThis.setTimeout;
+    const originals=[console.info,console.warn,console.error];
+    globalThis.setTimeout=(callback,delay)=>{
+      (delay===6000?deadlines:delays).push(delay);
+      return originalTimer(callback,delay===6000 && label!=="deadline exhausted"?delay:0);
+    };
+    console.info=console.warn=console.error=(message,fields)=>logs.push({message,...fields});
+    let response;
+    try {response=await GET(new Request("http://fixture.test/api/admin/orders"));}
+    finally {globalThis.setTimeout=originalTimer;[console.info,console.warn,console.error]=originals;auxiliaryResults={};}
+    const body=await response.json();
+    assert.equal(response.status,200);
+    assert.equal(body.ready_to_order.length,normalPayload.ready_to_order.length);
+    assert.equal(Boolean(body.recovery_warning),degraded && targets.some(t=>t!=="activity"));
+    assert.equal(Boolean(body.activity_warning),degraded && targets.includes("activity"));
+    assert.equal(body.abandoned[0].recovery_review.state,body.recovery_warning?"unavailable":"unresolved");
+    assert.equal(serviceCalls.filter(c=>c==="orders").length,1);
+    for(const [name,stage] of Object.entries(stages)) {
+      const expected=targets.includes(name)?reads:1;
+      assert.equal(serviceCalls.filter(c=>c===name).length,expected);
+      const attempts=logs.filter(l=>l.query===stage);
+      assert.equal(attempts.length,expected);
+      assert.deepEqual(attempts.map(l=>l.attempt),Array.from({length:expected},(_,i)=>i+1));
+      assert.ok(attempts.every(l=>l.requestId===response.headers.get("X-Queue-Request-Id") && l.elapsedMs>=0));
+      assert.equal(attempts[0].retryScheduled,expected===2);
+      assert.equal(attempts.at(-1).recovered,expected===2 && !degraded);
+      assert.equal(attempts.at(-1).retryScheduled,false);
+    }
+    for(const call of ["stripe","reconcile"])assert.equal(serviceCalls.filter(c=>c===call).length,2);
+    assert.equal(serviceCalls.filter(c=>c==="posthog").length,1);
+    assert.equal(deadlines.length,3+targets.length*(reads-1));
+    assert.equal(delays.length,targets.length*(reads-1));
+    assert.ok(delays.every(d=>d>=150 && d<=250));
+    assert.ok(deadlines.reduce((a,b)=>a+b,0)+delays.reduce((a,b)=>a+b,0)<=36750);
+    if(label==="deadline exhausted")assert.equal(abortSignals.filter(s=>s.aborted).length,targets.length*2);
+    assert.ok(!JSON.stringify(logs).includes("fixture failure"));
+    console.log(`PASS auxiliary ${targets.join("+")} ${label}`);
+  }
 }
 
 // Deterministic concurrency, coalescing, backoff and unmount/remount checks.

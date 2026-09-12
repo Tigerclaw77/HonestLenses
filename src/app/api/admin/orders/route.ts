@@ -379,8 +379,8 @@ export async function GET(req: Request) {
     }
     const data = primary.result.data;
 
-    const review = await readQueueQuery("recovery_count", requestId, () =>
-      supabaseServer.from("recovery_touch_drafts").select("id", { count: "exact", head: true }).eq("state", "needs_review"));
+    const review = await readQueueQuery("recovery_count", requestId, (signal) =>
+      supabaseServer.from("recovery_touch_drafts").select("id", { count: "exact", head: true }).eq("state", "needs_review").abortSignal(signal));
     let recoveryAvailable = review.ok;
     const reviewCount = review.ok ? review.result.count : null;
     const operationsWarning = reviewCount ? `${reviewCount} recovery deliveries require provider review; automatic retries stopped.` : null;
@@ -391,10 +391,10 @@ export async function GET(req: Request) {
         rx: normalizeRx(o.rx ?? null),
       }));
 
-    const events = await readQueueQuery("order_activity", requestId, () => supabaseServer
+    const events = await readQueueQuery("order_activity", requestId, (signal) => supabaseServer
       .from("order_events")
       .select("order_id, event_type, created_at")
-      .order("created_at", { ascending: false }));
+      .order("created_at", { ascending: false }).abortSignal(signal));
     const eventData = events.ok ? events.result.data : null;
 
     const latestEventByOrder = new Map<string, OrderEventRow>();
@@ -453,10 +453,10 @@ export async function GET(req: Request) {
 
     const recoveryRowsByOrder = new Map<string, ManualRecoveryLedgerRow[]>();
     if (abandonedBase.length > 0) {
-      const recovery = await readQueueQuery("manual_recovery_review", requestId, () => supabaseServer
+      const recovery = await readQueueQuery("manual_recovery_review", requestId, (signal) => supabaseServer
         .from("recovery_touch_drafts")
         .select("order_id,state,sent_at,ignored_at")
-        .in("order_id", abandonedBase.map((order) => order.id)));
+        .in("order_id", abandonedBase.map((order) => order.id)).abortSignal(signal));
       if (!recovery.ok) recoveryAvailable = false;
       const recoveryRows = recovery.ok ? recovery.result.data : null;
       for (const row of recoveryRows ?? []) {

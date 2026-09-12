@@ -1,7 +1,15 @@
 type QueryResult = { error: unknown; status?: number; statusText?: string };
 
-/** Only the primary read may retry; the caller invokes downstream work once. */
+/** Retry only the supplied read; the caller invokes downstream work once. */
 export async function readPrimaryOrders<T extends QueryResult>(
+  requestId: string,
+  read: () => PromiseLike<T>,
+): Promise<{ ok: true; result: T } | { ok: false }> {
+  return readWithRetry("orders", requestId, read);
+}
+
+async function readWithRetry<T extends QueryResult>(
+  query: "orders" | "recovery_count" | "order_activity" | "manual_recovery_review",
   requestId: string,
   read: () => PromiseLike<T>,
 ): Promise<{ ok: true; result: T } | { ok: false }> {
@@ -31,11 +39,11 @@ export async function readPrimaryOrders<T extends QueryResult>(
     const retryScheduled = !ok && attempt === 1 && transient;
     const category = ok ? "success" : !transient ? "non_retryable" : transientStatus && status === 504 ? "gateway_timeout"
       : transientCode || transportMessage ? "transient_transport" : transientStatus ? "upstream_unavailable" : "non_retryable";
-    const log = ok ? console.info : retryScheduled ? console.warn : console.error;
+    const log = ok ? console.info : retryScheduled || query !== "orders" ? console.warn : console.error;
     // postgrest-js does not expose response headers on its result. Do not log
     // request headers or raw error details in an attempt to obtain correlation IDs.
-    log("Admin queue primary read", {
-      query: "orders", requestId, attempt, elapsedMs: Date.now() - started,
+    log(query === "orders" ? "Admin queue primary read" : "Admin queue auxiliary read", {
+      query, requestId, attempt, elapsedMs: Date.now() - started,
       status, code, category, retryScheduled, recovered: ok && attempt === 2,
     });
     if (ok && result) return { ok: true, result };
@@ -45,35 +53,25 @@ export async function readPrimaryOrders<T extends QueryResult>(
   return { ok: false };
 }
 
-/** Log query context, never query text, row data, tokens, or raw error details. */
+/** Each auxiliary attempt has its own deadline and retry budget. */
 export async function readQueueQuery<T extends QueryResult>(
-  query: string,
+  query: "recovery_count" | "order_activity" | "manual_recovery_review",
   requestId: string,
-  read: () => PromiseLike<T>,
+  read: (signal: AbortSignal) => PromiseLike<T>,
 ): Promise<{ ok: true; result: T } | { ok: false }> {
-  const started = Date.now();
-  let error: unknown;
-  let status: number | undefined;
-  try {
-    const result = await read();
-    if (!result.error) return { ok: true, result };
-    error = result.error;
-    status = result.status;
-  } catch (caught) {
-    error = caught;
-  }
-  const upstream = error as { code?: unknown; message?: unknown; name?: unknown } | null;
-  const message = typeof upstream?.message === "string" ? upstream.message : "";
-  const category = /gateway.*timeout/i.test(message) ? "gateway_timeout"
-    : /timeout|timed out|abort/i.test(message) ? "timeout"
-    : /fetch|network|connect/i.test(message) ? "network"
-    : "upstream_error";
-  const log = query === "orders" ? console.error : console.warn;
-  log("Admin queue query unavailable", {
-    query, requestId, elapsedMs: Date.now() - started, status: status ?? null,
-    code: typeof upstream?.code === "string" && /^[A-Z0-9_]{1,40}$/i.test(upstream.code)
-      ? upstream.code : null,
-    category,
+  return readWithRetry(query, requestId, async () => {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(Object.assign(new Error("Auxiliary read timed out"), { code: "ETIMEDOUT" }));
+        controller.abort();
+      }, 6_000);
+    });
+    try {
+      return await Promise.race([Promise.resolve(read(controller.signal)), deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
   });
-  return { ok: false };
 }
