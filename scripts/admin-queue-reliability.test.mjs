@@ -1,22 +1,91 @@
 // Isolated real-route/component regression. No env files or live service calls.
 import assert from "node:assert/strict";
 import { build } from "esbuild";
-import { mkdir, readFile } from "node:fs/promises";
+import { existsSync, statSync } from "node:fs";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
+import { createRequire, isBuiltin } from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 
-const out = path.resolve("output/admin-queue-reliability-tests");
-await mkdir(out, { recursive: true });
-await build({entryPoints:["src/lib/admin/queueRefresh.ts"],outfile:path.join(out,"refresh.mjs"),bundle:true,platform:"node",format:"esm"});
-const { createQueueRefresh } = await import(pathToFileURL(path.join(out,"refresh.mjs")));
-function mockPlugin(mocks) {
-  return {name: "isolated-services", setup(b) {
-    b.onResolve({filter: /.*/}, a => mocks[a.path] ? {path:a.path,namespace:"mock"} : undefined);
-    b.onLoad({filter: /.*/,namespace:"mock"}, a => ({contents:mocks[a.path],loader:"jsx",resolveDir:process.cwd()}));
-  }};
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const sourceRoot = path.join(projectRoot, "src");
+const testOutputDir = path.join(projectRoot, "output/admin-queue-reliability-tests");
+const require = createRequire(import.meta.url);
+const moduleExtensions = ["", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".css"];
+
+function resolveModulePath(basePath) {
+  for (const extension of moduleExtensions) {
+    const candidate = `${basePath}${extension}`;
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  }
+
+  for (const extension of moduleExtensions.slice(1)) {
+    const candidate = path.join(basePath, `index${extension}`);
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  }
+
+  return null;
 }
+
+function isolatedResolverPlugin(mocks = {}) {
+  return {
+    name: "isolated-services",
+    setup(buildContext) {
+      buildContext.onResolve({ filter: /.*/ }, (args) => {
+        if (Object.hasOwn(mocks, args.path)) {
+          return { path: args.path, namespace: "mock" };
+        }
+
+        if (args.path.startsWith("@/")) {
+          const resolved = resolveModulePath(path.join(sourceRoot, args.path.slice(2)));
+          return resolved ? { path: resolved } : undefined;
+        }
+
+        if (args.path.startsWith("./") || args.path.startsWith("../")) {
+          const importerDirectory = args.importer
+            ? path.dirname(args.importer)
+            : args.resolveDir;
+          const resolved = resolveModulePath(path.resolve(importerDirectory, args.path));
+          return resolved ? { path: resolved } : undefined;
+        }
+
+        if (isBuiltin(args.path)) {
+          return { path: args.path, external: true };
+        }
+
+        try {
+          return { path: require.resolve(args.path) };
+        } catch {
+          return undefined;
+        }
+      });
+
+      buildContext.onLoad({ filter: /.*/, namespace: "mock" }, (args) => ({
+        contents: mocks[args.path],
+        loader: "jsx",
+        resolveDir: projectRoot,
+      }));
+    },
+  };
+}
+
+async function main() {
+await rm(testOutputDir, { recursive: true, force: true });
+const out = testOutputDir;
+await mkdir(out, { recursive: true });
+const queueRefreshPath = path.join(sourceRoot, "lib/admin/queueRefresh.ts");
+await build({
+  stdin: {
+    contents: await readFile(queueRefreshPath, "utf8"),
+    loader: "ts",
+    sourcefile: queueRefreshPath,
+    resolveDir: path.dirname(queueRefreshPath),
+  },
+  outfile:path.join(out,"refresh.mjs"),bundle:true,platform:"node",format:"esm",
+  plugins:[isolatedResolverPlugin()],
+});
+const { createQueueRefresh } = await import(pathToFileURL(path.join(out,"refresh.mjs")));
 const order = {
   id:"00000000-0000-4000-8000-000000000001", status:"draft", fulfillment_status:"review",
   verification_status:"unverified", sku:"VITA_12", shipping_email:"fixture@example.test",
@@ -56,9 +125,10 @@ globalThis.__queueTestDb = {from(table) {
 }};
 globalThis.__queueTestStripe = id => { serviceCalls.push("stripe"); return {id,status:id==="pi_active"?"requires_capture":"requires_payment_method",amount:20998,amount_received:0,created:1789160000}; };
 globalThis.__queueTestReconcile = ({order}) => { serviceCalls.push("reconcile"); return {status:order.status,changed:false,eventLogged:true}; };
-await build({entryPoints:["src/app/api/admin/orders/route.ts"],outfile:path.join(out,"route.mjs"),bundle:true,platform:"node",format:"esm",
+const ordersRoutePath = path.join(sourceRoot, "app/api/admin/orders/route.ts");
+await build({stdin:{contents:await readFile(ordersRoutePath,"utf8"),loader:"ts",sourcefile:ordersRoutePath,resolveDir:path.dirname(ordersRoutePath)},outfile:path.join(out,"route.mjs"),bundle:true,platform:"node",format:"esm",
   define:{"process.env.STRIPE_SECRET_KEY":'"fixture-only"'},
-  plugins:[mockPlugin({
+  plugins:[isolatedResolverPlugin({
     "next/server":"export const NextResponse={json:(body,init)=>Response.json(body,init)};",
     "@/lib/admin-auth":"export const requireAdminUser=async()=>({ok:true}); export const logAdminAuthFailure=()=>{}; export const adminAuthErrorResponse=()=>{throw Error('unexpected auth failure')};",
     "@/lib/supabase-server":"export const supabaseServer=globalThis.__queueTestDb;",
@@ -232,9 +302,9 @@ finish(); await new Promise(setImmediate); assert.equal(accepted,0); finish(); a
 console.log("PASS serialized/coalesced refresh, backoff, explicit bypass, stale lifecycle result rejection");
 
 // Browser tests render the real admin page and CSS with all IO replaced.
-await build({stdin:{contents:`import {createRoot} from 'react-dom/client'; import Page from './src/app/admin/orders/page'; import './src/styles/globals.css'; createRoot(document.getElementById('root')).render(<Page/>);`,resolveDir:process.cwd(),loader:"tsx"},
+await build({stdin:{contents:`import {createRoot} from 'react-dom/client'; import Page from '@/app/admin/orders/page'; import '@/styles/globals.css'; createRoot(document.getElementById('root')).render(<Page/>);`,resolveDir:projectRoot,loader:"tsx",sourcefile:path.join(projectRoot,"scripts/admin-queue-reliability-browser-entry.tsx")},
   outfile:path.join(out,"app.js"),bundle:true,jsx:"automatic",external:["/*.png"],define:{"process.env.NODE_ENV":'"production"'},
-  plugins:[mockPlugin({"@/lib/supabase-client":`export const supabase={auth:{getSession:async()=>({data:{session:{access_token:'fixture'}}})},channel:()=>({on(_e,_f,cb){window.queueRefresh=cb;return this;},subscribe(){return this;}}),removeChannel(){}};`})],
+  plugins:[isolatedResolverPlugin({"@/lib/supabase-client":`export const supabase={auth:{getSession:async()=>({data:{session:{access_token:'fixture'}}})},channel:()=>({on(_e,_f,cb){window.queueRefresh=cb;return this;},subscribe(){return this;}}),removeChannel(){}};`})],
 });
 const server=createServer(async(req,res)=>{
   if(req.url==="/app.js"||req.url==="/app.css") {res.setHeader("Content-Type",req.url.endsWith("css")?"text/css":"application/javascript");res.end(await readFile(path.join(out,req.url.slice(1))));}
@@ -242,9 +312,9 @@ const server=createServer(async(req,res)=>{
 });
 await new Promise(r=>server.listen(0,"127.0.0.1",r));
 const origin=`http://127.0.0.1:${server.address().port}`;
-const require=createRequire(import.meta.url);
-const {chromium}=require(process.env.PLAYWRIGHT_MODULE||"playwright");
-const browser=await chromium.launch({headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{})});
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||"playwright-core");
+const browserChannel = process.env.BROWSER_CHANNEL || (process.platform === "win32" ? "msedge" : undefined);
+const browser=await chromium.launch({headless:true,...(browserChannel?{channel:browserChannel}:{})});
 try {
   for(const width of [1440,390]) {
     const page=await browser.newPage({viewport:{width,height:950}});
@@ -304,3 +374,10 @@ try {
     await page.close(); console.log(`PASS real client ${width}px initial/refresh/network/malformed/recovered/degraded/operational-warning`);
   }
 } finally {await browser.close(); await new Promise(r=>server.close(r));}
+}
+
+try {
+  await main();
+} finally {
+  await rm(testOutputDir, { recursive: true, force: true });
+}

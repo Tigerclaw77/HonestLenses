@@ -2426,6 +2426,10 @@ export default function AdminOrdersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [adminAuthFailureHint, setAdminAuthFailureHint] = useState<
+    "no-authorization-header" | "bearer-token-no-identity" | null
+  >(null);
   const [queueWarnings, setQueueWarnings] = useState<string[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -2462,22 +2466,86 @@ export default function AdminOrdersPage() {
   const notifiedPaymentIntentOrderIds = useRef<Set<string>>(new Set());
   const optimisticallyHiddenOrderIds = useRef<Set<string>>(new Set());
   const highlightTimeouts = useRef<Map<string, number>>(new Map());
+  const isSessionExpiredRef = useRef(false);
+  const queueRefreshRef = useRef<ReturnType<typeof createQueueRefresh> | null>(
+    null,
+  );
   const baseDocumentTitle = useRef<string | null>(null);
   const isInitialLoad = useRef(true);
 
-  const authHeaders = useCallback(async (): Promise<HeadersInit> => {
+  const buildOrdersAuthHeaders = useCallback((accessToken?: string | null) => {
+    const baseHeaders: HeadersInit = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    };
+
+    return accessToken
+      ? { ...baseHeaders, Authorization: `Bearer ${accessToken}` }
+      : baseHeaders;
+  }, []);
+
+  const authHeadersForOrdersQueue = useCallback(async (): Promise<{
+    headers: HeadersInit;
+    hasAuthorizationHeader: boolean;
+  }> => {
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
     return {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...(session?.access_token
-        ? { Authorization: `Bearer ${session.access_token}` }
-        : {}),
+      headers: buildOrdersAuthHeaders(session?.access_token),
+      hasAuthorizationHeader: Boolean(session?.access_token),
     };
-  }, []);
+  }, [buildOrdersAuthHeaders]);
+
+  const authHeaders = useCallback(async (): Promise<HeadersInit> => {
+    return (await authHeadersForOrdersQueue()).headers;
+  }, [authHeadersForOrdersQueue]);
+
+  const markOrdersAuthExpired = useCallback(
+    (
+      hint:
+        | "no-authorization-header"
+        | "bearer-token-no-identity"
+        | null = null,
+    ) => {
+      if (isSessionExpiredRef.current) return;
+      isSessionExpiredRef.current = true;
+      setSessionExpired(true);
+      setAdminAuthFailureHint(hint);
+      setLoadError(
+        "Admin session expired — sign in again. Previous queue state may be stale.",
+      );
+      queueRefreshRef.current?.deactivate();
+    },
+    [],
+  );
+
+  const refreshAdminSessionForQueue = useCallback(async () => {
+    const {
+      data: { session: existingSession },
+    } = await supabase.auth.getSession();
+    if (!existingSession) return null;
+
+    const { data: refreshedSessionData, error } =
+      await supabase.auth.refreshSession();
+    if (error || !refreshedSessionData.session?.access_token) {
+      return null;
+    }
+
+    return buildOrdersAuthHeaders(refreshedSessionData.session.access_token);
+  }, [buildOrdersAuthHeaders]);
+
+  const requestOrders = useCallback(
+    async (headers: HeadersInit): Promise<Response> => {
+      return fetch("/api/admin/orders", {
+        headers,
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+    },
+    [],
+  );
 
   const clearOrderHighlight = useCallback((orderId: string) => {
     const timeoutId = highlightTimeouts.current.get(orderId);
@@ -2515,25 +2583,62 @@ export default function AdminOrdersPage() {
 
   const fetchOnce = useCallback(async (isCurrent: () => boolean): Promise<boolean> => {
     let responseReceived = false;
+    let latestResponse: Response;
+    let payload: AdminApiPayload = {};
     try {
-      const res = await fetch("/api/admin/orders", {
-        headers: await authHeaders(),
-        credentials: "same-origin",
-        cache: "no-store",
-      });
+      const { headers, hasAuthorizationHeader } =
+        await authHeadersForOrdersQueue();
+      latestResponse = await requestOrders(headers);
       responseReceived = true;
-      const json = await readAdminApiPayload(res);
+      payload = await readAdminApiPayload(latestResponse);
+
       if (!isCurrent()) return false;
 
-      if (!res.ok) {
-        const message = adminApiErrorMessage(json, "Failed to fetch orders.");
+      if (
+        latestResponse.status === 401 &&
+        payload.code === "AUTH_REQUIRED" &&
+        !isSessionExpiredRef.current
+      ) {
+        const hint = hasAuthorizationHeader
+          ? "bearer-token-no-identity"
+          : "no-authorization-header";
+        const refreshedHeaders = await refreshAdminSessionForQueue();
+
+        if (!refreshedHeaders) {
+          markOrdersAuthExpired(hint);
+          return false;
+        }
+
+        latestResponse = await requestOrders(refreshedHeaders);
+        responseReceived = true;
+        payload = await readAdminApiPayload(latestResponse);
+
+        if (!isCurrent()) return false;
+
+        if (
+          latestResponse.status === 401 &&
+          payload.code === "AUTH_REQUIRED"
+        ) {
+          markOrdersAuthExpired(hint);
+          return false;
+        }
+      }
+
+      if (!latestResponse.ok) {
+        const message = adminApiErrorMessage(
+          payload,
+          "Failed to fetch orders.",
+        );
         setLoadError(message);
         return false;
       }
-      if (!isQueuePayload(json)) {
+
+      if (!isQueuePayload(payload)) {
         setLoadError("The server returned an invalid order-list response.");
         return false;
       }
+
+      const json = payload;
 
       const activeOrders: Order[] = [
         ...(json.awaiting_verification ?? []),
@@ -2607,8 +2712,23 @@ export default function AdminOrdersPage() {
     } finally {
       if (isCurrent()) setIsLoading(false);
     }
-  }, [authHeaders, markHighlightedPaymentOrders]);
+  }, [
+    authHeadersForOrdersQueue,
+    markHighlightedPaymentOrders,
+    markOrdersAuthExpired,
+    refreshAdminSessionForQueue,
+    requestOrders,
+  ]);
   const refresh = useMemo(() => createQueueRefresh(fetchOnce), [fetchOnce]);
+  useEffect(() => {
+    queueRefreshRef.current = refresh;
+
+    return () => {
+      if (queueRefreshRef.current === refresh) {
+        queueRefreshRef.current = null;
+      }
+    };
+  }, [refresh]);
   const fetchData = useCallback(() => refresh.request(true), [refresh]);
 
   useEffect(() => {
@@ -3536,10 +3656,38 @@ export default function AdminOrdersPage() {
       )}
 
       {loadError && (
-        <div role="alert" style={{ padding: 12, marginBottom: 12, border: "1px solid #f87171", borderRadius: 8, color: "#fecaca" }}>
-          <strong>{hasLoaded ? "Order refresh failed. Displayed orders may be stale." : "Unable to load orders. Queue contents are unavailable."}</strong>
+        <div
+          role="alert"
+          style={{
+            padding: 12,
+            marginBottom: 12,
+            border: "1px solid #f87171",
+            borderRadius: 8,
+            color: "#fecaca",
+          }}
+        >
+          <strong>
+            {hasLoaded
+              ? "Order refresh failed. Displayed orders may be stale."
+              : "Unable to load orders. Queue contents are unavailable."}
+          </strong>
           <p>{loadError}</p>
-          <button type="button" onClick={() => void fetchData()} style={buttonStyle()}>Retry order refresh</button>
+          {sessionExpired ? (
+            <>
+              <p style={{ marginBottom: 8 }}>
+                {adminAuthFailureHint === "no-authorization-header"
+                  ? "No Authorization header was sent with the request."
+                  : "The provided bearer token did not map to a valid identity."}
+              </p>
+              <a href="/login?next=/admin/orders" style={buttonStyle()}>
+                Sign in again
+              </a>
+            </>
+          ) : (
+            <button type="button" onClick={() => void fetchData()} style={buttonStyle()}>
+              Retry order refresh
+            </button>
+          )}
         </div>
       )}
       {queueWarnings.map(warning => (

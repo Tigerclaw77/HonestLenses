@@ -43,6 +43,19 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
 
+function getAuthorizationHeaderDiagnostic(
+  request: Request,
+): "missing" | "nonBearer" | "emptyBearer" | "bearer" {
+  const rawAuthorization = request.headers.get("authorization");
+  if (!rawAuthorization) return "missing";
+
+  const trimmed = rawAuthorization.trim();
+  if (!trimmed.toLowerCase().startsWith("bearer ")) return "nonBearer";
+  const token = trimmed.slice(7).trim();
+  if (!token) return "emptyBearer";
+  return "bearer";
+}
+
 /* =========================
    Types (minimal, strict)
 ========================= */
@@ -356,7 +369,9 @@ async function mapWithConcurrency<T, R>(
 export async function GET(req: Request) {
   const auth = await requireAdminUser(req);
   if (!auth.ok) {
-    logAdminAuthFailure("GET /api/admin/orders", auth);
+    logAdminAuthFailure("GET /api/admin/orders", auth, {
+      authorizationHeader: getAuthorizationHeaderDiagnostic(req),
+    });
     return adminAuthErrorResponse(auth);
   }
 

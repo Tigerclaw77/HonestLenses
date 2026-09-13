@@ -4,6 +4,14 @@ import {
   type AdminAuthFailure,
 } from "@/lib/auth/authorization";
 
+type AdminAuthFailureDiagnostic = {
+  authorizationHeader?:
+    | "missing"
+    | "nonBearer"
+    | "emptyBearer"
+    | "bearer";
+};
+
 export type {
   AdminAuthFailure,
   AdminAuthResult,
@@ -15,11 +23,13 @@ export const requireAdminUser = requireAdmin;
 export function logAdminAuthFailure(
   route: string,
   result: AdminAuthFailure,
+  diagnostic?: AdminAuthFailureDiagnostic,
 ): void {
   console.warn("[admin auth] authorization denied", {
     route,
     status: result.status,
     code: result.code,
+    authHeader: diagnostic?.authorizationHeader,
   });
 }
 export function adminAuthErrorResponse(result: AdminAuthFailure) {
