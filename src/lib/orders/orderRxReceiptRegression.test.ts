@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import type Stripe from "stripe";
 import { lenses } from "@/LensCore";
 import { resolveBrand } from "@/lib/resolveBrand";
-import { evaluateUploadedRxAutomation, runUploadedRxAutomation } from "./uploadedRxAutomation";
+import {
+  evaluateUploadedRxAutomation,
+  runUploadedRxAutomation,
+  uploadedRxFinalizationOutcome,
+} from "./uploadedRxAutomation";
 import { hasUnresolvedProductMismatch } from "./productSelection";
 import { getAuthoritativeOrderQuote } from "./orderPricing";
 import { assessAdminFulfillmentTransition } from "./adminWorkflow";
@@ -87,6 +91,92 @@ async function main() {
   assert.deepEqual(steps, ["subtotal:18598", "email:customer@example.test", "capture:19998", "snapshot"]);
   await captureAuthorizedOrderPayment({ id: order.id }, "uploaded-rx-automation", dependencies);
   assert.equal(steps.filter(s => s.startsWith("capture:")).length, 1, "Replay never captures twice");
+
+  let concurrentOrder = { ...order, status: "draft", verification_status: "pending",
+    updated_at: "2026-09-05T22:53:24.000Z" };
+  let concurrentCaptureCalls = 0;
+  let concurrentPersistCalls = 0;
+  const concurrentStripe = { paymentIntents: {
+    retrieve: async () => {
+      // Model payment_intent.amount_capturable_updated finalization racing
+      // after the browser capture owner has loaded its first snapshot.
+      concurrentOrder = { ...concurrentOrder, status: "authorized",
+        verification_status: "pending", rx_status: "uploaded_customer_confirmed",
+        updated_at: "2026-09-05T22:53:25.000Z" };
+      return { id: order.payment_intent_id, status: "requires_capture",
+        capture_method: "manual", currency: "usd", metadata: { order_id: order.id },
+        amount: 19998, amount_capturable: 19998, amount_received: 0,
+        receipt_email: "customer@example.test" };
+    },
+    update: async () => { throw new Error("receipt email was already current"); },
+    capture: async () => {
+      concurrentCaptureCalls += 1;
+      return { id: order.payment_intent_id, status: "succeeded" };
+    },
+  } };
+  const concurrentResult = await captureAuthorizedOrderPayment(
+    { id: order.id },
+    "uploaded-rx-automation",
+    {
+      stripe: concurrentStripe as never,
+      loadOrder: async () => ({ ...concurrentOrder }),
+      persistSubtotal: async (snapshot, subtotal) => {
+        concurrentPersistCalls += 1;
+        if (snapshot.updated_at !== concurrentOrder.updated_at) {
+          throw Object.assign(
+            new Error("Order changed while final receipt facts were being persisted"),
+            { code: "capture_order_concurrent_update" },
+          );
+        }
+        concurrentOrder = { ...concurrentOrder, subtotal_cents: subtotal,
+          updated_at: "2026-09-05T22:53:26.000Z" };
+      },
+      createReceiptSnapshot: async () => true,
+    },
+  );
+  const concurrentOutcome = uploadedRxFinalizationOutcome(
+    evaluateUploadedRxAutomation(concurrentOrder, "requires_capture", now),
+    concurrentResult,
+  );
+  assert.equal(concurrentPersistCalls, 2, "a benign concurrent authorization write is reloaded and retried once");
+  assert.equal(concurrentCaptureCalls, 1, "concurrent webhook/browser finalization captures exactly once");
+  assert.equal(concurrentOutcome.state, "auto_verified");
+  assert.equal(concurrentOrder.verification_status, "pending", "capture-disabled reconciliation never downgraded verification");
+  assert.equal(concurrentOrder.rx_status, "uploaded_customer_confirmed", "capture-disabled reconciliation preserved confirmed OCR evidence");
+
+  let freshnessLoads = 0;
+  let staleEvidenceCaptureCalls = 0;
+  const staleEvidenceStripe = { paymentIntents: {
+    retrieve: async () => ({ id: order.payment_intent_id, status: "requires_capture",
+      capture_method: "manual", currency: "usd", metadata: { order_id: order.id },
+      amount: 19998, amount_capturable: 19998, amount_received: 0,
+      receipt_email: "customer@example.test" }),
+    update: async () => { throw new Error("receipt email was already current"); },
+    capture: async () => { staleEvidenceCaptureCalls += 1; return {}; },
+  } };
+  await assert.rejects(
+    captureAuthorizedOrderPayment(
+      { id: order.id },
+      "uploaded-rx-automation",
+      {
+        stripe: staleEvidenceStripe as never,
+        loadOrder: async () => {
+          freshnessLoads += 1;
+          return freshnessLoads === 1
+            ? order
+            : { ...order, rx_ocr_raw: { ...order.rx_ocr_raw,
+                left: { ...ocrEye, sphere: -9 } } };
+        },
+        persistSubtotal: async () => {},
+        createReceiptSnapshot: async () => true,
+      },
+    ),
+    /no longer passes automatic verification/,
+    "changed safety-critical evidence fails the final pre-capture re-evaluation",
+  );
+  assert.equal(freshnessLoads, 2, "the capture owner reloads evidence immediately before capture");
+  assert.equal(staleEvidenceCaptureCalls, 0, "stale prescription evidence can never reach Stripe capture");
+
   captured = false;
   steps.length = 0;
   await assert.rejects(captureAuthorizedOrderPayment({ id: order.id }, "admin-operator", {

@@ -3,6 +3,7 @@ import { resolveBrand } from "@/lib/resolveBrand";
 import { hasUnresolvedProductMismatch } from "./productSelection";
 
 export const UPLOADED_RX_AUTO_VERIFY_MIN_CONFIDENCE = 0.95;
+export const UPLOADED_RX_CAPTURE_FAILURE_CODE = "uploaded_rx_capture_failed";
 
 export type UploadedRxExceptionReason =
   | "missing_upload_evidence"
@@ -26,6 +27,7 @@ export type UploadedRxExceptionReason =
   | "automation_state_update_failed";
 
 export type UploadedRxAutomationOrder = {
+  id?: unknown;
   sku?: unknown;
   rx_ocr_meta?: unknown;
   rx_upload_path?: unknown;
@@ -47,7 +49,25 @@ export type UploadedRxAutomationDecision =
       autoVerify: false;
       reason: UploadedRxExceptionReason;
       detail: string;
+      errorCode?: string;
       evidence: UploadedRxAutomationEvidence;
+    };
+
+export type UploadedRxFinalizationOutcome =
+  | {
+      state: "auto_verified";
+      writeVerificationOutcome: true;
+      recordAutomationEvent: true;
+    }
+  | {
+      state: "eligible_pending_capture";
+      writeVerificationOutcome: false;
+      recordAutomationEvent: false;
+    }
+  | {
+      state: "review";
+      writeVerificationOutcome: true;
+      recordAutomationEvent: true;
     };
 
 export type UploadedRxAutomationEvidence = {
@@ -63,6 +83,53 @@ export type UploadedRxCaptureResult = {
   paymentIntentId: string;
   alreadyCaptured: boolean;
 };
+
+export function uploadedRxFinalizationOutcome(
+  decision: UploadedRxAutomationDecision,
+  capture: UploadedRxCaptureResult | null,
+): UploadedRxFinalizationOutcome {
+  if (!decision.autoVerify) {
+    return {
+      state: "review",
+      writeVerificationOutcome: true,
+      recordAutomationEvent: true,
+    };
+  }
+  if (!capture) {
+    return {
+      state: "eligible_pending_capture",
+      writeVerificationOutcome: false,
+      recordAutomationEvent: false,
+    };
+  }
+  return {
+    state: "auto_verified",
+    writeVerificationOutcome: true,
+    recordAutomationEvent: true,
+  };
+}
+
+export function isCompletedUploadedRxFinalization(
+  orderStatus: string | null,
+  verificationStatus: string | null,
+  rxStatus: string | null,
+): boolean {
+  return (
+    orderStatus === "captured" &&
+    verificationStatus === "auto_verified" &&
+    rxStatus === "auto_verified"
+  );
+}
+
+export function uploadedRxFinalizationAllowedOrderStatuses(
+  orderStatus: string,
+  nextStatus: string,
+  outcome: UploadedRxFinalizationOutcome | null,
+): string[] {
+  const statuses = new Set([orderStatus, nextStatus]);
+  if (outcome?.state === "auto_verified") statuses.add("authorized");
+  return [...statuses];
+}
 
 export type UploadedRxAutomationRun = {
   decision: UploadedRxAutomationDecision;
@@ -476,12 +543,23 @@ export async function runUploadedRxAutomation(
   try {
     return { decision, capture: await capture() };
   } catch (error) {
+    const detail =
+      error instanceof Error ? error.message : "Automated capture failed.";
+    const errorCode =
+      isRecord(error) && typeof error.code === "string" && error.code.trim()
+        ? error.code.trim()
+        : UPLOADED_RX_CAPTURE_FAILURE_CODE;
+    console.error("Uploaded-Rx automatic capture failed", {
+      orderId: text(order.id) ?? "unknown",
+      errorCode,
+      detail,
+    });
     return {
       decision: {
         autoVerify: false,
         reason: "automation_capture_failed",
-        detail:
-          error instanceof Error ? error.message : "Automated capture failed.",
+        detail,
+        errorCode,
         evidence: decision.evidence,
       },
       capture: null,

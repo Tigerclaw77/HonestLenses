@@ -3,8 +3,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   evaluateUploadedRxAutomation,
+  isCompletedUploadedRxFinalization,
   runUploadedRxAutomation,
+  uploadedRxFinalizationAllowedOrderStatuses,
+  uploadedRxFinalizationOutcome,
   uploadedRxReviewStatus,
+  UPLOADED_RX_CAPTURE_FAILURE_CODE,
   type UploadedRxAutomationOrder,
 } from "./uploadedRxAutomation";
 
@@ -12,6 +16,7 @@ const NOW = new Date("2026-08-11T12:00:00.000Z");
 
 function validOrder() {
   return {
+    id: "00000000-0000-4000-8000-000000000099",
     rx_upload_path: "rx/order/prescription.jpg",
     rx_status: "uploaded_customer_confirmed",
     patient_name: "India Guerrero",
@@ -75,6 +80,89 @@ const valid = evaluateUploadedRxAutomation(
 );
 assert.equal(valid.autoVerify, true, "clean confirmed OCR evidence auto-verifies");
 assert.equal(valid.reason, "all_checks_passed");
+
+const moistProductionShape: UploadedRxAutomationOrder = {
+  id: "3b5b0bde-e584-469a-8117-c9749c1ff584",
+  sku: "MOIST_90",
+  rx_upload_path: "rx/order/acuvue-moist.jpg",
+  rx_status: "uploaded_customer_confirmed",
+  patient_name: "Collazo Coca, Naomi",
+  prescriber_name: "Gregory Popowitz, OD",
+  prescriber_phone: "5178860222",
+  rx: {
+    expires: "2027-01-22",
+    right: { coreId: "MOIST", sphere: -3.25, base_curve: 9, diameter: 14.2 },
+    left: { coreId: "MOIST", sphere: -4, base_curve: 9, diameter: 14.2 },
+  },
+  rx_ocr_raw: {
+    right: {
+      sphere: -3.25,
+      cylinder: null,
+      axis: null,
+      add: null,
+      baseCurve: 9,
+      diameter: 14.2,
+      brand_raw: "ACUVUE 1 DAY MOIST 90 PACK",
+    },
+    left: {
+      sphere: -4,
+      cylinder: null,
+      axis: null,
+      add: null,
+      baseCurve: 9,
+      diameter: 14.2,
+      brand_raw: "ACUVUE 1 DAY MOIST 90 PACK",
+    },
+    expirationDate: "2027-01-22",
+    patient_name: "CollazoCoca, Naomi",
+    doctor_name: "Gregory Popowitz, OD",
+    prescriber_phone: "5178860222",
+    confidence: 1,
+    looks_like_contact_lens_rx: true,
+    notes:
+      "Contact lens prescription section clearly identified. No cylinder, axis, or add values present. Brand is specified for each eye. Expiration date is clearly listed.",
+  },
+};
+const moistDecision = evaluateUploadedRxAutomation(
+  moistProductionShape,
+  "requires_capture",
+  NOW,
+);
+assert.equal(moistDecision.autoVerify, true);
+assert.deepEqual(moistDecision.evidence.resolvedProducts, {
+  right: "MOIST",
+  left: "MOIST",
+});
+assert.deepEqual(
+  uploadedRxFinalizationOutcome(moistDecision, null),
+  {
+    state: "eligible_pending_capture",
+    writeVerificationOutcome: false,
+    recordAutomationEvent: false,
+  },
+  "a capture-disabled caller preserves a passing upload without a review write or exception event",
+);
+assert.equal(
+  isCompletedUploadedRxFinalization(
+    "captured",
+    "auto_verified",
+    "auto_verified",
+  ),
+  true,
+  "late or retried authorization webhooks cannot downgrade a completed upload",
+);
+assert.deepEqual(
+  uploadedRxFinalizationAllowedOrderStatuses(
+    "draft",
+    "captured",
+    uploadedRxFinalizationOutcome(moistDecision, {
+      paymentIntentId: "pi_concurrent",
+      alreadyCaptured: false,
+    }),
+  ),
+  ["draft", "captured", "authorized"],
+  "the browser final-state write accepts the webhook's benign authorized intermediate state",
+);
 
 assert.equal(
   evaluateUploadedRxAutomation(
@@ -241,12 +329,59 @@ async function runAutomationWorkflowTests() {
   validOrder(),
   "requires_capture",
   async () => {
-    throw new Error("Stripe unavailable");
+    throw Object.assign(new Error("Stripe unavailable"), {
+      code: "stripe_capture_unavailable",
+    });
   },
   NOW,
 );
   assert.equal(failedRun.decision.reason, "automation_capture_failed");
+  assert.equal(
+    failedRun.decision.errorCode,
+    "stripe_capture_unavailable",
+    "capture failures retain a stable specific error code",
+  );
+  assert.equal(
+    failedRun.decision.detail,
+    "Stripe unavailable",
+    "capture failures retain their precise diagnostic detail",
+  );
   assert.equal(failedRun.capture, null, "automation failure remains unresolved");
+
+  const genericFailedRun = await runUploadedRxAutomation(
+    validOrder(),
+    "requires_capture",
+    async () => {
+      throw new Error("Unclassified capture failure");
+    },
+    NOW,
+  );
+  assert.equal(genericFailedRun.decision.autoVerify, false);
+  if (genericFailedRun.decision.autoVerify) {
+    throw new Error("generic capture failure unexpectedly auto-verified");
+  }
+  assert.equal(
+    genericFailedRun.decision.errorCode,
+    UPLOADED_RX_CAPTURE_FAILURE_CODE,
+    "unclassified failures use the stable uploaded-Rx capture error code",
+  );
+
+  const genuineReview = evaluateUploadedRxAutomation(
+    mutate((order) => {
+      order.rx_ocr_raw.confidence = 0.9;
+    }),
+    "requires_capture",
+    NOW,
+  );
+  assert.deepEqual(
+    uploadedRxFinalizationOutcome(genuineReview, null),
+    {
+      state: "review",
+      writeVerificationOutcome: true,
+      recordAutomationEvent: true,
+    },
+    "genuine prescription failures retain the existing review outcome",
+  );
 
   const checkoutRoute = readFileSync(
   join(process.cwd(), "src", "lib", "payments", "checkoutAuthorizationFinalizer.ts"),
@@ -271,10 +406,25 @@ async function runAutomationWorkflowTests() {
   "capture failures become explicit review exceptions",
 );
   assert.match(
-  checkoutRoute,
-  /verification_uploaded_exception/,
-  "review routing retains an audit event",
-);
+    checkoutRoute,
+    /verification_uploaded_exception/,
+    "review routing retains an audit event",
+  );
+  assert.match(
+    checkoutRoute,
+    /uploadedPendingCapture[\s\S]*uploadedOutcome\?\.writeVerificationOutcome/,
+    "capture-disabled eligibility preserves verification fields",
+  );
+  assert.match(
+    checkoutRoute,
+    /uploadedOutcome\?\.recordAutomationEvent[\s\S]*verification_uploaded_exception/,
+    "capture-disabled eligibility emits no automation exception",
+  );
+  assert.match(
+    checkoutRoute,
+    /error_code:[\s\S]*uploadedAutomation\.errorCode[\s\S]*detail:[\s\S]*uploadedAutomation\.detail/,
+    "capture failure audit evidence retains stable code and precise detail",
+  );
 
   const rxRoute = readFileSync(
     join(process.cwd(), "src", "app", "api", "orders", "[id]", "rx", "route.ts"),

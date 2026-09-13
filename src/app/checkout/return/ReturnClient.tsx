@@ -11,7 +11,7 @@ type ReturnResponse = {
   error?: string;
   orderId?: string;
   next?: "success" | "verification-details";
-  mode?: "uploaded_auto_verified" | "uploaded_review" | "passive" | "information_needed";
+  mode?: "uploaded_auto_verified" | "uploaded_pending_capture" | "uploaded_review" | "passive" | "information_needed";
 };
 
 const PAYMENT_INTENT_PATTERN = /^pi_[A-Za-z0-9]+$/;

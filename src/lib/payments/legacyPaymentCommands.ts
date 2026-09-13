@@ -34,6 +34,19 @@ type CaptureDependencies = {
   createReceiptSnapshot?: typeof ensureReceiptSnapshotWithoutAffectingPayment;
 };
 
+const CAPTURE_CONCURRENT_UPDATE_CODE = "capture_order_concurrent_update";
+const UPLOADED_RX_NO_LONGER_ELIGIBLE_CODE =
+  "uploaded_rx_no_longer_eligible";
+
+function captureCommandError(code: string, message: string): Error {
+  return Object.assign(new Error(message), { code });
+}
+
+function captureCommandErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object" || !("code" in error)) return null;
+  return typeof error.code === "string" ? error.code : null;
+}
+
 function normalizedReceiptEmail(value?: string | null): string {
   const email = value?.trim().toLowerCase() ?? "";
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -71,13 +84,18 @@ export async function captureAuthorizedOrderPayment(
   dependencies: CaptureDependencies = {},
 ): Promise<{ paymentIntentId: string; alreadyCaptured: boolean }> {
   const stripeCommands = dependencies.stripe ?? stripe;
-  // Every caller uses the same current server facts, including checkout email.
-  // This prevents partial projections from omitting safety or receipt fields.
-  order = await (dependencies.loadOrder ?? (async (id) => {
-    const { data, error } = await supabaseServer.from("orders").select("*").eq("id", id).single();
+  const loadOrder = dependencies.loadOrder ?? (async (id: string) => {
+    const { data, error } = await supabaseServer
+      .from("orders")
+      .select("*")
+      .eq("id", id)
+      .single();
     if (error || !data) throw new Error("Capture order facts unavailable");
     return data as PaymentCommandOrder;
-  }))(order.id);
+  });
+  // Every caller uses the same current server facts, including checkout email.
+  // This prevents partial projections from omitting safety or receipt fields.
+  order = await loadOrder(order.id);
   const paymentIntent = getRequiredPaymentIntentId(order);
   if (!paymentIntent.ok) throw new Error(paymentIntent.error);
 
@@ -113,20 +131,92 @@ export async function captureAuthorizedOrderPayment(
   }
 
   if (reason === "uploaded-rx-automation" && !evaluateUploadedRxAutomation(order, intent.status).autoVerify) {
-    throw new Error("Current uploaded prescription no longer passes automatic verification");
+    throw captureCommandError(
+      UPLOADED_RX_NO_LONGER_ELIGIBLE_CODE,
+      "Current uploaded prescription no longer passes automatic verification",
+    );
   }
 
-  const amountToCapture = getCaptureAmountCents(order);
-  if (amountToCapture > intent.amount_capturable) throw new Error("Capture amount exceeds Stripe authorization");
-  const subtotal = receiptMerchandiseSubtotal(order);
-  await (dependencies.persistSubtotal ?? (async (current, value) => {
+  let subtotal = receiptMerchandiseSubtotal(order);
+  const persistSubtotal = dependencies.persistSubtotal ?? (async (current, value) => {
     let query = supabaseServer.from("orders").update({ subtotal_cents: value, status: "authorized" })
       .eq("id", current.id).eq("payment_intent_id", paymentIntent.paymentIntentId)
       .eq("total_amount_cents", current.total_amount_cents!);
     if (current.updated_at) query = query.eq("updated_at", current.updated_at);
     const { data, error } = await query.select("id");
-    if (error || !data?.length) throw new Error("Unable to persist final receipt facts before capture");
-  }))(order, subtotal);
+    if (error) throw new Error("Unable to persist final receipt facts before capture");
+    if (!data?.length) {
+      throw captureCommandError(
+        CAPTURE_CONCURRENT_UPDATE_CODE,
+        "Order changed while final receipt facts were being persisted",
+      );
+    }
+  });
+  try {
+    await persistSubtotal(order, subtotal);
+  } catch (error) {
+    if (captureCommandErrorCode(error) !== CAPTURE_CONCURRENT_UPDATE_CODE) {
+      throw error;
+    }
+    order = await loadOrder(order.id);
+    if (
+      hasUnresolvedProductMismatch(order) ||
+      (reason === "uploaded-rx-automation" &&
+        !evaluateUploadedRxAutomation(order, intent.status).autoVerify)
+    ) {
+      throw captureCommandError(
+        UPLOADED_RX_NO_LONGER_ELIGIBLE_CODE,
+        "Current uploaded prescription no longer passes automatic verification",
+      );
+    }
+    const refreshedPaymentIntent = getRequiredPaymentIntentId(order);
+    if (
+      !refreshedPaymentIntent.ok ||
+      refreshedPaymentIntent.paymentIntentId !== paymentIntent.paymentIntentId
+    ) {
+      throw captureCommandError(
+        CAPTURE_CONCURRENT_UPDATE_CODE,
+        "Order payment facts changed before capture",
+      );
+    }
+    subtotal = receiptMerchandiseSubtotal(order);
+    await persistSubtotal(order, subtotal);
+  }
+
+  // Re-load and re-evaluate after every pre-capture write. A benign concurrent
+  // authorization reconciliation may be retried above, but changed Rx,
+  // product, or payment facts must still fail closed immediately before Stripe.
+  order = await loadOrder(order.id);
+  if (hasUnresolvedProductMismatch(order)) {
+    throw new Error("Product mismatch requires explicit resolution before capture");
+  }
+  if (
+    reason === "uploaded-rx-automation" &&
+    !evaluateUploadedRxAutomation(order, intent.status).autoVerify
+  ) {
+    throw captureCommandError(
+      UPLOADED_RX_NO_LONGER_ELIGIBLE_CODE,
+      "Current uploaded prescription no longer passes automatic verification",
+    );
+  }
+  const currentPaymentIntent = getRequiredPaymentIntentId(order);
+  if (
+    !currentPaymentIntent.ok ||
+    currentPaymentIntent.paymentIntentId !== paymentIntent.paymentIntentId
+  ) {
+    throw captureCommandError(
+      CAPTURE_CONCURRENT_UPDATE_CODE,
+      "Order payment facts changed before capture",
+    );
+  }
+  if (receiptMerchandiseSubtotal(order) !== subtotal) {
+    throw captureCommandError(
+      CAPTURE_CONCURRENT_UPDATE_CODE,
+      "Order total changed while final receipt facts were being persisted",
+    );
+  }
+  const amountToCapture = getCaptureAmountCents(order);
+  if (amountToCapture > intent.amount_capturable) throw new Error("Capture amount exceeds Stripe authorization");
   const receiptEmail = normalizedReceiptEmail(order.shipping_email);
   if (intent.receipt_email?.trim().toLowerCase() !== receiptEmail) {
     await stripeCommands.paymentIntents.update(

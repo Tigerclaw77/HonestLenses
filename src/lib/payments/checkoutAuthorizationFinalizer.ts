@@ -13,7 +13,10 @@ import {
 } from "@/lib/orders/verificationReadiness";
 import {
   evaluateUploadedRxAutomation,
+  isCompletedUploadedRxFinalization,
   runUploadedRxAutomation,
+  uploadedRxFinalizationAllowedOrderStatuses,
+  uploadedRxFinalizationOutcome,
   uploadedRxReviewStatus,
   type UploadedRxAutomationDecision,
 } from "@/lib/orders/uploadedRxAutomation";
@@ -43,6 +46,7 @@ export type CheckoutAuthorizationResult = {
   next: "success" | "verification-details";
   mode:
     | "uploaded_auto_verified"
+    | "uploaded_pending_capture"
     | "uploaded_review"
     | "passive"
     | "information_needed";
@@ -192,10 +196,12 @@ export async function finalizeCheckoutAuthorization({
   }
 
   if (
-    orderStatus === "captured" &&
-    verificationStatus === "auto_verified" &&
-    getString(orderRaw, "rx_status") === "auto_verified" &&
-    intent.status === "succeeded"
+    isCompletedUploadedRxFinalization(
+      orderStatus,
+      verificationStatus,
+      getString(orderRaw, "rx_status"),
+    ) &&
+    (intent.status === "succeeded" || !allowAutomaticCapture)
   ) {
     return {
       ok: true,
@@ -255,6 +261,11 @@ export async function finalizeCheckoutAuthorization({
   const uploadedAutoVerified = Boolean(
     uploadedAutomation?.autoVerify && uploadedCapture,
   );
+  const uploadedOutcome = uploadedAutomation
+    ? uploadedRxFinalizationOutcome(uploadedAutomation, uploadedCapture)
+    : null;
+  const uploadedPendingCapture =
+    uploadedOutcome?.state === "eligible_pending_capture";
   const uploadedReviewReason =
     uploadedAutomation && !uploadedAutomation.autoVerify
       ? uploadedAutomation.reason
@@ -262,24 +273,32 @@ export async function finalizeCheckoutAuthorization({
   const uploadedNeedsCustomerInformation =
     isUploaded &&
     !uploadedAutoVerified &&
+    !uploadedPendingCapture &&
     needsCustomerPrescriptionInformation(uploadedReviewReason);
   const uploadedNeedsFounderReview =
-    isUploaded && !uploadedAutoVerified && !uploadedNeedsCustomerInformation;
+    isUploaded &&
+    !uploadedAutoVerified &&
+    !uploadedPendingCapture &&
+    !uploadedNeedsCustomerInformation;
   const canEnterPendingVerification =
     getVerificationReadiness(orderRaw).canEnterPendingVerification;
   const nextVerificationStatus = isUploaded
     ? uploadedAutoVerified
       ? "auto_verified"
-      : uploadedNeedsCustomerInformation
-        ? VERIFICATION_INFORMATION_NEEDED_STATUS
-        : "requires_review"
+      : uploadedPendingCapture
+        ? verificationStatus ?? "pending"
+        : uploadedNeedsCustomerInformation
+          ? VERIFICATION_INFORMATION_NEEDED_STATUS
+          : "requires_review"
     : canEnterPendingVerification
       ? "pending"
       : VERIFICATION_INFORMATION_NEEDED_STATUS;
   const mode = isUploaded
     ? uploadedAutoVerified
       ? "uploaded_auto_verified"
-      : "uploaded_review"
+      : uploadedPendingCapture
+        ? "uploaded_pending_capture"
+        : "uploaded_review"
     : canEnterPendingVerification
       ? "passive"
       : "information_needed";
@@ -324,11 +343,15 @@ export async function finalizeCheckoutAuthorization({
     };
   }
 
-  const updatePayload: Record<string, unknown> = {
-    status: nextStatus,
-    verification_status: nextVerificationStatus,
-  };
-  if (isUploaded && uploadedAutomation) {
+  const updatePayload: Record<string, unknown> = { status: nextStatus };
+  if (!uploadedPendingCapture) {
+    updatePayload.verification_status = nextVerificationStatus;
+  }
+  if (
+    isUploaded &&
+    uploadedAutomation &&
+    uploadedOutcome?.writeVerificationOutcome
+  ) {
     updatePayload.rx_status = uploadedAutoVerified
       ? "auto_verified"
       : uploadedRxReviewStatus(
@@ -340,12 +363,19 @@ export async function finalizeCheckoutAuthorization({
       : null;
   }
 
+  // A capture-disabled authorization webhook may have advanced draft to
+  // authorized while the browser safely captured the same PaymentIntent.
+  const allowedUpdateStatuses = uploadedRxFinalizationAllowedOrderStatuses(
+    orderStatus,
+    nextStatus,
+    uploadedOutcome,
+  );
   const { data: updatedRows, error: updateError } = await supabaseServer
     .from("orders")
     .update(updatePayload)
     .eq("id", orderId)
     .eq("payment_intent_id", paymentIntentId)
-    .in("status", [...new Set([orderStatus, nextStatus])])
+    .in("status", allowedUpdateStatuses)
     .eq("archived", false)
     .is("archived_at", null)
     .select("id");
@@ -376,7 +406,11 @@ export async function finalizeCheckoutAuthorization({
     throw new Error("Order state changed during authorization reconciliation.");
   }
 
-  if (isUploaded && uploadedAutomation) {
+  if (
+    isUploaded &&
+    uploadedAutomation &&
+    uploadedOutcome?.recordAutomationEvent
+  ) {
     const { error } = await supabaseServer.from("order_events").insert({
       order_id: orderId,
       event_type: uploadedAutoVerified
@@ -389,6 +423,12 @@ export async function finalizeCheckoutAuthorization({
         status: nextStatus,
         verification_status: nextVerificationStatus,
         reason: uploadedAutomation.reason,
+        error_code:
+          !uploadedAutomation.autoVerify
+            ? uploadedAutomation.errorCode ?? null
+            : null,
+        detail:
+          !uploadedAutomation.autoVerify ? uploadedAutomation.detail : null,
         evidence: uploadedAutomation.evidence,
         stripe_status: intent.status,
         stripe_capture_already_completed: uploadedCapture?.alreadyCaptured ?? false,
