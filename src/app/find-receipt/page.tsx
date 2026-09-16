@@ -4,6 +4,14 @@ import FindReceiptForm from "./FindReceiptForm";
 export const metadata: Metadata = {
   title: "Find Your Receipt | Honest Lenses",
   description: "Request a secure link to an Honest Lenses itemized receipt.",
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: {
+      index: false,
+      follow: false,
+    },
+  },
 };
 
 export default function FindReceiptPage() {

@@ -542,12 +542,6 @@ export default async function LensPage({ params }: Props) {
             >
               Start your order
             </Link>
-            <Link
-              href={`/contacts/${slug}/parameters`}
-              className={styles.secondaryLink}
-            >
-              View parameter availability
-            </Link>
             <Link href={category.url} className={styles.secondaryLink}>
               Browse {category.name.toLowerCase()}
             </Link>

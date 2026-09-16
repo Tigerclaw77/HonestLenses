@@ -22,7 +22,7 @@ export default function AboutPage() {
         <section className="about-honest">
           <div className="about-inner">
             <div className="about-text">
-              <h2 className="upper">About Honest Lenses</h2>
+              <h1 className="upper">About Honest Lenses</h1>
 
               <p>
                 Not all contact lenses sold online come through the same
