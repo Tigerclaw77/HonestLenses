@@ -4,6 +4,16 @@ const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
   devIndicators: false,
+  async redirects() {
+    return [
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "www.honestlenses.com" }],
+        destination: "https://honestlenses.com/:path*",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {

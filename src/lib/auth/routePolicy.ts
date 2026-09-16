@@ -213,6 +213,26 @@ export const ROUTE_AUTHORIZATION_POLICY: Record<string, RoutePolicy> = {
     access: "public",
     guard: "none",
   },
+  "src/app/contacts/[slug]/[parameter]/[value]/route.ts": {
+    access: "public",
+    guard: "none",
+  },
+  "src/app/contacts/[slug]/alternatives/route.ts": {
+    access: "public",
+    guard: "none",
+  },
+  "src/app/contacts/[slug]/parameters/route.ts": {
+    access: "public",
+    guard: "none",
+  },
+  "src/app/contacts/by/[parameter]/[value]/route.ts": {
+    access: "public",
+    guard: "none",
+  },
+  "src/app/contacts/for/[condition]/route.ts": {
+    access: "public",
+    guard: "none",
+  },
   "src/app/order/[id]/receipt/route.ts": {
     access: "customer-owned",
     guard: "requireOrderAccess",

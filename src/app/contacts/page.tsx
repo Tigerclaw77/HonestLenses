@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link"
 import { commercialContactPageList } from "@/app/contacts/_commercial/commercialPages";
 import { lenses } from "@/LensCore/data/lenses"
-import { getLensSlug, SITE_URL } from "@/lib/seo/contactSeoRoutes"
+import {
+  getLensSlug,
+  isPublicCatalogLens,
+  SITE_URL,
+} from "@/lib/seo/contactSeoRoutes"
 
 export const metadata: Metadata = {
   title: "Shop Contact Lenses",
@@ -31,7 +35,7 @@ export default function ContactsPage() {
 
       <h2>All Contact Lenses</h2>
       <ul>
-        {lenses.map((lens) => (
+        {lenses.filter(isPublicCatalogLens).map((lens) => (
           <li key={lens.coreId}>
             <Link href={`/contacts/${getLensSlug(lens)}`}>
               {lens.displayName}
