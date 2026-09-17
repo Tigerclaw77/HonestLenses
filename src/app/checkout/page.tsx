@@ -3,7 +3,6 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useRef, useState, Suspense } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { loadStripe } from "@stripe/stripe-js";
 import type { StripePaymentElementOptions } from "@stripe/stripe-js";
@@ -29,11 +28,6 @@ import {
   normalizeFeedbackCreditCents,
 } from "@/lib/abandonmentFeedback";
 import styles from "./checkout.module.css";
-import {
-  OTHER_VISION_CARRIER,
-  VISION_CARRIERS,
-  type VisionCarrierValue,
-} from "@/lib/visionBenefits";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!,
@@ -57,9 +51,15 @@ const paymentElementOptions: StripePaymentElementOptions = {
     type: "accordion",
     defaultCollapsed: false,
     radios: true,
-    spacedAccordionItems: true,
+    spacedAccordionItems: false,
   },
-  paymentMethodOrder: ["card", "link", "affirm", "cashapp", "amazon_pay"],
+  paymentMethodOrder: [
+    "card",
+    "link",
+    "us_bank_account",
+    "affirm",
+    "cashapp",
+  ],
 };
 
 /* =========================
@@ -84,7 +84,6 @@ type Order = {
   rx_upload_path?: string | null;
   rx_source?: string | null;
   verification_status?: string | null;
-  vision_insurance_carrier?: VisionCarrierValue | null;
 };
 
 type CheckoutPayResponse = {
@@ -169,9 +168,6 @@ function CheckoutForm({
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [visionCarrier, setVisionCarrier] = useState<
-    VisionCarrierValue | ""
-  >(order.vision_insurance_carrier ?? "");
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -186,25 +182,6 @@ function CheckoutForm({
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      const carrierRes = await fetch(
-        `/api/orders/${order.id}/vision-carrier`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            ...(session?.access_token
-              ? { Authorization: `Bearer ${session.access_token}` }
-              : {}),
-          },
-          body: JSON.stringify({ carrier: visionCarrier || null }),
-        },
-      );
-      const carrierBody = await carrierRes.json().catch(() => ({}));
-      if (!carrierRes.ok) {
-        throw new Error(
-          carrierBody.error || "Unable to save vision plan selection.",
-        );
-      }
       const quoteRes = await fetch("/api/checkout/pay", {
         method: "POST",
         headers: {
@@ -379,77 +356,9 @@ function CheckoutForm({
 
   return (
     <form className={styles.paymentForm} onSubmit={handleSubmit}>
+      <h2 className={styles.sectionTitle}>Payment</h2>
       <div className={styles.paymentSurface}>
-        <section className={styles.benefitsSection}>
-          <h2>Have vision insurance?</h2>
-          <p>
-            You may be eligible for out-of-network reimbursement. Honest Lenses
-            provides an itemized receipt you can submit to your vision plan.
-            Reimbursement varies by plan.
-          </p>
-          <label htmlFor="vision-carrier">Vision plan (optional)</label>
-          <select
-            id="vision-carrier"
-            value={visionCarrier}
-            onChange={(event) =>
-              setVisionCarrier(event.target.value as VisionCarrierValue | "")
-            }
-          >
-            <option value="">No vision insurance / skip</option>
-            {VISION_CARRIERS.map((carrier) => (
-              <option key={carrier.value} value={carrier.value}>
-                {carrier.label}
-              </option>
-            ))}
-            <option value={OTHER_VISION_CARRIER.value}>
-              {OTHER_VISION_CARRIER.label}
-            </option>
-          </select>
-          <p className={styles.benefitsNote}>
-            This selection does not check eligibility or contact your carrier.
-            Check your insurer/member portal before ordering if you want to know
-            your remaining allowance.
-          </p>
-          <p className={styles.benefitsNote}>
-            You may enter an HSA/FSA card in the secure payment field below.
-            Approval depends on your card issuer, plan rules, and merchant
-            eligibility, so Honest Lenses cannot guarantee acceptance. If you
-            pay another way, your itemized receipt may support a reimbursement
-            request, subject to your plan.
-          </p>
-          <Link href="/vision-benefits" className={styles.benefitsLink}>
-            Vision insurance and HSA/FSA details
-          </Link>
-        </section>
         <PaymentElement options={paymentElementOptions} />
-        <div
-          aria-label="Payments powered by Stripe"
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            marginTop: 18,
-          }}
-        >
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 5,
-              minHeight: 30,
-              padding: "5px 10px",
-              border: "1px solid #d8dee9",
-              borderRadius: 6,
-              background: "#ffffff",
-              color: "#475569",
-              fontSize: 12,
-              fontWeight: 600,
-              lineHeight: 1,
-            }}
-          >
-            Powered by{" "}
-            <span style={{ color: "#635bff", fontWeight: 800 }}>Stripe</span>
-          </span>
-        </div>
       </div>
 
       {error && (
@@ -473,14 +382,9 @@ function CheckoutForm({
       </button>
 
       <p
-        style={{
-          marginTop: 16,
-          fontSize: 12,
-          color: "#94a3b8",
-          textAlign: "center",
-        }}
+        className={styles.securityNote}
       >
-        Honest Lenses does not store full card numbers.
+        Payment details are encrypted by Stripe.
       </p>
     </form>
   );
@@ -562,8 +466,6 @@ function CheckoutInner() {
           rx_upload_path: orderData.rx_upload_path ?? null,
           rx_source: orderData.rx_source ?? null,
           verification_status: orderData.verification_status ?? null,
-          vision_insurance_carrier:
-            orderData.vision_insurance_carrier ?? null,
         });
 
         setMode(isUploadedVerificationOrder(orderData) ? "uploaded" : "passive");
@@ -730,125 +632,101 @@ function CheckoutInner() {
   return (
     <main className={styles.page}>
       <section className={styles.shell}>
-        <h1 className="upper content-title">Secure Checkout</h1>
-
-        <p className={styles.intro}>
-          Contact lenses require a valid prescription before fulfillment. Your
-          card is handled through Stripe; authorization and capture follow the
-          verification status of your order.
-        </p>
+        <h1 className={`upper content-title ${styles.title}`}>Checkout</h1>
 
         <div className={styles.card}>
           <div className={styles.summary}>
-            <h2 style={{ marginBottom: 10, fontSize: 22 }}>
-              Order Summary
-            </h2>
+            <h2 className={styles.sectionTitle}>Order Summary</h2>
 
-            <div style={{ display: "grid", gap: 8 }}>
+            <div className={styles.summaryRows}>
               <div className={styles.summaryRow}>
-                <div style={{ fontWeight: 700 }}>Subtotal</div>
-                <div style={{ fontWeight: 800 }}>
-                  ${(subtotalCents / 100).toFixed(2)}
-                </div>
+                <span>Subtotal</span>
+                <strong>${(subtotalCents / 100).toFixed(2)}</strong>
               </div>
               <div className={styles.summaryRow}>
-                <div style={{ fontWeight: 700 }}>
+                <span>
                   {shippingMethod === "express"
                     ? "Express Shipping"
                     : "Standard Shipping"}
-                </div>
-                <div style={{ fontWeight: 800 }}>
+                </span>
+                <strong>
                   {shippingCents === 0
                     ? "Free"
                     : `$${(shippingCents / 100).toFixed(2)}`}
-                </div>
+                </strong>
               </div>
               {feedbackCreditCents > 0 && (
-                <div
-                  className={styles.summaryRow}
-                  style={{ color: "#5b21b6" }}
-                >
-                  <div style={{ fontWeight: 800 }}>Feedback credit</div>
-                  <div style={{ fontWeight: 900 }}>
+                <div className={`${styles.summaryRow} ${styles.creditRow}`}>
+                  <span>Feedback credit</span>
+                  <strong>
                     -${(feedbackCreditCents / 100).toFixed(2)}
-                  </div>
+                  </strong>
                 </div>
               )}
-              <div className={styles.summaryRow}>
-                <div style={{ fontWeight: 800 }}>Total</div>
-                <div style={{ fontWeight: 900 }}>
-                  ${(amountDueCents / 100).toFixed(2)}
-                </div>
+              <div className={`${styles.summaryRow} ${styles.totalRow}`}>
+                <span>Total</span>
+                <strong>${(amountDueCents / 100).toFixed(2)}</strong>
               </div>
             </div>
 
-            <p style={{ marginTop: 6, fontSize: 12, color: "#64748b" }}>
-              Secure checkout. Payment information is encrypted by Stripe.
-            </p>
-
-            <p style={{ marginTop: 8, fontSize: 13, color: "#475569" }}>
-              {mode === "uploaded"
-                ? "Your uploaded prescription has been received. If anything needs review, we will contact you before fulfillment."
-                : "Your card will be authorized now. Payment is captured after prescription verification is complete."}
-            </p>
-
-            <p style={{ marginTop: 8, fontSize: 13, color: "#475569" }}>
-              {shippingMethod === "express"
-                ? "Priority processing and expedited shipping where available. Delivery timing may vary based on manufacturer fulfillment and prescription verification."
-                : "Most orders arrive within 7-10 business days. Annual supply orders may qualify for free standard shipping."}
+            <p className={styles.authorizationNote}>
+              Your card is authorized when you order and charged after
+              prescription verification.
             </p>
           </div>
 
-          <Elements
-            key={clientSecret}
-            stripe={stripePromise}
-            options={{ clientSecret, appearance: stripeAppearance }}
-          >
-            <CheckoutForm
-              order={order}
-              clientSecret={clientSecret}
-              mode={mode}
-              onQuoteChanged={(quote) => {
-                if (
-                  !quote.clientSecret ||
-                  !quote.payment_intent_id ||
-                  typeof quote.total_amount_cents !== "number" ||
-                  typeof quote.amount_due_cents !== "number"
-                ) {
-                  return;
-                }
+          <div className={styles.paymentPanel}>
+            <Elements
+              key={clientSecret}
+              stripe={stripePromise}
+              options={{ clientSecret, appearance: stripeAppearance }}
+            >
+              <CheckoutForm
+                order={order}
+                clientSecret={clientSecret}
+                mode={mode}
+                onQuoteChanged={(quote) => {
+                  if (
+                    !quote.clientSecret ||
+                    !quote.payment_intent_id ||
+                    typeof quote.total_amount_cents !== "number" ||
+                    typeof quote.amount_due_cents !== "number"
+                  ) {
+                    return;
+                  }
 
-                setOrder((current) =>
-                  current
-                    ? {
-                        ...current,
-                        total_amount_cents: quote.total_amount_cents!,
-                        amount_due_cents: quote.amount_due_cents!,
-                        feedback_credit_cents:
-                          quote.feedback_credit_cents ??
-                          current.feedback_credit_cents,
-                        shipping_cents:
-                          quote.shipping_cents ?? current.shipping_cents,
-                        shipping_method:
-                          quote.shipping_method ?? current.shipping_method,
-                        manufacturer:
-                          quote.manufacturer ?? current.manufacturer,
-                        sku: quote.sku ?? current.sku,
-                        payment_intent_id: quote.payment_intent_id,
-                        has_payment_intent: true,
-                      }
-                    : current,
-                );
-                setClientSecret(quote.clientSecret);
-              }}
-              onPaymentComplete={() => {
-                sessionStorage.setItem(
-                  `hl_checkout_completed:${order.id}`,
-                  "1",
-                );
-              }}
-            />
-          </Elements>
+                  setOrder((current) =>
+                    current
+                      ? {
+                          ...current,
+                          total_amount_cents: quote.total_amount_cents!,
+                          amount_due_cents: quote.amount_due_cents!,
+                          feedback_credit_cents:
+                            quote.feedback_credit_cents ??
+                            current.feedback_credit_cents,
+                          shipping_cents:
+                            quote.shipping_cents ?? current.shipping_cents,
+                          shipping_method:
+                            quote.shipping_method ?? current.shipping_method,
+                          manufacturer:
+                            quote.manufacturer ?? current.manufacturer,
+                          sku: quote.sku ?? current.sku,
+                          payment_intent_id: quote.payment_intent_id,
+                          has_payment_intent: true,
+                        }
+                      : current,
+                  );
+                  setClientSecret(quote.clientSecret);
+                }}
+                onPaymentComplete={() => {
+                  sessionStorage.setItem(
+                    `hl_checkout_completed:${order.id}`,
+                    "1",
+                  );
+                }}
+              />
+            </Elements>
+          </div>
         </div>
         <AbandonmentFeedbackExperiment
           orderId={order.id}

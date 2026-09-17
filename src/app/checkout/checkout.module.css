@@ -2,6 +2,7 @@
 .shell,
 .card,
 .summary,
+.paymentPanel,
 .paymentForm,
 .paymentSurface {
   min-width: 0;
@@ -10,38 +11,53 @@
 
 .shell {
   width: 100%;
-  max-width: 960px;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: 5rem 1.75rem 3rem;
+  padding: 4.25rem 1.5rem 2rem;
 }
 
-.intro {
-  max-width: 720px;
-  margin: -6px 0 18px;
-  color: #cbd5e1;
-  line-height: 1.6;
+.title {
+  margin-bottom: 14px !important;
 }
 
 .card {
-  padding: 36px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  background: #0f172a;
-  box-shadow: 0 10px 50px rgba(0, 0, 0, 0.5);
+  display: grid;
+  grid-template-columns: minmax(280px, 0.78fr) minmax(440px, 1.22fr);
+  align-items: start;
+  gap: 20px;
+}
+
+.summary,
+.paymentPanel {
+  padding: 22px;
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 10px 38px rgba(0, 0, 0, 0.28);
 }
 
 .summary {
-  margin-bottom: 20px;
-  padding: 20px;
-  border-radius: 12px;
   background: linear-gradient(180deg, #fff, #f8fafc);
+}
+
+.sectionTitle {
+  margin: 0 0 14px;
   color: #0f172a;
+  font-size: 21px;
+  line-height: 1.2;
+}
+
+.summaryRows {
+  display: grid;
+  gap: 10px;
 }
 
 .summaryRow {
   display: flex;
   justify-content: space-between;
   gap: 10px;
+  color: #334155;
+  font-size: 14px;
 }
 
 .summaryRow > * {
@@ -49,62 +65,79 @@
   overflow-wrap: anywhere;
 }
 
+.summaryRow strong {
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.creditRow,
+.creditRow strong {
+  color: #5b21b6;
+}
+
+.totalRow {
+  align-items: baseline;
+  margin-top: 2px;
+  padding-top: 14px;
+  border-top: 1px solid #dbe3ee;
+  color: #0f172a;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.totalRow strong {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
+.authorizationNote {
+  margin: 18px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid #dbe3ee;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .paymentSurface {
   width: 100%;
-  padding: 24px;
-  border-radius: 12px;
-  background: #fff;
 }
 
 .paymentSurface :global(iframe) {
   max-width: 100% !important;
 }
 
-.benefitsSection {
-  margin-bottom: 24px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid #e2e8f0;
-  color: #0f172a;
+.paymentForm :global(.checkout-pay-cta) {
+  min-height: 54px;
+  margin-top: 18px;
 }
 
-.benefitsSection h2 {
-  margin: 0 0 8px;
-  font-size: 20px;
+.securityNote {
+  margin: 10px 0 0;
+  color: #64748b;
+  font-size: 12px;
+  text-align: center;
 }
 
-.benefitsSection p {
-  margin: 0 0 14px;
-  line-height: 1.55;
-}
+@media (max-width: 800px) {
+  .shell {
+    padding: 3.75rem 16px 3rem;
+  }
 
-.benefitsSection label {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 14px;
-  font-weight: 700;
-}
+  .card {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
 
-.benefitsSection select {
-  width: 100%;
-  min-height: 44px;
-  padding: 9px 12px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #fff;
-  color: #0f172a;
-  font: inherit;
-}
-
-.benefitsNote {
-  margin-top: 10px !important;
-  color: #475569;
-  font-size: 13px;
-}
-
-.benefitsLink {
-  color: #1d4ed8;
-  font-size: 13px;
-  font-weight: 700;
+  .summary,
+  .paymentPanel {
+    padding: 16px;
+  }
 }
 
 @media (max-width: 600px) {
@@ -114,17 +147,5 @@
 
   .card {
     padding: 0;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  .summary {
-    margin-bottom: 16px;
-    padding: 16px;
-  }
-
-  .paymentSurface {
-    padding: 16px;
   }
 }

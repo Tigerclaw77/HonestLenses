@@ -264,7 +264,10 @@ export async function POST(req: Request) {
           const amountChanged = existing.amount !== amountDueCents;
           const receiptChanged =
             existing.receipt_email?.trim().toLowerCase() !== receiptEmail;
-          if (amountChanged || receiptChanged) {
+          const paymentMethodsChanged = !(
+            existing.excluded_payment_method_types ?? []
+          ).includes("amazon_pay");
+          if (amountChanged || receiptChanged || paymentMethodsChanged) {
             if (amountChanged && existing.status === "requires_capture") {
               await stripe.paymentIntents.cancel(
                 existing.id,
@@ -301,6 +304,7 @@ export async function POST(req: Request) {
                 order.payment_intent_id,
                 {
                   ...(amountChanged ? { amount: amountDueCents } : {}),
+                  excluded_payment_method_types: ["amazon_pay"],
                   receipt_email: receiptEmail,
                   metadata: {
                     order_id: order.id,
@@ -324,7 +328,7 @@ export async function POST(req: Request) {
                     createHash("sha256")
                       .update(receiptEmail)
                       .digest("hex")
-                      .slice(0, 24),
+                      .slice(0, 24) + ":amazon-pay-disabled",
                 },
               );
 
@@ -352,6 +356,7 @@ export async function POST(req: Request) {
         currency: "usd",
         capture_method: "manual",
         automatic_payment_methods: { enabled: true },
+        excluded_payment_method_types: ["amazon_pay"],
         receipt_email: receiptEmail,
         metadata: {
           order_id: order.id,
