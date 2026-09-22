@@ -9,6 +9,8 @@ import {
 } from "./customerOrder";
 
 const ORDER_ID = "6b4f7274-4fe2-403b-a95a-342148e294be";
+process.env.GUEST_ORDER_COOKIE_SECRET = "g".repeat(32);
+process.env.ORDER_ACCESS_TOKEN_SECRET = "o".repeat(32);
 
 const order: CustomerOrder = {
   id: ORDER_ID,
@@ -53,13 +55,13 @@ const confirmation = buildCustomerOrderEmail({
   siteUrl: "https://www.honestlenses.com/",
 });
 
-assert.equal(
-  confirmation.orderUrl,
-  `https://www.honestlenses.com/order/${ORDER_ID}`,
-);
+assert.match(confirmation.orderUrl, /^https:\/\/www\.honestlenses\.com\/order-access\/v1(?:\.[A-Za-z0-9_-]+){4}$/);
 assert.match(confirmation.html, /View Your Order/);
-assert.match(confirmation.html, new RegExp(`/order/${ORDER_ID}`));
-assert.match(confirmation.text, new RegExp(`/order/${ORDER_ID}`));
+assert.ok(confirmation.html.includes(confirmation.orderUrl));
+assert.ok(confirmation.text.includes(confirmation.orderUrl));
+assert.match(confirmation.html, /valid for 90 days/);
+assert.match(confirmation.text, /valid for 90 days/);
+assert.doesNotMatch(confirmation.html, new RegExp(`/order/${ORDER_ID}`));
 assert.match(confirmation.html, /Using HSA\/FSA funds or requesting reimbursement\?/);
 assert.match(confirmation.html, /Open secure receipt/);
 assert.match(confirmation.html, /after payment is captured/);
