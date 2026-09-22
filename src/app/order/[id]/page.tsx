@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import {
   canAccessOrder,
@@ -42,7 +42,7 @@ export default async function OrderPage({ params }: PageProps) {
   if (!isCustomerOrderId(orderId)) return notFound();
 
   const access = await getServerOrderAccess();
-  if (!hasOrderAccessContext(access)) return notFound();
+  if (!hasOrderAccessContext(access)) redirect("/find-order?link=unavailable");
 
   const { data: order, error } = await supabaseServer
     .from("orders")

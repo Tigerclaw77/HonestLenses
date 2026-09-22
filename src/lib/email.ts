@@ -31,6 +31,7 @@ type SendEmailParams = {
   text?: string;
   tracking?: TransactionalEmailTracking;
   idempotencyKey?: string;
+  redactProviderErrorLog?: boolean;
 };
 
 /* ======================================
@@ -44,6 +45,7 @@ export async function sendEmail({
   text,
   tracking,
   idempotencyKey,
+  redactProviderErrorLog = false,
 }: SendEmailParams) {
   const result = await resend.emails.send(
     {
@@ -64,7 +66,7 @@ export async function sendEmail({
   );
 
   if (result.error) {
-    console.error("Resend error:", result.error);
+    console.error("Resend error:", redactProviderErrorLog ? { code: result.error.name } : result.error);
     throw new Error("Email send failed");
   }
 
@@ -77,12 +79,12 @@ export async function sendEmail({
         tracking,
       });
     } catch (trackingError) {
-      console.error("Transactional email tracking failed:", {
-        orderId: tracking.orderId,
-        emailType: tracking.emailType,
-        emailId: result.data.id,
-        error: trackingError,
-      });
+      console.error(
+        "Transactional email tracking failed:",
+        redactProviderErrorLog
+          ? { emailType: tracking.emailType, code: trackingError instanceof Error ? trackingError.name : "UNKNOWN" }
+          : { orderId: tracking.orderId, emailType: tracking.emailType, emailId: result.data.id, error: trackingError },
+      );
     }
   }
 

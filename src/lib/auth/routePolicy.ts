@@ -173,6 +173,10 @@ export const ROUTE_AUTHORIZATION_POLICY: Record<string, RoutePolicy> = {
     access: "public",
     guard: "rateLimit",
   },
+  "src/app/api/orders/find/route.ts": {
+    access: "public",
+    guard: "rateLimit",
+  },
   "src/app/api/receipts/find/route.ts": {
     access: "public",
     guard: "rateLimit",
@@ -208,6 +212,10 @@ export const ROUTE_AUTHORIZATION_POLICY: Record<string, RoutePolicy> = {
   "src/app/order/[id]/receipt/route.ts": {
     access: "customer-owned",
     guard: "requireOrderAccess",
+  },
+  "src/app/order-access/[token]/route.ts": {
+    access: "capability",
+    guard: "signedExpiringOrderAccessToken",
   },
   "src/app/resume-order/accept/route.ts": {
     access: "capability",

@@ -3,6 +3,7 @@ import { lenses } from "@/LensCore";
 import { getLensSkus } from "@/lib/pricing/getLensSkus";
 import { getPackSizeFromSku } from "@/lib/cart/skuPackSize";
 import { getVisionCarrier } from "@/lib/visionBenefits";
+import { getOrderAccessUrl, ORDER_ACCESS_TOKEN_TTL_DAYS } from "@/lib/orders/orderAccessToken";
 
 export const CUSTOMER_ORDER_SELECT = `
   id,
@@ -150,14 +151,7 @@ export function formatCustomerMoney(
 }
 
 export function getCustomerOrderUrl(orderId: string, siteUrl?: string): string {
-  const baseUrl = (
-    siteUrl ??
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    process.env.SITE_URL ??
-    "https://www.honestlenses.com"
-  ).replace(/\/$/, "");
-
-  return `${baseUrl}/order/${encodeURIComponent(orderId)}`;
+  return getOrderAccessUrl(orderId, siteUrl);
 }
 
 export function buildCustomerOrderEmail({
@@ -191,6 +185,7 @@ export function buildCustomerOrderEmail({
       <p><strong>Order number:</strong> ${escapeHtml(customerOrderNumber)}</p>
       <p>${verificationMessage}</p>
       <p><a href="${escapeHtml(orderUrl)}">View Your Order</a></p>
+      <p>This secure order link is valid for ${ORDER_ACCESS_TOKEN_TTL_DAYS} days. If it expires, use Find Your Order to request another.</p>
       <hr style="border:0;border-top:1px solid #d9dee8;margin:24px 0" />
       <h3>Using HSA/FSA funds or requesting reimbursement?</h3>
       <p>Open your secure receipt link. Your itemized receipt is available there after payment is captured.</p>
@@ -198,7 +193,7 @@ export function buildCustomerOrderEmail({
       <p>You will receive updates as your order progresses.</p>
       <p>- Honest Lenses</p>
     `,
-    text: `Thank you for your order.\n\nOrder number: ${customerOrderNumber}\n\n${verificationMessage}\n\nView Your Order: ${orderUrl}\n\nUsing HSA/FSA funds or requesting reimbursement?\nOpen your secure receipt link. Your itemized receipt is available there after payment is captured.\nOpen secure receipt: ${receiptUrl}\n\n- Honest Lenses`,
+    text: `Thank you for your order.\n\nOrder number: ${customerOrderNumber}\n\n${verificationMessage}\n\nView Your Order: ${orderUrl}\nThis secure order link is valid for ${ORDER_ACCESS_TOKEN_TTL_DAYS} days. If it expires, use Find Your Order to request another.\n\nUsing HSA/FSA funds or requesting reimbursement?\nOpen your secure receipt link. Your itemized receipt is available there after payment is captured.\nOpen secure receipt: ${receiptUrl}\n\n- Honest Lenses`,
   };
 }
 

@@ -3,6 +3,7 @@ import { createClient, type User } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import type { NextResponse } from "next/server";
 import { getSupabaseServerAuth } from "@/lib/supabase-server-auth";
+import { ORDER_STATUS_COOKIE_NAME, readOrderStatusSession } from "@/lib/orders/orderStatusSession";
 
 const GUEST_ORDER_COOKIE = "hl_guest_order";
 const GUEST_COOKIE_AUDIENCE = "honest-lenses:order-access";
@@ -316,19 +317,20 @@ export async function getServerOrderAccess(): Promise<OrderAccess> {
   if (cookieHeader) requestHeaders.set("cookie", cookieHeader);
 
   const user = await getCookieUser();
+  const guestOrderId = readOrderStatusSession(cookieStore.get(ORDER_STATUS_COOKIE_NAME)?.value) ??
+    readGuestOrderIdFromCookieHeader(cookieHeader);
   if (user) {
     return {
       user,
       userId: user.id,
       userEmail: user.email ?? null,
-      guestOrderId: null,
+      guestOrderId,
       distinctId: user.id,
       source: "cookie",
       originValid: true,
     };
   }
 
-  const guestOrderId = readGuestOrderIdFromCookieHeader(cookieHeader);
   return {
     user: null,
     userId: null,
