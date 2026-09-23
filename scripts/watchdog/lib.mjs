@@ -9,6 +9,7 @@ export const HEADLINE_STATES = [
   "PRODUCTION VERIFIED",
   "SEARCH STALE",
   "SEARCH HEALTHY",
+  "CHECKS INCOMPLETE",
   "ACTION REQUIRED",
 ];
 
@@ -42,20 +43,21 @@ export function classifyDeployment(input) {
   const states = [];
   if (input.staleDirtyFiles?.length) {
     states.push("LOCAL ONLY");
-    problems.push(problem("LOCAL_SOURCE_STALE", "high", `${input.staleDirtyFiles.length} meaningful local source file(s) have remained uncommitted for over 24 hours.`));
+    problems.push(problem("LOCAL_SOURCE_STALE", "info", `${input.staleDirtyFiles.length} meaningful local source file(s) have remained uncommitted for over 24 hours.`));
   }
   if ((input.localAhead ?? 0) > 0) {
     states.push("LOCAL ONLY");
-    problems.push(problem("LOCAL_COMMITS_UNPUSHED", "high", `${input.localAhead} local commit(s) are not pushed.`));
+    problems.push(problem("LOCAL_COMMITS_AHEAD", "info", `${input.localAhead} checkout commit(s) are ahead of the canonical production branch; this does not imply they are unpushed.`));
   }
   if ((input.remoteAhead ?? 0) > 0) {
     states.push("PUSHED NOT DEPLOYED");
-    problems.push(problem("REMOTE_AHEAD_OF_PRODUCTION", "high", `${input.remoteAhead} remote commit(s) are not represented by production.`));
+    problems.push(problem("REMOTE_AHEAD_OF_PRODUCTION", input.driftActionable ? "high" : "info", `${input.remoteAhead} remote commit(s) are not represented by production.`));
   }
   if (input.productionSha && input.remoteSha && input.productionSha !== input.remoteSha) {
     states.push("PUSHED NOT DEPLOYED");
-    problems.push(problem("PRODUCTION_COMMIT_DRIFT", "high", "Production commit differs from the intended branch HEAD."));
+    problems.push(problem("PRODUCTION_COMMIT_DRIFT", input.driftActionable ? "high" : "info", "Production commit differs from the intended branch HEAD."));
   }
+  if (input.deploymentState === "missing" && input.driftActionable) problems.push(problem("DEPLOYMENT_STATUS_MISSING", "high", "Canonical production commit has no deployment status after the deployment grace period."));
   if (["failure", "error", "cancelled", "canceled"].includes(input.deploymentState)) {
     states.push("ACTION REQUIRED");
     problems.push(problem("DEPLOYMENT_FAILED", "high", `The intended production deployment is ${input.deploymentState}.`));
@@ -145,20 +147,31 @@ export function inspectHtml(html, pageUrl) {
 
 export function evaluateSeo(input, config) {
   const problems = [];
-  if (input.robotsStatus !== 200) problems.push(problem("ROBOTS_UNAVAILABLE", "high", `robots.txt returned ${input.robotsStatus ?? "no response"}.`));
-  if (!input.robots?.sitemaps?.includes(config.sitemapUrl)) problems.push(problem("ROBOTS_SITEMAP_MISSING", "high", "robots.txt does not declare the production sitemap."));
+  if (input.robotsUnavailable) problems.push(problem("ROBOTS_CHECK_UNAVAILABLE", "info", "robots.txt check could not obtain an HTTP response."));
+  else {
+    if (input.robotsStatus !== 200) problems.push(problem("ROBOTS_UNAVAILABLE", "high", `robots.txt returned ${input.robotsStatus ?? "no response"}.`));
+    else if (!input.robots?.sitemaps?.includes(config.sitemapUrl)) problems.push(problem("ROBOTS_SITEMAP_MISSING", "high", "robots.txt does not declare the production sitemap."));
+  }
+  if (input.sitemapUnavailable) problems.push(problem("SITEMAP_CHECK_UNAVAILABLE", "info", "Sitemap check could not obtain an HTTP response."));
   if (input.sitemapError) problems.push(problem("SITEMAP_INVALID", "high", input.sitemapError));
-  if (input.previousSitemapCount) {
+  if (input.previousSitemapCount && !input.sitemapError && !input.sitemapUnavailable) {
     const delta = Math.abs(input.sitemapUrls.length - input.previousSitemapCount);
     const ratio = delta / Math.max(input.previousSitemapCount, 1);
     if (delta >= config.sitemapChangeAbsolute && ratio >= config.sitemapChangeRatio) problems.push(problem("SITEMAP_COUNT_DRIFT", "high", `Sitemap count changed from ${input.previousSitemapCount} to ${input.sitemapUrls.length}.`));
   }
-  const failed = input.statusChecks.filter((item) => !item.ok);
+  const failed = input.statusChecks.filter((item) => !item.ok && !item.error);
+  const unavailable = input.statusChecks.filter((item) => item.error);
+  if (unavailable.length) problems.push(problem("URL_CHECK_UNAVAILABLE", "info", `${unavailable.length} URL check(s) could not obtain an HTTP response.`));
   const redirected = input.statusChecks.filter((item) => item.redirected);
   if (failed.length) problems.push(problem("SITEMAP_URL_FAILURE", "high", `${failed.length} sitemap URL(s) did not return 200.`));
   if (redirected.length) problems.push(problem("SITEMAP_REDIRECT", "high", `${redirected.length} sitemap URL(s) redirect.`));
   for (const result of input.deepChecks) {
+    if (result.error) {
+      problems.push(problem("PAGE_CHECK_UNAVAILABLE", "info", `Page check could not obtain a response: ${result.url}.`, result.url));
+      continue;
+    }
     if (!result.desktopOk || !result.mobileOk) problems.push(problem("PAGE_AVAILABILITY", "high", `Desktop or mobile availability failed for ${result.url}.`, result.url));
+    if (!result.desktopOk) continue;
     if (result.noindex || result.xRobotsNoindex) problems.push(problem("PAGE_NOINDEX", "high", `Important page is marked noindex: ${result.url}.`, result.url));
     if (input.robots && isRobotsBlocked(result.url, input.robots)) problems.push(problem("PAGE_ROBOTS_BLOCKED", "high", `Important page is blocked by robots.txt: ${result.url}.`, result.url));
     if (!sameCanonical(result.canonical, result.url)) problems.push(problem("CANONICAL_MISMATCH", "high", `Canonical does not match ${result.url}.`, result.url));
@@ -230,7 +243,7 @@ export async function acquireLock(lockPath, staleMs) {
   } catch (error) {
     if (error.code !== "EEXIST") throw error;
     const info = await stat(lockPath);
-    if (Date.now() - info.mtimeMs <= staleMs) throw new Error("Watchdog lock is already held.");
+    if (Date.now() - info.mtimeMs <= staleMs) throw Object.assign(new Error("Watchdog lock is already held."), { code: "WATCHDOG_BUSY" });
     await unlink(lockPath);
     return acquireLock(lockPath, staleMs);
   }

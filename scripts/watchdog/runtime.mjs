@@ -21,10 +21,12 @@ export async function loadAllowedEnvironment(repoRoot) {
 }
 
 export async function gitSnapshot(repoRoot, config, { fetchRemote = true } = {}) {
-  if (fetchRemote) await git(repoRoot, ["fetch", "--quiet", "origin", config.intendedBranch], 60000).catch(() => null);
+  // Never silently treat a stale tracking ref as the current deployment target.
+  if (fetchRemote) await git(repoRoot, ["fetch", "--quiet", "origin", `+refs/heads/${config.intendedBranch}:refs/remotes/origin/${config.intendedBranch}`], 60000);
   const localSha = (await git(repoRoot, ["rev-parse", "HEAD"])).trim();
   const branch = (await git(repoRoot, ["branch", "--show-current"])).trim();
-  const upstream = (await git(repoRoot, ["rev-parse", "--abbrev-ref", "@{upstream}"])).trim();
+  // for-each-ref returns an empty field successfully for an untracked local branch.
+  const upstream = branch ? (await git(repoRoot, ["for-each-ref", "--format=%(upstream:short)", `refs/heads/${branch}`])).trim() || null : null;
   const intendedRemoteRef = `origin/${config.intendedBranch}`;
   const remoteSha = (await git(repoRoot, ["rev-parse", intendedRemoteRef])).trim();
   const localAhead = Number((await git(repoRoot, ["rev-list", "--count", `${intendedRemoteRef}..HEAD`])).trim());
@@ -39,7 +41,8 @@ export async function gitSnapshot(repoRoot, config, { fetchRemote = true } = {})
       if (Date.now() - info.mtimeMs >= config.sourceAgeHours * 3600000) staleDirtyFiles.push(item.path);
     } catch {}
   }
-  return { localSha, branch, upstream, remoteSha, localAhead, localBehind, meaningfulDirtyFiles, staleDirtyFiles };
+  const remoteCommittedAt = (await git(repoRoot, ["show", "-s", "--format=%cI", intendedRemoteRef])).trim();
+  return { localSha, branch, upstream, intendedRemoteRef, remoteCommittedAt, remoteSha, localAhead, localBehind, meaningfulDirtyFiles, staleDirtyFiles };
 }
 
 export async function githubDeploymentSnapshot(config, remoteSha, previous, fetchImpl = fetch) {
@@ -52,30 +55,43 @@ export async function githubDeploymentSnapshot(config, remoteSha, previous, fetc
   const state = selected?.state ?? "missing";
   const updatedAt = selected?.updated_at ?? null;
   const deploymentStale = ["pending", "queued", "in_progress"].includes(state) && updatedAt && Date.now() - new Date(updatedAt).getTime() > config.deploymentStaleHours * 3600000;
-  const priorSha = previous?.commits?.production ?? config.knownProductionCommit;
+  const priorSha = previous?.git?.intendedRemoteRef === `origin/${config.intendedBranch}` ? previous?.commits?.production : null;
   const productionSha = state === "success" ? remoteSha : priorSha;
   return { deploymentState: state, deploymentUpdatedAt: updatedAt, deploymentStale, productionSha, deploymentTarget: selected?.target_url ?? null };
 }
 
 export async function countRemoteAhead(repoRoot, productionSha, remoteSha) {
-  if (!productionSha || productionSha === remoteSha) return 0;
-  try { return Number((await git(repoRoot, ["rev-list", "--count", `${productionSha}..${remoteSha}`])).trim()); } catch { return 1; }
+  if (!productionSha || !remoteSha) return null;
+  if (productionSha === remoteSha) return 0;
+  try { return Number((await git(repoRoot, ["rev-list", "--count", `${productionSha}..${remoteSha}`])).trim()); } catch { return null; }
 }
 
 export async function checkProduction(config, previousSitemapCount, fetchImpl = fetch) {
-  const robotsResponse = await timedFetch(config.robotsUrl, { redirect: "manual", headers: { "user-agent": DESKTOP_UA } }, config, fetchImpl);
-  const robotsText = await robotsResponse.text();
-  const sitemapResponse = await timedFetch(config.sitemapUrl, { redirect: "manual", headers: { "user-agent": DESKTOP_UA } }, config, fetchImpl);
-  if (sitemapResponse.status !== 200) throw new Error(`Sitemap fetch returned ${sitemapResponse.status}.`);
-  const sitemapXml = await sitemapResponse.text();
+  // Preserve independent evidence when a single request cannot obtain a response.
+  const readResource = async (url) => {
+    try {
+      const response = await timedFetch(url, { redirect: "manual", headers: { "user-agent": DESKTOP_UA } }, config, fetchImpl);
+      return { status: response.status, text: await response.text() };
+    } catch { return { status: null, text: "", unavailable: true }; }
+  };
+  const [robotsResponse, sitemapResponse] = await Promise.all([readResource(config.robotsUrl), readResource(config.sitemapUrl)]);
+  const robotsText = robotsResponse.text;
+  const sitemapXml = sitemapResponse.text;
   const { parseSitemap, parseRobots, sha256 } = await import("./lib.mjs");
-  const sitemapUrls = parseSitemap(sitemapXml);
+  let sitemapUrls = [];
+  let sitemapError = !sitemapResponse.unavailable && sitemapResponse.status !== 200 ? `Sitemap fetch returned ${sitemapResponse.status}.` : null;
+  if (!sitemapError && !sitemapResponse.unavailable) {
+    try { sitemapUrls = parseSitemap(sitemapXml); } catch (error) { sitemapError = error.message; }
+  }
   const robots = parseRobots(robotsText);
   const statusChecks = await mapLimit(sitemapUrls, config.statusConcurrency, (url) => checkUrlStatus(url, config, fetchImpl));
-  const deepUrls = representativeSample(sitemapUrls, config.priorityUrls, config.deepSampleSize);
+  const deepUrls = representativeSample([...new Set([...sitemapUrls, ...config.priorityUrls])], config.priorityUrls, config.deepSampleSize);
   const deepChecks = await mapLimit(deepUrls, 2, (url) => deepCheck(url, config, fetchImpl));
   return {
     robotsStatus: robotsResponse.status,
+    robotsUnavailable: Boolean(robotsResponse.unavailable),
+    sitemapUnavailable: Boolean(sitemapResponse.unavailable),
+    sitemapError,
     robots,
     sitemapXml,
     sitemapHash: sha256(sitemapXml),

@@ -50,20 +50,33 @@ if (testNotificationOnly) {
   });
   console.log("Test notification sent to the configured founder-only destination.");
 } else {
-  const releaseLock = await acquireLock(path.join(runtimeDirectory, "watchdog.lock"), config.overallTimeoutMs * 2);
+  let releaseLock;
   try {
+    releaseLock = await acquireLock(path.join(runtimeDirectory, "watchdog.lock"), config.overallTimeoutMs * 2);
     await withTimeout(run(), config.overallTimeoutMs, "Watchdog exceeded its bounded overall timeout.");
   } catch (error) {
-    await recordFailure(error);
-    console.error(`Watchdog failed: ${safeMessage(error)}`);
-    process.exitCode = 1;
+    if (error.code === "WATCHDOG_BUSY") {
+      console.log("Watchdog already running; skipped.");
+    } else {
+      await recordFailure(error);
+      console.error(`Watchdog failed: ${safeMessage(error)}`);
+      process.exitCode = 1;
+    }
   } finally {
-    await releaseLock();
+    await releaseLock?.();
   }
 }
 
 async function run() {
   const now = new Date();
+  const withinDeadline = () => Date.now() - now.getTime() < config.overallTimeoutMs;
+  const diagnostics = [];
+  const observe = async (name, work, fallback) => {
+    try { return await work(); } catch {
+      diagnostics.push(`${name} unavailable; production health cannot be inferred from this check.`);
+      return fallback;
+    }
+  };
   const statePath = path.join(runtimeDirectory, "state.json");
   const latestPath = path.join(runtimeDirectory, "LATEST.json");
   const previousState = await readJson(statePath, {});
@@ -77,13 +90,17 @@ async function run() {
     await writeFile(statePath, `${JSON.stringify(previousState, null, 2)}\n`, { mode: 0o600 });
   }
 
-  const git = await gitSnapshot(repoRoot, config, { fetchRemote: !dryRun });
-  const production = await githubDeploymentSnapshot(config, git.remoteSha, previousReport);
-  const productionChecks = await checkProduction(config, previousReport?.sitemap?.urlCount ?? null);
-  const seo = evaluateSeo(productionChecks, config);
-  const liveVerified = !seo.problems.some((item) => item.severity === "high");
+  const git = await observe("Git snapshot", () => gitSnapshot(repoRoot, config, { fetchRemote: !dryRun }), {});
+  const production = git.remoteSha
+    ? await observe("GitHub deployment status", () => githubDeploymentSnapshot(config, git.remoteSha, previousReport), {})
+    : {};
+  const productionChecks = await observe("Production HTTP checks", () => checkProduction(config, previousReport?.sitemap?.urlCount ?? null), { unavailable: true, sitemapUrls: [], statusChecks: [], deepChecks: [] });
+  const seo = productionChecks.unavailable ? { problems: [] } : evaluateSeo(productionChecks, config);
+  const liveVerified = !productionChecks.unavailable && !productionChecks.robotsUnavailable && !productionChecks.sitemapUnavailable && !seo.problems.some((item) => item.severity === "high") && !productionChecks.statusChecks.some((item) => item.error) && !productionChecks.deepChecks.some((item) => item.error);
   const remoteAhead = await countRemoteAhead(repoRoot, production.productionSha, git.remoteSha);
-  const deployment = classifyDeployment({ ...git, ...production, remoteAhead, liveVerified });
+  const deploymentInProgress = ["pending", "queued", "in_progress"].includes(production.deploymentState);
+  const driftActionable = Date.now() - Date.parse(git.remoteCommittedAt) > config.deploymentStaleHours * 3600000 && (!deploymentInProgress || production.deploymentStale);
+  const deployment = classifyDeployment({ ...git, ...production, remoteAhead, liveVerified, driftActionable });
 
   const discoveredCredential = await discoverGoogleCredential();
   let accessToken = null;
@@ -96,7 +113,7 @@ async function run() {
       const data = await retrieveGscData({ accessToken, siteUrl: config.searchConsoleSiteUrl, sitemapUrl: config.sitemapUrl, priorityUrls: config.priorityUrls });
       gscData = { authorized: true, ...data };
       const materialHash = sha256([...productionChecks.sitemapUrls].sort().join("\n"));
-      if (!dryRun && previousState.sitemapMaterialHash && previousState.sitemapMaterialHash !== materialHash) {
+      if (!dryRun && withinDeadline() && !productionChecks.unavailable && !productionChecks.sitemapUnavailable && !productionChecks.sitemapError && previousState.sitemapMaterialHash && previousState.sitemapMaterialHash !== materialHash) {
         await submitSitemap({ accessToken, siteUrl: config.searchConsoleSiteUrl, sitemapUrl: config.sitemapUrl });
         sitemapSubmitted = true;
       }
@@ -107,22 +124,24 @@ async function run() {
   } else {
     authorizationRequired = "Create or use a Google service account with Search Console API enabled, add its service-account email as a Full user of sc-domain:honestlenses.com, save the JSON key outside this repository, and set WATCHDOG_GSC_CREDENTIALS_PATH to that absolute file path in the scheduled task environment.";
   }
-  const gsc = evaluateGsc({ ...gscData, liveCount: productionChecks.sitemapUrls.length }, config, now);
+  const gsc = evaluateGsc({ ...gscData, liveCount: productionChecks.unavailable || productionChecks.sitemapUnavailable || productionChecks.sitemapError ? null : productionChecks.sitemapUrls.length }, config, now);
 
   const regressions = dedupeProblems([...deployment.problems, ...seo.problems, ...gsc.problems]);
   const headlineStates = unique([
     ...deployment.states,
     ...gsc.states,
+    ...(diagnostics.length || seo.problems.some((item) => item.code.endsWith("CHECK_UNAVAILABLE")) ? ["CHECKS INCOMPLETE"] : []),
     ...(regressions.some((item) => item.severity === "high") ? ["ACTION REQUIRED"] : []),
   ]);
   const report = {
     timestamp: now.toISOString(),
     mode: dryRun ? "dry-run" : scheduled ? "scheduled" : "manual",
     headlineStates,
+    diagnostics,
     commits: { local: git.localSha, remote: git.remoteSha, production: production.productionSha },
-    git: { branch: git.branch, upstream: git.upstream, localAhead: git.localAhead, localBehind: git.localBehind, remoteAheadOfProduction: remoteAhead, meaningfulDirtyFiles: git.meaningfulDirtyFiles, staleDirtyFiles: git.staleDirtyFiles },
+    git: { branch: git.branch, upstream: git.upstream, intendedRemoteRef: git.intendedRemoteRef, localAhead: git.localAhead, localBehind: git.localBehind, remoteAheadOfProduction: remoteAhead, meaningfulDirtyFiles: git.meaningfulDirtyFiles, staleDirtyFiles: git.staleDirtyFiles },
     deployment: { state: production.deploymentState, updatedAt: production.deploymentUpdatedAt, target: production.deploymentTarget, liveVerified },
-    sitemap: { url: config.sitemapUrl, hash: productionChecks.sitemapHash, materialHash: sha256([...productionChecks.sitemapUrls].sort().join("\n")), urlCount: productionChecks.sitemapUrls.length, failedUrlCount: productionChecks.statusChecks.filter((item) => !item.ok).length, redirectCount: productionChecks.statusChecks.filter((item) => item.redirected).length, submittedOnThisRun: sitemapSubmitted },
+    sitemap: { url: config.sitemapUrl, hash: productionChecks.sitemapHash, materialHash: sha256([...productionChecks.sitemapUrls].sort().join("\n")), urlCount: productionChecks.unavailable || productionChecks.sitemapUnavailable || productionChecks.sitemapError ? null : productionChecks.sitemapUrls.length, failedUrlCount: productionChecks.statusChecks.filter((item) => !item.ok).length, redirectCount: productionChecks.statusChecks.filter((item) => item.redirected).length, submittedOnThisRun: sitemapSubmitted },
     gsc: { authorized: gscData.authorized, lastSubmitted: gscData.sitemap?.lastSubmitted ?? null, lastDownloaded: gscData.sitemap?.lastDownloaded ?? null, pending: gscData.sitemap?.isPending ?? null, submittedCount: gscData.sitemap?.submittedCount ?? null, processedCount: gscData.sitemap?.processedCount ?? null, errors: gscData.sitemap?.errors ?? null, warnings: gscData.sitemap?.warnings ?? null, priorityUrls: gscData.inspections },
     regressions,
     changeSincePreviousRun: null,
@@ -135,20 +154,26 @@ async function run() {
   };
   report.changeSincePreviousRun = diffReports(previousReport, report);
 
+  if (!withinDeadline()) return;
   if (!dryRun) {
     const decision = shouldSendAlert(previousReport, report, now, config.alertRepeatHours);
     report.alertResult = { sent: false, reason: decision.reason };
     if (decision.send) {
-      await sendFounderEmail({
-        subject: `[Watchdog] ${headlineStates.join(" | ")}`,
-        text: alertText(report),
-        idempotencyKey: `honest-lenses-watchdog-${decision.fingerprint}-${now.toISOString().slice(0, 10)}`,
-      });
-      report.alertResult = { sent: true, reason: decision.reason };
-      report.lastAlertFingerprint = decision.fingerprint;
-      report.lastAlertAt = now.toISOString();
+      try {
+        await sendFounderEmail({
+          subject: `[Watchdog] ${headlineStates.join(" | ")}`,
+          text: alertText(report),
+          idempotencyKey: `honest-lenses-watchdog-${decision.fingerprint}-${now.toISOString().slice(0, 10)}`,
+        });
+        report.alertResult = { sent: true, reason: decision.reason };
+        report.lastAlertFingerprint = decision.fingerprint;
+        report.lastAlertAt = now.toISOString();
+      } catch {
+        report.alertResult = { sent: false, reason: "notification-unavailable" };
+        diagnostics.push("Founder notification unavailable; inspect notification configuration or provider.");
+      }
     }
-    await writeFile(statePath, `${JSON.stringify({ ...previousState, sitemapMaterialHash: report.sitemap.materialHash, lastCompletedAt: now.toISOString() }, null, 2)}\n`, { mode: 0o600 });
+    await writeFile(statePath, `${JSON.stringify({ ...previousState, sitemapMaterialHash: report.sitemap.urlCount == null ? previousState.sitemapMaterialHash : report.sitemap.materialHash, lastCompletedAt: now.toISOString() }, null, 2)}\n`, { mode: 0o600 });
   }
 
   const reportJsonPath = dryRun ? path.join(runtimeDirectory, "LATEST.DRY-RUN.json") : latestPath;
@@ -161,16 +186,13 @@ async function run() {
 
 async function recordFailure(error) {
   const timestamp = new Date().toISOString();
-  const failure = { timestamp, headlineStates: ["ACTION REQUIRED"], regressions: [problem("WATCHDOG_RUN_FAILURE", "high", safeMessage(error))], recommendedHumanAction: "Run the documented manual command and inspect the local last-run log.", controls: { automaticCommit: false, automaticPush: false, automaticDeploy: false, automaticPublish: false, requestIndexing: false, customerDataAccess: false } };
+  const failure = { timestamp, headlineStates: ["CHECKS INCOMPLETE"], regressions: [problem("WATCHDOG_RUN_FAILURE", "info", safeMessage(error))], alertResult: { sent: false, reason: "check-unavailable" }, recommendedHumanAction: "Run the documented manual command and inspect the local last-run log.", controls: { automaticCommit: false, automaticPush: false, automaticDeploy: false, automaticPublish: false, requestIndexing: false, customerDataAccess: false } };
   await writeFile(path.join(runtimeDirectory, "LATEST.FAILURE.json"), `${JSON.stringify(failure, null, 2)}\n`, { mode: 0o600 });
   await writeFile(path.join(runtimeDirectory, "last-run.log"), `${timestamp} FAILURE ${safeMessage(error)}\n`, { mode: 0o600 });
-  if (!dryRun) {
-    try { await sendFounderEmail({ subject: "[Watchdog] ACTION REQUIRED — watchdog run failed", text: `Honest Lenses watchdog failed.\n\n${safeMessage(error)}\n\nNo customer or secret data is included.`, idempotencyKey: `honest-lenses-watchdog-failure-${timestamp.slice(0, 10)}` }); } catch {}
-  }
 }
 
 function recommendation(regressions, authorizationRequired) {
-  if (regressions.length) return regressions.filter((item) => item.severity === "high").slice(0, 3).map((item) => item.message).join(" ");
+  if (regressions.some((item) => item.severity === "high")) return regressions.filter((item) => item.severity === "high").slice(0, 3).map((item) => item.message).join(" ");
   if (authorizationRequired) return authorizationRequired;
   return "No human action is required.";
 }
@@ -192,7 +214,7 @@ function alertText(report) {
 }
 
 function renderMarkdown(report) {
-  return `# Honest Lenses Deployment and Search Watchdog — LATEST\n\n- Run: ${report.timestamp}\n- State: ${report.headlineStates.join(" | ")}\n- Local / remote / production: ${report.commits.local} / ${report.commits.remote} / ${report.commits.production}\n- Sitemap: ${report.sitemap.urlCount} URLs; hash ${report.sitemap.hash}\n- GSC: ${report.gsc.authorized ? `downloaded ${report.gsc.lastDownloaded ?? "unknown"}; processed ${report.gsc.processedCount ?? "unknown"}` : "authorization required"}\n- Alert: ${report.alertResult.sent ? "sent" : report.alertResult.reason}\n\n## Regressions\n\n${report.regressions.length ? report.regressions.map((item) => `- [${item.severity.toUpperCase()}] ${item.message}`).join("\n") : "None."}\n\n## Recommended human action\n\n${report.recommendedHumanAction}\n`;
+  return `# Honest Lenses Deployment and Search Watchdog — LATEST\n\n- Run: ${report.timestamp}\n- State: ${report.headlineStates.join(" | ")}\n- Local / remote / production: ${report.commits.local} / ${report.commits.remote} / ${report.commits.production}\n- Sitemap: ${report.sitemap.urlCount} URLs; hash ${report.sitemap.hash}\n- GSC: ${report.gsc.authorized ? `downloaded ${report.gsc.lastDownloaded ?? "unknown"}; processed ${report.gsc.processedCount ?? "unknown"}` : "authorization required"}\n- Alert: ${report.alertResult.sent ? "sent" : report.alertResult.reason}\n\n## Check diagnostics\n\n${report.diagnostics.length ? report.diagnostics.join("\n") : "None."}\n\n## Regressions\n\n${report.regressions.length ? report.regressions.map((item) => `- [${item.severity.toUpperCase()}] ${item.message}`).join("\n") : "None."}\n\n## Recommended human action\n\n${report.recommendedHumanAction}\n`;
 }
 
 function dedupeProblems(items) { return [...new Map(items.map((item) => [item.key, item])).values()]; }

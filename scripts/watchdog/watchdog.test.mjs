@@ -25,7 +25,7 @@ const healthySeo = { robotsStatus: 200, robots: { sitemaps: [config.sitemapUrl],
 
 assert.deepEqual(classifyDeployment({ deploymentState: "success", liveVerified: true, localAhead: 0, remoteAhead: 0, localSha: "a", remoteSha: "a", productionSha: "a" }).states, ["PRODUCTION VERIFIED"], "clean fully deployed state");
 assert(classifyDeployment({ deploymentState: "success", liveVerified: true, staleDirtyFiles: ["src/a.ts"] }).problems.some((p) => p.code === "LOCAL_SOURCE_STALE"), "local dirty source change");
-assert(classifyDeployment({ deploymentState: "success", liveVerified: true, localAhead: 1 }).problems.some((p) => p.code === "LOCAL_COMMITS_UNPUSHED"), "commit ahead of remote");
+assert(classifyDeployment({ deploymentState: "success", liveVerified: true, localAhead: 1 }).problems.some((p) => p.code === "LOCAL_COMMITS_AHEAD"), "commit ahead of remote");
 assert(classifyDeployment({ deploymentState: "success", liveVerified: true, remoteAhead: 1, remoteSha: "b", productionSha: "a" }).problems.some((p) => p.code === "REMOTE_AHEAD_OF_PRODUCTION"), "remote ahead of production");
 assert(classifyDeployment({ deploymentState: "failure", liveVerified: false }).problems.some((p) => p.code === "DEPLOYMENT_FAILED"), "failed deployment");
 assert(classifyDeployment({ deploymentState: "pending", deploymentStale: true, liveVerified: false }).problems.some((p) => p.code === "DEPLOYMENT_STALE"), "stale deployment");
@@ -68,3 +68,5 @@ try {
 const serialized = JSON.stringify({ report: current, secret: undefined, customer: undefined });
 assert(!/RESEND_API_KEY|prescription|customerEmail/i.test(serialized), "no secret or personal-data leakage in report shape");
 console.log("Deployment and Search Watchdog regression tests passed.");
+
+await import("./integration.test.mjs");
