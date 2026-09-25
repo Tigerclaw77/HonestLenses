@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { getAdminPaymentDisplay } from "./adminPaymentDisplay";
+import {
+  getAdminPaymentDisplay,
+  shouldShowPaymentOperationalCard,
+} from "./adminPaymentDisplay";
 
 assert.deepEqual(
   getAdminPaymentDisplay({
@@ -9,6 +12,34 @@ assert.deepEqual(
   }),
   { authorizedAmountCents: null, capturedAmountCents: null },
   "a pricing total without a PaymentIntent must never be presented as payment evidence",
+);
+
+assert.equal(
+  shouldShowPaymentOperationalCard({
+    paymentStatus: "draft",
+    stripePaymentIntentStatus: "requires_payment_method",
+    hasPaymentAction: false,
+  }),
+  false,
+  "an unactionable draft PaymentIntent does not render a PAYMENT card",
+);
+assert.equal(
+  shouldShowPaymentOperationalCard({
+    paymentStatus: "authorized",
+    stripePaymentIntentStatus: "requires_capture",
+    hasPaymentAction: true,
+  }),
+  true,
+  "an actionable authorization keeps the PAYMENT card",
+);
+assert.equal(
+  shouldShowPaymentOperationalCard({
+    paymentStatus: "captured",
+    stripePaymentIntentStatus: "succeeded",
+    hasPaymentAction: false,
+  }),
+  true,
+  "useful completed payment information keeps the PAYMENT card",
 );
 
 assert.deepEqual(
