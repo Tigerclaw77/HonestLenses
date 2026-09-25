@@ -4,6 +4,13 @@ import { NextResponse } from "next/server";
 import { sendEmail } from "@/lib/email";
 import { buildOrderResumeEmail } from "@/lib/email/orderResumeEmail";
 import {
+  getOrderRecoveryEmailIdempotencyKey,
+  ORDER_RECOVERY_EMAIL_COOLDOWN_SECONDS,
+  ORDER_RECOVERY_EMAIL_TYPE,
+  runWithOrderRecoveryEmailSendClaim,
+  type OrderRecoveryEmailSendClaim,
+} from "@/lib/email/orderRecoveryClaim";
+import {
   createOrderResumeToken,
   getOrderResumeExpiry,
   getResumeDestination,
@@ -23,6 +30,31 @@ import {
 type RequestBody = {
   email?: unknown;
 };
+
+async function claimRecoveryEmailSend(
+  orderId: string,
+  email: string,
+): Promise<OrderRecoveryEmailSendClaim | null> {
+  const { data, error } = await supabaseServer.rpc(
+    "claim_order_recovery_email_send",
+    {
+      p_order_id: orderId,
+      p_recipient_email: email,
+      p_email_type: ORDER_RECOVERY_EMAIL_TYPE,
+      p_cooldown_seconds: ORDER_RECOVERY_EMAIL_COOLDOWN_SECONDS,
+    },
+  );
+
+  if (error) throw error;
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+
+  return {
+    claimId: row.claim_id,
+    claimedAt: row.claimed_at,
+  };
+}
 
 function getSiteUrl(req: Request): string {
   return (
@@ -76,54 +108,58 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  const token = createOrderResumeToken();
-  const tokenHash = hashOrderResumeToken(token);
-  const expiresAt = getOrderResumeExpiry();
-
-  const { error: insertError } = await supabaseServer
-    .from("order_resume_tokens")
-    .insert({
-      order_id: order.id,
-      email,
-      token_hash: tokenHash,
-      expires_at: expiresAt,
-    });
-
-  if (insertError) {
-    return NextResponse.json(
-      { error: "Order recovery is temporarily unavailable." },
-      { status: 500 },
-    );
-  }
-
-  const resumeUrl = `${getSiteUrl(req)}/resume-order/accept?token=${encodeURIComponent(
-    token,
-  )}`;
-  const emailDraft = buildOrderResumeEmail({
-    resumeUrl,
-    expiresMinutes: ORDER_RESUME_TOKEN_TTL_MINUTES,
-  });
-
   try {
-    await sendEmail({
-      to: email,
-      subject: emailDraft.subject,
-      html: emailDraft.html,
-      text: emailDraft.text,
-      tracking: {
-        orderId: order.id,
-        emailType: "order_recovery",
+    await runWithOrderRecoveryEmailSendClaim({
+      acquireClaim: () => claimRecoveryEmailSend(order.id, email),
+      send: async (claim) => {
+        const token = createOrderResumeToken();
+        const tokenHash = hashOrderResumeToken(token);
+        const expiresAt = getOrderResumeExpiry();
+
+        const { error: insertError } = await supabaseServer
+          .from("order_resume_tokens")
+          .insert({
+            order_id: order.id,
+            email,
+            token_hash: tokenHash,
+            expires_at: expiresAt,
+          });
+
+        if (insertError) throw insertError;
+
+        const resumeUrl = `${getSiteUrl(req)}/resume-order/accept?token=${encodeURIComponent(
+          token,
+        )}`;
+        const emailDraft = buildOrderResumeEmail({
+          resumeUrl,
+          expiresMinutes: ORDER_RESUME_TOKEN_TTL_MINUTES,
+        });
+
+        try {
+          await sendEmail({
+            to: email,
+            subject: emailDraft.subject,
+            html: emailDraft.html,
+            text: emailDraft.text,
+            tracking: {
+              orderId: order.id,
+              emailType: ORDER_RECOVERY_EMAIL_TYPE,
+            },
+            idempotencyKey: getOrderRecoveryEmailIdempotencyKey(claim.claimId),
+          });
+        } catch (sendError) {
+          await supabaseServer
+            .from("order_resume_tokens")
+            .update({ used_at: new Date().toISOString() })
+            .eq("token_hash", tokenHash)
+            .is("used_at", null);
+          throw sendError;
+        }
       },
     });
   } catch {
-    await supabaseServer
-      .from("order_resume_tokens")
-      .update({ used_at: new Date().toISOString() })
-      .eq("token_hash", tokenHash)
-      .is("used_at", null);
-
     return NextResponse.json(
-      { error: "Unable to send a resume link right now." },
+      { error: "Order recovery is temporarily unavailable." },
       { status: 500 },
     );
   }

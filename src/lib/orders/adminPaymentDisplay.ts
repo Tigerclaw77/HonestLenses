@@ -10,6 +10,22 @@ export type AdminPaymentDisplay = {
   capturedAmountCents: number | null;
 };
 
+export function shouldShowPaymentOperationalCard({
+  paymentStatus,
+  stripePaymentIntentStatus,
+  hasPaymentAction,
+}: {
+  paymentStatus: string;
+  stripePaymentIntentStatus?: string | null;
+  hasPaymentAction: boolean;
+}): boolean {
+  return !(
+    paymentStatus === "draft" &&
+    stripePaymentIntentStatus === "requires_payment_method" &&
+    !hasPaymentAction
+  );
+}
+
 function hasPaymentIntent(order: AdminPaymentDisplayOrder): boolean {
   return Boolean(order.payment_intent_id?.trim());
 }

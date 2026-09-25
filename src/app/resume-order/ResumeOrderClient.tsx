@@ -40,7 +40,6 @@ export default function ResumeOrderClient({
       });
 
       const body = (await res.json().catch(() => ({}))) as {
-        found?: boolean;
         error?: string;
       };
 
@@ -49,11 +48,7 @@ export default function ResumeOrderClient({
         return;
       }
 
-      setMessage(
-        body.found
-          ? "Check your email for a secure resume link."
-          : "No unfinished orders were found for that email.",
-      );
+      setMessage("Check your email for a secure link to resume your order.");
     } finally {
       setLoading(false);
     }

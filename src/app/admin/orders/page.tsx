@@ -40,7 +40,10 @@ import {
   getAuthorizationRisk,
   type AuthorizationRisk,
 } from "@/lib/orders/authorizationRisk";
-import { getAdminPaymentDisplay } from "@/lib/orders/adminPaymentDisplay";
+import {
+  getAdminPaymentDisplay,
+  shouldShowPaymentOperationalCard,
+} from "@/lib/orders/adminPaymentDisplay";
 import type { ManualVerificationAttemptMethod } from "@/lib/orders/verificationAttempts";
 import { isOrderRowControlTarget } from "@/lib/admin/orderRowInteraction";
 
@@ -1573,6 +1576,21 @@ function ActiveOrderCard({
   const totalBoxesLabel =
     quantity.total === "—" ? "—" : formatBoxCount(Number(quantity.total));
   const processingPanelId = `order-processing-${order.id}`;
+  const canCapturePayment =
+    payment.status === "authorized" &&
+    order.stripe_payment_intent_status === "requires_capture";
+  const canSyncPayment = Boolean(
+    order.payment_intent_id &&
+      (order.payment_status_source === "stripe_lookup_failed" ||
+        (order.stripe_payment_intent_status === "succeeded" &&
+          order.status !== "captured" &&
+          order.status !== "completed")),
+  );
+  const showPaymentCard = shouldShowPaymentOperationalCard({
+    paymentStatus: payment.status,
+    stripePaymentIntentStatus: order.stripe_payment_intent_status,
+    hasPaymentAction: canCapturePayment || canSyncPayment,
+  });
 
   return (
     <article
@@ -1816,18 +1834,18 @@ function ActiveOrderCard({
                   )}
                 </div>
 
-                <div style={mutedPanelStyle()}>
-                  <div style={{ opacity: 0.62, fontSize: 10 }}>PAYMENT</div>
-                  <strong>{payment.label}</strong>
-                  <div style={{ opacity: 0.72, fontSize: 11 }}>
-                    {formatMoney(
-                      payment.status === "captured"
-                        ? order.stripe_captured_amount_cents ?? order.total_amount_cents
-                        : order.stripe_authorized_amount_cents ?? order.total_amount_cents,
-                    )}
-                  </div>
-                  {payment.status === "authorized" &&
-                    order.stripe_payment_intent_status === "requires_capture" && (
+                {showPaymentCard && (
+                  <div style={mutedPanelStyle()}>
+                    <div style={{ opacity: 0.62, fontSize: 10 }}>PAYMENT</div>
+                    <strong>{payment.label}</strong>
+                    <div style={{ opacity: 0.72, fontSize: 11 }}>
+                      {formatMoney(
+                        payment.status === "captured"
+                          ? order.stripe_captured_amount_cents ?? order.total_amount_cents
+                          : order.stripe_authorized_amount_cents ?? order.total_amount_cents,
+                      )}
+                    </div>
+                    {canCapturePayment && (
                       <button
                         type="button"
                         disabled={savingOrderId === order.id}
@@ -1837,11 +1855,7 @@ function ActiveOrderCard({
                         Capture payment
                       </button>
                     )}
-                  {order.payment_intent_id &&
-                    (order.payment_status_source === "stripe_lookup_failed" ||
-                      (order.stripe_payment_intent_status === "succeeded" &&
-                        order.status !== "captured" &&
-                        order.status !== "completed")) && (
+                    {canSyncPayment && (
                       <button
                         type="button"
                         disabled={savingOrderId === order.id}
@@ -1851,7 +1865,8 @@ function ActiveOrderCard({
                         Sync payment status
                       </button>
                     )}
-                </div>
+                  </div>
+                )}
 
                 <div style={mutedPanelStyle()}>
                   <div style={{ opacity: 0.62, fontSize: 10 }}>SUPPLIER</div>

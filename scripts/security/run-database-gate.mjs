@@ -387,7 +387,11 @@ async function testCommerceReverse(client, connectionConfig) {
   };
 }
 
-async function testPrescriptionHandoffMigration(client, applied) {
+async function testPrescriptionHandoffMigration(
+  client,
+  applied,
+  connectionConfig,
+) {
   await applySqlFile(
     client,
     path.join(
@@ -441,6 +445,11 @@ async function testPrescriptionHandoffMigration(client, applied) {
       version: "20260811023838",
       name: "prescription_mobile_handoffs",
     },
+    {
+      file: "20260925022305_add_order_recovery_email_send_claims.sql",
+      version: "20260925022305",
+      name: "add_order_recovery_email_send_claims",
+    },
   ];
 
   for (const migration of operationalMigrations) {
@@ -464,6 +473,86 @@ async function testPrescriptionHandoffMigration(client, applied) {
   const rawExpiredToken = "C".repeat(43);
   const hashToken = (token) =>
     createHash("sha256").update(token, "utf8").digest("hex");
+
+  const recoveryClaimEmail = "recovery-claim@example.test";
+  const firstRecoveryClaim = await executeAs(
+    client,
+    "service_role",
+    `select * from public.claim_order_recovery_email_send($1, $2, $3, $4)`,
+    [orderId, recoveryClaimEmail, "order_recovery", 900],
+  );
+  assert(firstRecoveryClaim.rowCount === 1, "first recovery send was not claimed");
+
+  const immediateRecoveryClaim = await executeAs(
+    client,
+    "service_role",
+    `select * from public.claim_order_recovery_email_send($1, $2, $3, $4)`,
+    [orderId, recoveryClaimEmail, "order_recovery", 900],
+  );
+  assert(
+    immediateRecoveryClaim.rowCount === 0,
+    "an immediate repeat recovery send was claimed",
+  );
+
+  const concurrentEmail = "recovery-concurrent@example.test";
+  const concurrentClaimClients = [
+    new Client(connectionConfig),
+    new Client(connectionConfig),
+  ];
+  try {
+    await Promise.all(concurrentClaimClients.map((candidate) => candidate.connect()));
+    await Promise.all(
+      concurrentClaimClients.map((candidate) =>
+        candidate.query("set role service_role"),
+      ),
+    );
+    const concurrentClaims = await Promise.all(
+      concurrentClaimClients.map((candidate) =>
+        candidate.query(
+          `select * from public.claim_order_recovery_email_send($1, $2, $3, $4)`,
+          [orderId, concurrentEmail, "order_recovery", 900],
+        ),
+      ),
+    );
+    assert(
+      concurrentClaims.reduce((count, result) => count + result.rowCount, 0) === 1,
+      "concurrent recovery requests did not produce exactly one send claim",
+    );
+  } finally {
+    await Promise.all(
+      concurrentClaimClients.map((candidate) => candidate.end().catch(() => {})),
+    );
+  }
+
+  await client.query(
+    `update security_private.order_recovery_email_send_claims
+     set claimed_at = clock_timestamp() - interval '16 minutes'
+     where order_id = $1 and recipient_email = $2 and email_type = $3`,
+    [orderId, recoveryClaimEmail, "order_recovery"],
+  );
+  const laterRecoveryClaim = await executeAs(
+    client,
+    "service_role",
+    `select * from public.claim_order_recovery_email_send($1, $2, $3, $4)`,
+    [orderId, recoveryClaimEmail, "order_recovery", 900],
+  );
+  assert(
+    laterRecoveryClaim.rowCount === 1,
+    "a legitimate recovery send was not claimable after the cooldown",
+  );
+
+  await expectDenied(
+    client,
+    "anon",
+    `select * from public.claim_order_recovery_email_send($1, $2, $3, $4)`,
+    [orderId, "denied@example.test", "order_recovery", 900],
+  );
+  await expectDenied(
+    client,
+    "authenticated",
+    `select * from public.claim_order_recovery_email_send($1, $2, $3, $4)`,
+    [orderId, "denied@example.test", "order_recovery", 900],
+  );
 
   await client.query("begin");
   try {
@@ -1435,6 +1524,7 @@ async function runGate(client, connectionConfig) {
   const prescriptionHandoff = await testPrescriptionHandoffMigration(
     client,
     applied,
+    connectionConfig,
   );
 
   return {
@@ -1469,6 +1559,12 @@ async function runGate(client, connectionConfig) {
     },
     storage: storageBucket.rows[0],
     rateLimitDecisions: rateLimitResult.rows[0].decisions,
+    recoveryEmailSendClaims: {
+      immediateRepeatSuppressed: true,
+      concurrentRequestsProducedOneClaim: true,
+      laterRequestAllowedAfterCooldown: true,
+      browserDirectAccessRejected: true,
+    },
     advisorEquivalent: advisorEquivalent.rows[0],
     defaultPrivileges: defaultPrivilegeAudit.rows[0],
     productionPreparationPackage: {
