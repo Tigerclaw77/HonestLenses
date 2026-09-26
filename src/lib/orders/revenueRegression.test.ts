@@ -3,6 +3,8 @@ import type Stripe from "stripe";
 import { lenses } from "@/LensCore";
 import { resolveBrand } from "@/lib/resolveBrand";
 import { resolveSkuSelection } from "@/lib/cart/resolveSkuSelection";
+import { getPackSizeFromSku } from "@/lib/cart/skuPackSize";
+import { getLensSkus } from "@/lib/pricing/getLensSkus";
 import { getPackSizeOptionsForCoreId } from "@/lib/pricing/packSizeOptions";
 import { getAuthoritativeOrderQuote } from "./orderPricing";
 import { getCheckoutAmountCents, checkoutAmountMatchesPaymentIntent } from "@/lib/payments/checkoutAmount";
@@ -57,12 +59,28 @@ for (const core of ["OASYS_1D","OASYS_MAX_1D","OASYS_2W","DT1","TOTAL30","BIOTRU
   const lens=lenses.find(l=>l.coreId===core)!;
   assert.equal(resolveBrand({rawString:lens.displayName},lenses).lensId,core,`${core} exact family identity`);
 }
+for (const lens of lenses) {
+  for (const sku of getLensSkus(lens)) {
+    const packSize = getPackSizeFromSku(sku);
+    assert.ok(packSize, `${sku} has a catalog pack size`);
+    const resolved = resolveBrand({
+      rawString: `${lens.displayName} ${packSize}PK`,
+      hasCyl: lens.type.toric,
+      hasAdd: lens.type.multifocal,
+      bc: lens.parameters.baseCurve?.[0] ?? null,
+      dia: lens.parameters.diameter?.[0] ?? null,
+    }, lenses);
+    assert.equal(resolved.lensId, lens.coreId, `${sku} pack text preserves exact clinical identity`);
+    assert.equal(resolved.confidence, "high", `${sku} pack text remains high confidence`);
+  }
+}
 assert.throws(()=>getAuthoritativeOrderQuote({sku:"OASYS_1D_90",totalBoxes:3,rightBoxCount:1,leftBoxCount:1}),/quantities/);
 
 async function main() {
   process.env.NEXT_PUBLIC_SUPABASE_URL="https://example.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY="test-only"; process.env.STRIPE_SECRET_KEY="sk_test_unit_only";
   process.env.RESEND_API_KEY="re_unit_only"; process.env.ORDER_RESUME_TOKEN_SECRET="test-only-receipt-secret";
+  process.env.ORDER_ACCESS_TOKEN_SECRET="test-only-order-access-secret-0001";
   let emails=0;
   globalThis.fetch=async (input,options)=>{
     assert.equal(String(input),"https://api.resend.com/emails","Every other network call is forbidden");

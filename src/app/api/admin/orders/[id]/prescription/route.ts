@@ -9,6 +9,11 @@ import { isPrescriptionAcceptanceAvailable } from "@/lib/orders/adminWorkflow";
 import { getVerificationState } from "@/lib/orders/getNextAction";
 import { supabaseServer } from "@/lib/supabase-server";
 
+type PrescriptionActionBody = {
+  action?: unknown;
+  confirmed?: unknown;
+};
+
 export async function POST(
   req: Request,
   context: { params: Promise<{ id: string }> },
@@ -20,6 +25,23 @@ export async function POST(
   }
 
   const { id } = await context.params;
+  const body = (await req.json().catch(() => ({}))) as PrescriptionActionBody;
+  if (body.action !== "accept") {
+    return NextResponse.json(
+      { error: "Invalid prescription action." },
+      { status: 400 },
+    );
+  }
+  if (body.confirmed !== true) {
+    return NextResponse.json(
+      {
+        error: "Explicit operator confirmation is required.",
+        code: "OPERATOR_CONFIRMATION_REQUIRED",
+      },
+      { status: 409 },
+    );
+  }
+
   const { data: order, error } = await supabaseServer
     .from("orders")
     .select(
@@ -40,46 +62,38 @@ export async function POST(
   }
   if (!isPrescriptionAcceptanceAvailable(order)) {
     return NextResponse.json(
-      { error: "Prescription evidence or prescriber information is required." },
+      {
+        error: "No reviewable prescription decision is available for operator acceptance.",
+        code: "PRESCRIPTION_DECISION_NOT_REVIEWABLE",
+      },
       { status: 409 },
     );
   }
 
-  const completedAt = new Date().toISOString();
-  const { data: updatedOrder, error: updateError } = await supabaseServer
-    .from("orders")
-    .update({
-      verification_status: "verified",
-      verification_passed: true,
-      verification_completed_at: completedAt,
-      updated_at: completedAt,
-    })
-    .eq("id", id)
-    .select("*")
-    .maybeSingle();
+  const actor = auth.user.email ?? auth.user.id;
+  const { data: result, error: updateError } = await supabaseServer.rpc(
+    "apply_admin_prescription_acceptance",
+    {
+      p_order_id: id,
+      p_actor: actor,
+      p_confirmed: true,
+    },
+  );
+  const outcome = result as {
+    order?: typeof order;
+    already_done?: boolean;
+    event_logged?: boolean;
+  } | null;
 
-  if (updateError || !updatedOrder) {
+  if (updateError || !outcome?.order) {
     return NextResponse.json({ error: "Unable to accept the prescription." }, { status: 500 });
   }
 
-  const actor = auth.user.email ?? auth.user.id;
-  const { error: eventError } = await supabaseServer.from("order_events").insert({
-    order_id: id,
-    event_type: "admin_prescription_accepted",
-    actor,
-    message: "Authenticated operator accepted the prescription for fulfillment.",
-    before: {
-      verification_status: order.verification_status,
-      verification_passed: order.verification_passed,
-    },
-    after: { verification_status: "verified", verification_passed: true },
-  });
-
   return NextResponse.json({
     ok: true,
-    already_done: false,
-    order: updatedOrder,
-    event_logged: !eventError,
+    already_done: outcome.already_done === true,
+    order: outcome.order,
+    event_logged: outcome.event_logged !== false,
   });
 }
 

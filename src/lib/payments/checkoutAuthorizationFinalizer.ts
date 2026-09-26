@@ -12,14 +12,17 @@ import {
   VERIFICATION_INFORMATION_NEEDED_STATUS,
 } from "@/lib/orders/verificationReadiness";
 import {
-  evaluateUploadedRxAutomation,
+  evaluateUploadedRxAutomationWithProductFallback,
   isCompletedUploadedRxFinalization,
+  isPersistedUploadedRxReview,
   runUploadedRxAutomation,
   uploadedRxFinalizationAllowedOrderStatuses,
   uploadedRxFinalizationOutcome,
+  uploadedRxFailureStage,
   uploadedRxReviewStatus,
   type UploadedRxAutomationDecision,
 } from "@/lib/orders/uploadedRxAutomation";
+import { resolveBrandAI } from "@/lib/server/resolveBrandAI";
 import {
   processPostAuthorizationNotifications,
   type PostAuthorizationNotificationOrder,
@@ -212,6 +215,22 @@ export async function finalizeCheckoutAuthorization({
     };
   }
 
+  if (
+    isPersistedUploadedRxReview(
+      orderStatus,
+      verificationStatus,
+      getString(orderRaw, "rx_status"),
+    )
+  ) {
+    return {
+      ok: true,
+      orderId,
+      next: "success",
+      mode: "uploaded_review",
+      idempotent: true,
+    };
+  }
+
   const isUploaded = Boolean(orderRaw.rx_upload_path);
   let uploadedAutomation: UploadedRxAutomationDecision | null = null;
   let uploadedCapture: {
@@ -224,7 +243,7 @@ export async function finalizeCheckoutAuthorization({
       const automationRun = await runUploadedRxAutomation(
         orderRaw,
         intent.status,
-        () =>
+        (decision) =>
           captureAuthorizedOrderPayment(
             {
               id: orderId,
@@ -249,12 +268,23 @@ export async function finalizeCheckoutAuthorization({
                 | undefined,
             },
             "uploaded-rx-automation",
+            {
+              uploadedRxProductResolutions:
+                decision.evidence.aiResolvedProducts,
+            },
           ),
+        new Date(),
+        resolveBrandAI,
       );
       uploadedAutomation = automationRun.decision;
       uploadedCapture = automationRun.capture;
     } else {
-      uploadedAutomation = evaluateUploadedRxAutomation(orderRaw, intent.status);
+      uploadedAutomation =
+        await evaluateUploadedRxAutomationWithProductFallback(
+          orderRaw,
+          intent.status,
+          resolveBrandAI,
+        );
     }
   }
 
@@ -423,6 +453,9 @@ export async function finalizeCheckoutAuthorization({
         status: nextStatus,
         verification_status: nextVerificationStatus,
         reason: uploadedAutomation.reason,
+        stage: uploadedAutomation.autoVerify
+          ? "complete"
+          : uploadedRxFailureStage(uploadedAutomation.reason),
         error_code:
           !uploadedAutomation.autoVerify
             ? uploadedAutomation.errorCode ?? null

@@ -1,6 +1,8 @@
 import { lenses } from "@/LensCore";
 import { resolveBrand } from "@/lib/resolveBrand";
 import { hasUnresolvedProductMismatch } from "./productSelection";
+import { prescriptionAddsEquivalent } from "./prescriptionAdd";
+import { hasMultifocalProductSignal } from "./ocrPrescription";
 
 export const UPLOADED_RX_AUTO_VERIFY_MIN_CONFIDENCE = 0.95;
 export const UPLOADED_RX_CAPTURE_FAILURE_CODE = "uploaded_rx_capture_failed";
@@ -74,10 +76,23 @@ export type UploadedRxAutomationEvidence = {
   ocrConfidence: number | null;
   checkedEyes: Array<"right" | "left">;
   resolvedProducts: Partial<Record<"right" | "left", string>>;
+  aiResolvedProducts: UploadedRxProductResolutions;
+  productFallback: Partial<
+    Record<"right" | "left", "resolved" | "no_candidates" | "no_match" | "error">
+  >;
   expiration: string | null;
   patientMatched: boolean;
   prescriberMatched: boolean;
 };
+
+export type UploadedRxProductResolutions = Partial<
+  Record<"right" | "left", { rawString: string; coreId: string }>
+>;
+
+export type UploadedRxProductResolver = (
+  rawString: string,
+  candidates: Array<{ coreId: string; label: string }>,
+) => Promise<string | null>;
 
 export type UploadedRxCaptureResult = {
   paymentIntentId: string;
@@ -118,6 +133,19 @@ export function isCompletedUploadedRxFinalization(
     orderStatus === "captured" &&
     verificationStatus === "auto_verified" &&
     rxStatus === "auto_verified"
+  );
+}
+
+export function isPersistedUploadedRxReview(
+  orderStatus: string | null,
+  verificationStatus: string | null,
+  rxStatus: string | null,
+): boolean {
+  return (
+    orderStatus === "authorized" &&
+    (verificationStatus === "requires_review" ||
+      verificationStatus === "information_needed") &&
+    Boolean(rxStatus?.startsWith("automation_review_"))
   );
 }
 
@@ -181,6 +209,15 @@ function numbersMatch(a: unknown, b: unknown): boolean {
   return left !== null && right !== null && Math.abs(left - right) < 0.001;
 }
 
+function hasToricSignal(eye: UnknownRecord): boolean {
+  const cylinder = number(eye.cylinder);
+  const axis = number(eye.axis);
+  return (
+    (cylinder !== null && Math.abs(cylinder) > 0.001) ||
+    (axis !== null && Math.abs(axis) > 0.001)
+  );
+}
+
 function isoDate(value: unknown): string | null {
   const candidate = text(value);
   if (!candidate || !/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return null;
@@ -213,6 +250,8 @@ function emptyEvidence(): UploadedRxAutomationEvidence {
     ocrConfidence: null,
     checkedEyes: [],
     resolvedProducts: {},
+    aiResolvedProducts: {},
+    productFallback: {},
     expiration: null,
     patientMatched: false,
     prescriberMatched: false,
@@ -233,6 +272,7 @@ function compareEye(
   ocrEye: UnknownRecord,
   topLevelBrand: string | null,
   evidence: UploadedRxAutomationEvidence,
+  productResolutions: UploadedRxProductResolutions,
 ): UploadedRxAutomationDecision | null {
   const coreId = text(confirmedEye.coreId);
   const lens = coreId ? lenses.find((candidate) => candidate.coreId === coreId) : null;
@@ -244,12 +284,7 @@ function compareEye(
     );
   }
 
-  if (
-    !lens.type.toric &&
-    ((number(ocrEye.cylinder) !== null &&
-      Math.abs(number(ocrEye.cylinder) ?? 0) > 0.001) ||
-      number(ocrEye.axis) !== null)
-  ) {
+  if (!lens.type.toric && hasToricSignal(ocrEye)) {
     return review(
       "parameter_mismatch",
       `${eyeName} eye contains toric parameters for a non-toric product.`,
@@ -276,33 +311,42 @@ function compareEye(
   const resolved = resolveBrand(
     {
       rawString: brandRaw,
-      hasCyl: number(ocrEye.cylinder) !== null,
-      hasAdd: text(ocrEye.add) !== null,
+      hasCyl: hasToricSignal(ocrEye),
+      hasAdd:
+        text(ocrEye.add) !== null || hasMultifocalProductSignal(brandRaw),
       bc: number(ocrEye.baseCurve),
       dia: number(ocrEye.diameter),
     },
     lenses,
   );
-  const resolvedLens = resolved.lensId
+  const deterministicallyResolvedLens = resolved.lensId
     ? lenses.find((candidate) => candidate.coreId === resolved.lensId)
     : null;
   const exactCatalogName = Boolean(
-    resolvedLens &&
+    deterministicallyResolvedLens &&
       normalizeProductName(brandRaw) ===
-        normalizeProductName(resolvedLens.displayName),
+        normalizeProductName(deterministicallyResolvedLens.displayName),
   );
-  if (
-    !resolved.lensId ||
-    (resolved.confidence !== "high" && !exactCatalogName)
-  ) {
+  let resolvedLensId =
+    resolved.lensId && (resolved.confidence === "high" || exactCatalogName)
+      ? resolved.lensId
+      : null;
+  if (!resolvedLensId) {
+    const aiResolution = productResolutions[eyeName];
+    if (aiResolution?.rawString === brandRaw) {
+      resolvedLensId = aiResolution.coreId;
+      evidence.aiResolvedProducts[eyeName] = aiResolution;
+    }
+  }
+  if (!resolvedLensId) {
     return review(
       "product_unresolved",
       `${eyeName} eye product could not be resolved with high confidence.`,
       evidence,
     );
   }
-  evidence.resolvedProducts[eyeName] = resolved.lensId;
-  if (resolved.lensId !== coreId) {
+  evidence.resolvedProducts[eyeName] = resolvedLensId;
+  if (resolvedLensId !== coreId) {
     return review(
       "product_mismatch",
       `${eyeName} eye confirmed product does not match the uploaded prescription.`,
@@ -332,9 +376,7 @@ function compareEye(
   }
 
   if (lens.type.multifocal) {
-    const confirmedAdd = text(confirmedEye.add)?.toLowerCase();
-    const ocrAdd = text(ocrEye.add)?.toLowerCase();
-    if (!confirmedAdd || !ocrAdd || confirmedAdd !== ocrAdd) {
+    if (!prescriptionAddsEquivalent(confirmedEye.add, ocrEye.add)) {
       return review(
         "parameter_mismatch",
         `${eyeName} eye add power does not match.`,
@@ -373,6 +415,7 @@ export function evaluateUploadedRxAutomation(
   order: UploadedRxAutomationOrder,
   stripeStatus: string | null | undefined,
   now = new Date(),
+  productResolutions: UploadedRxProductResolutions = {},
 ): UploadedRxAutomationDecision {
   const evidence = emptyEvidence();
 
@@ -512,6 +555,7 @@ export function evaluateUploadedRxAutomation(
       ocrEye,
       topLevelBrand,
       evidence,
+      productResolutions,
     );
     if (mismatch) return mismatch;
   }
@@ -527,21 +571,158 @@ export function evaluateUploadedRxAutomation(
   return { autoVerify: true, reason: "all_checks_passed", evidence };
 }
 
+function clinicallyCompatibleProductCandidates(
+  ocrEye: UnknownRecord,
+  brandRaw: string,
+): Array<{ coreId: string; label: string }> {
+  const hasCyl = hasToricSignal(ocrEye);
+  const hasAdd =
+    text(ocrEye.add) !== null || hasMultifocalProductSignal(brandRaw);
+  const baseCurve = number(ocrEye.baseCurve);
+  const diameter = number(ocrEye.diameter);
+
+  return lenses
+    .filter(
+      (lens) =>
+        lens.type.toric === hasCyl &&
+        lens.type.multifocal === hasAdd &&
+        (baseCurve === null ||
+          (lens.parameters.baseCurve ?? []).includes(baseCurve)) &&
+        (diameter === null ||
+          (lens.parameters.diameter ?? []).includes(diameter)),
+    )
+    .map((lens) => ({ coreId: lens.coreId, label: lens.displayName.trim() }));
+}
+
+export async function evaluateUploadedRxAutomationWithProductFallback(
+  order: UploadedRxAutomationOrder,
+  stripeStatus: string | null | undefined,
+  resolveProduct: UploadedRxProductResolver,
+  now = new Date(),
+): Promise<UploadedRxAutomationDecision> {
+  const deterministic = evaluateUploadedRxAutomation(order, stripeStatus, now);
+  if (deterministic.autoVerify || deterministic.reason !== "product_unresolved") {
+    return deterministic;
+  }
+  if (!isRecord(order.rx) || !isRecord(order.rx_ocr_raw)) return deterministic;
+
+  const confirmed = order.rx;
+  const ocr = order.rx_ocr_raw;
+  const topLevelBrand = text(ocr.brand_raw);
+  const productResolutions: UploadedRxProductResolutions = {};
+
+  for (const eyeName of ["right", "left"] as const) {
+    const confirmedEye = confirmed[eyeName];
+    const ocrEye = ocr[eyeName];
+    if (!isRecord(confirmedEye) || !isRecord(ocrEye)) continue;
+
+    const brandRaw = text(ocrEye.brand_raw) ?? topLevelBrand;
+    if (!brandRaw) continue;
+    const resolved = resolveBrand(
+      {
+        rawString: brandRaw,
+        hasCyl: hasToricSignal(ocrEye),
+        hasAdd:
+          text(ocrEye.add) !== null || hasMultifocalProductSignal(brandRaw),
+        bc: number(ocrEye.baseCurve),
+        dia: number(ocrEye.diameter),
+      },
+      lenses,
+    );
+    const resolvedLens = resolved.lensId
+      ? lenses.find((candidate) => candidate.coreId === resolved.lensId)
+      : null;
+    const exactCatalogName = Boolean(
+      resolvedLens &&
+        normalizeProductName(brandRaw) ===
+          normalizeProductName(resolvedLens.displayName),
+    );
+    if (resolved.lensId && (resolved.confidence === "high" || exactCatalogName)) {
+      continue;
+    }
+
+    const candidates = clinicallyCompatibleProductCandidates(ocrEye, brandRaw);
+    if (!candidates.length) {
+      deterministic.evidence.productFallback[eyeName] = "no_candidates";
+      continue;
+    }
+    try {
+      const coreId = await resolveProduct(brandRaw, candidates);
+      if (coreId && candidates.some((candidate) => candidate.coreId === coreId)) {
+        productResolutions[eyeName] = { rawString: brandRaw, coreId };
+        deterministic.evidence.productFallback[eyeName] = "resolved";
+      } else {
+        deterministic.evidence.productFallback[eyeName] = "no_match";
+      }
+    } catch (error) {
+      deterministic.evidence.productFallback[eyeName] = "error";
+      console.error("Uploaded-Rx product fallback failed", {
+        orderId: text(order.id) ?? "unknown",
+        error: error instanceof Error ? error.message : "Unknown resolver failure",
+      });
+      return deterministic;
+    }
+  }
+
+  if (!Object.keys(productResolutions).length) return deterministic;
+  const reevaluated = evaluateUploadedRxAutomation(
+    order,
+    stripeStatus,
+    now,
+    productResolutions,
+  );
+  reevaluated.evidence.productFallback = {
+    ...deterministic.evidence.productFallback,
+  };
+  return reevaluated;
+}
+
 export function uploadedRxReviewStatus(reason: UploadedRxExceptionReason): string {
   return `automation_review_${reason}`;
+}
+
+export function uploadedRxFailureStage(
+  reason: UploadedRxExceptionReason,
+): string {
+  if (reason === "missing_upload_evidence") return "upload_evidence";
+  if (reason === "customer_confirmation_missing") return "customer_confirmation";
+  if (reason.startsWith("ocr_")) return "ocr_extraction";
+  if (reason === "prescription_expired" || reason === "expiration_mismatch") {
+    return "expiration_validation";
+  }
+  if (reason.startsWith("patient_") || reason.startsWith("prescriber_")) {
+    return "identity_validation";
+  }
+  if (reason === "product_unresolved" || reason === "product_mismatch") {
+    return "product_matching";
+  }
+  if (reason === "parameter_mismatch") return "parameter_validation";
+  if (reason === "payment_not_capturable") return "payment_readiness";
+  if (reason === "automation_capture_failed") return "payment_capture";
+  return "state_persistence";
 }
 
 export async function runUploadedRxAutomation(
   order: UploadedRxAutomationOrder,
   stripeStatus: string | null | undefined,
-  capture: () => Promise<UploadedRxCaptureResult>,
+  capture: (
+    decision: Extract<UploadedRxAutomationDecision, { autoVerify: true }>,
+  ) => Promise<UploadedRxCaptureResult>,
   now = new Date(),
+  resolveProduct?: UploadedRxProductResolver,
 ): Promise<UploadedRxAutomationRun> {
-  const decision = evaluateUploadedRxAutomation(order, stripeStatus, now);
+  const decision = resolveProduct
+    ? await evaluateUploadedRxAutomationWithProductFallback(
+        order,
+        stripeStatus,
+        resolveProduct,
+        now,
+      )
+    : evaluateUploadedRxAutomation(order, stripeStatus, now);
   if (!decision.autoVerify) return { decision, capture: null };
 
   try {
-    return { decision, capture: await capture() };
+    return { decision, capture: await capture(decision) };
   } catch (error) {
     const detail =
       error instanceof Error ? error.message : "Automated capture failed.";

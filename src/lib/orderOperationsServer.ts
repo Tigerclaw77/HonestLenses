@@ -11,8 +11,11 @@ import { isExplicitDraftOrTest } from "./orders/operationalQueue";
 type Order=RecoveryOrder & {user_id?:string|null};
 type Delivery={id:string;order_id:string;email:string;touch_hours:number;expires_at:string;state:string;customer_name:string|null;postal_address:string|null;first_attempt_at:string|null};
 function check(error:unknown) { if(error) throw new Error("Order operations database unavailable",{cause:error}); }
-export async function operationsControl() {
-  const {data,error}=await db.from("order_operations_control").select("*").eq("id",true).single();check(error);return data;
+export async function operationsControl():Promise<{recovery_enabled:boolean;postal_address:string|null}> {
+  const {data,error}=await db.from("order_operations_control").select("recovery_enabled,postal_address").eq("id",true).single();
+  check(error);
+  if(!data)throw new Error("Order operations control row unavailable");
+  return data;
 }
 export async function loadOperationsOrders():Promise<Order[]> {
   const all:Order[]=[];
@@ -42,7 +45,7 @@ export async function processRecovery(order:Order,all:Order[],send:typeof sendEm
   if(!control.postal_address?.trim())throw new Error('Recovery postal address required');
   const touch=retryTouch??recoveryTouchDue(order);
   if(!touch)return 'ineligible';
-  const lookup=await db.from('recovery_touch_drafts').select('*').eq('order_id',order.id).eq('touch_hours',touch).maybeSingle<Delivery>();check(lookup.error);
+  const lookup=await db.from('recovery_touch_drafts').select('id,order_id,email,touch_hours,expires_at,state,customer_name,postal_address,first_attempt_at,last_attempt_at').eq('order_id',order.id).eq('touch_hours',touch).maybeSingle<Delivery>();check(lookup.error);
   let delivery=lookup.data;
   if(delivery?.state==='sending' && delivery.first_attempt_at && Date.now()-Date.parse(delivery.first_attempt_at)>=23*3_600_000) {
     const result=await db.from('recovery_touch_drafts').update({state:'needs_review',last_error:'Provider outcome uncertain; automatic retry stopped before 24-hour idempotency expiry.'}).eq('id',delivery.id).eq('state','sending');check(result.error);return 'needs_review';
@@ -62,7 +65,7 @@ export async function processRecovery(order:Order,all:Order[],send:typeof sendEm
     const id=randomUUID(),expires=new Date(Date.now()+7*86_400_000).toISOString();
     const inserted=await db.from('recovery_touch_drafts').insert({id,order_id:order.id,touch_hours:touch,email:normalizeRecoveryEmail(order.shipping_email!),
       expires_at:expires,token_hash:hashOrderResumeToken(deliveryToken(id,expires)),activity_at:order.updated_at??order.created_at,
-      customer_name:order.shipping_first_name,postal_address:control.postal_address}).select('*').single<Delivery>();
+      customer_name:order.shipping_first_name,postal_address:control.postal_address}).select('id,order_id,email,touch_hours,expires_at,state,customer_name,postal_address,first_attempt_at,last_attempt_at').single<Delivery>();
     if(inserted.error?.code==='23505')return 'duplicate';check(inserted.error);delivery=inserted.data;
   }
   if(!delivery)return 'duplicate';

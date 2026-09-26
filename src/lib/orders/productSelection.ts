@@ -1,6 +1,7 @@
 import { lenses } from "@/LensCore";
 import { resolveBrand } from "@/lib/resolveBrand";
 import { getLensSkus } from "@/lib/pricing/getLensSkus";
+import { hasMultifocalProductSignal } from "./ocrPrescription";
 
 type RecordValue = Record<string, unknown>;
 export function record(value: unknown): RecordValue {
@@ -29,7 +30,9 @@ export function prescribedProducts(raw: unknown): Partial<Record<"right" | "left
     if (!ocr[name] || typeof brand !== "string") continue;
     const result = resolveBrand({ rawString: brand,
       hasCyl: typeof eye.cylinder === "number" && eye.cylinder !== 0,
-      hasAdd: typeof eye.add === "string" && Boolean(eye.add.trim()),
+      hasAdd:
+        (typeof eye.add === "string" && Boolean(eye.add.trim())) ||
+        hasMultifocalProductSignal(brand),
       bc: typeof eye.baseCurve === "number" ? eye.baseCurve : null,
       dia: typeof eye.diameter === "number" ? eye.diameter : null }, lenses);
     if (result.lensId && result.confidence === "high") products[name] = result.lensId;

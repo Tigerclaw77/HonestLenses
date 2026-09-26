@@ -21,6 +21,32 @@ type PatchBody = {
   resolve_email_attention?: unknown;
 };
 
+const ADMIN_ORDER_DETAIL_FIELDS = [
+  "id", "created_at", "updated_at", "user_id", "status", "verification_status",
+  "verification_requested_at", "verification_completed_at", "verification_sent_at",
+  "verification_details_submitted_at", "rx_status", "rx", "rx_ocr_raw", "rx_source",
+  "rx_upload_path", "rx_lens_brand", "prescriber_name",
+  "prescriber_email", "prescriber_phone", "prescriber_fax", "shipping_email",
+  "shipping_first_name", "shipping_last_name", "shipping_phone", "shipping_address1",
+  "shipping_address2", "shipping_city", "shipping_state", "shipping_zip", "patient_name",
+  "patient_full_name", "patient_first_name", "patient_middle_name", "patient_last_name",
+  "rx_patient_name", "sku", "box_count", "total_box_count", "right_box_count", "left_box_count",
+  "adjusted_right_box_count", "adjusted_left_box_count",
+  "adjusted_total_box_count", "order_quantity_adjustment_reason", "order_quantity_adjusted_by",
+  "order_quantity_adjusted_at", "total_amount_cents", "capture_amount_cents",
+  "capture_adjustment_reason", "capture_adjusted_by", "capture_adjusted_at", "shipping_cents",
+  "shipping_method", "payment_intent_id", "fulfillment_status", "email_delivery_status", "email_last_event",
+  "email_last_event_at", "email_failure_reason", "email_delivery_requires_attention",
+  "confirmation_email_sent_at", "confirmation_email_delivered_at", "admin_notes", "archived",
+  "archived_at",
+].join(",");
+
+const ADMIN_ORDER_PATCH_FIELDS = [
+  "id", "updated_at", "status", "fulfillment_status", "payment_intent_id",
+  "email_delivery_requires_attention", "admin_notes", "adjusted_right_box_count",
+  "adjusted_left_box_count", "adjusted_total_box_count", "capture_amount_cents",
+].join(",");
+
 async function parseBody(req: NextRequest): Promise<PatchBody> {
   try {
     const value = (await req.json()) as PatchBody;
@@ -28,6 +54,28 @@ async function parseBody(req: NextRequest): Promise<PatchBody> {
   } catch {
     return {};
   }
+}
+
+export async function GET(
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> },
+) {
+  const auth = await requireAdminUser(req);
+  if (!auth.ok) {
+    logAdminAuthFailure("GET /api/admin/orders/[id]", auth);
+    return adminAuthErrorResponse(auth);
+  }
+
+  const { id } = await context.params;
+  const { data, error } = await supabaseServer
+    .from("orders")
+    .select(ADMIN_ORDER_DETAIL_FIELDS as "*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) return NextResponse.json({ error: "Unable to load the order." }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "Order not found" }, { status: 404 });
+  return NextResponse.json({ order: data });
 }
 
 export async function PATCH(
@@ -82,6 +130,7 @@ export async function PATCH(
 
   const { data: currentOrder, error: currentOrderError } = await supabaseServer
     .from("orders")
+    // Action-only read: retain all inputs to payment/Rx/fulfillment safety checks.
     .select("*")
     .eq("id", id)
     .maybeSingle();
@@ -182,7 +231,7 @@ export async function PATCH(
     .from("orders")
     .update(update)
     .eq("id", id)
-    .select("*")
+    .select(ADMIN_ORDER_PATCH_FIELDS as "*")
     .maybeSingle();
 
   if (error) {

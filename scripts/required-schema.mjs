@@ -1,3 +1,24 @@
+import { readFileSync } from "node:fs";
+
+// Validate the projections actually shipped by the admin routes.
+export function readAdminOrderProjections() {
+  const projections = {};
+  for (const [file, names] of [
+    ["../src/app/api/admin/orders/route.ts", ["ADMIN_ORDER_LIST_FIELDS"]],
+    ["../src/app/api/admin/orders/[id]/route.ts", ["ADMIN_ORDER_DETAIL_FIELDS", "ADMIN_ORDER_PATCH_FIELDS"]],
+  ]) {
+    const source = readFileSync(new URL(file, import.meta.url), "utf8");
+    for (const name of names) {
+      const match = source.match(new RegExp(`const ${name} = \\[([\\s\\S]*?)\\]\\.join\\(","\\)`));
+      if (!match) throw new Error(`Unable to validate admin order projection: ${name}`);
+      const fields = [...match[1].matchAll(/"([a-z_][a-z0-9_]*)"/g)].map((item) => item[1]);
+      if (!fields.length) throw new Error(`Empty admin order projection: ${name}`);
+      projections[name] = fields.join(",");
+    }
+  }
+  return projections;
+}
+
 // Zero-row PostgREST probes validate the actual deployed schema and service grants.
 export const REQUIRED_SCHEMA = {
   orders: "id,status,sku,subtotal_cents,total_amount_cents,payment_intent_id,customer_order_number,confirmation_email_sent_at,archived,archived_at,fulfillment_status",
@@ -15,8 +36,11 @@ export const REQUIRED_SCHEMA = {
 export async function assertRequiredSchema(client) {
   const failures = [];
   for (const [table, columns] of Object.entries(REQUIRED_SCHEMA)) {
-    const { error } = await client.from(table).select(columns).limit(0);
+    const selected = table === "orders"
+      ? [...new Set([columns, ...Object.values(readAdminOrderProjections())].join(",").split(","))].join(",")
+      : columns;
+    const { error } = await client.from(table).select(selected).limit(0);
     if (error) failures.push(`${table}: ${error.code ?? "unknown"} ${error.message}`);
   }
-  if (failures.length) throw new Error(`REQUIRED PRODUCTION SCHEMA MISSING OR INACCESSIBLE. Apply and verify the corresponding migrations before deployment:\n${failures.join("\n")}`);
+  if (failures.length) throw new Error(`REQUIRED PRODUCTION SCHEMA MISSING OR INACCESSIBLE. Correct the query/schema mismatch or verify the corresponding migrations before deployment:\n${failures.join("\n")}`);
 }

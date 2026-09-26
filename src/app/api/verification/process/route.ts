@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   // "pending" remains here for older rows from the previous lifecycle.
   const { data: orders, error } = await supabaseServer
     .from("orders")
-    .select("*")
+    .select("id,status,verification_status,passive_deadline_at,rx,rx_upload_path,shipping_email,payment_intent_id,total_amount_cents,capture_amount_cents,subtotal_cents,shipping_cents,tax_cents,currency,sku,brand,created_at,updated_at" as "*")
     .in("status", ["authorized", "pending"])
     .eq("verification_status", "pending")
     .lte("passive_deadline_at", now);

@@ -1,5 +1,6 @@
 "use client";
 
+import { VISION_REIMBURSEMENT_MESSAGE } from "@/lib/visionReimbursement";
 import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { POSTHOG_EVENTS, track } from "@/lib/posthog/client";
@@ -306,10 +307,16 @@ export default function CheckoutSuccessPage() {
 
           <p className="hl-note">{noteText}</p>
 
-          <p className="hl-note" style={{ marginTop: 8 }}>
-            Need HSA/FSA or vision-plan documentation? Your secure order page
-            will provide an itemized receipt after payment is captured.
-          </p>
+          <section aria-labelledby="vision-reimbursement-heading" style={{ marginTop: 24 }}>
+            <h2 id="vision-reimbursement-heading" style={{ fontSize: 20 }}>
+              Have vision insurance?
+            </h2>
+            <p className="hl-note">{VISION_REIMBURSEMENT_MESSAGE}</p>
+            <p className="hl-note" style={{ marginTop: 8 }}>
+              Your secure order page will provide your itemized receipt after
+              payment is captured. Keep it for your records or HSA/FSA documentation.
+            </p>
+          </section>
 
           {deadlineDate && isPassive && (
             <p className="hl-note" style={{ marginTop: 6 }}>

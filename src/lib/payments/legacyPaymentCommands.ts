@@ -10,6 +10,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { hasUnresolvedProductMismatch, type ProductEvidenceOrder } from "@/lib/orders/productSelection";
 import { receiptMerchandiseSubtotal, type ReceiptOrderSource } from "@/lib/receipts/core";
 import { evaluateUploadedRxAutomation } from "@/lib/orders/uploadedRxAutomation";
+import type { UploadedRxProductResolutions } from "@/lib/orders/uploadedRxAutomation";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -32,6 +33,7 @@ type CaptureDependencies = {
   persistSubtotal?: (order: PaymentCommandOrder, subtotal: number) => Promise<void>;
   stripe?: LegacyStripeCommands;
   createReceiptSnapshot?: typeof ensureReceiptSnapshotWithoutAffectingPayment;
+  uploadedRxProductResolutions?: UploadedRxProductResolutions;
 };
 
 const CAPTURE_CONCURRENT_UPDATE_CODE = "capture_order_concurrent_update";
@@ -130,7 +132,15 @@ export async function captureAuthorizedOrderPayment(
     throw new Error(readiness.error ?? "Payment is not capturable");
   }
 
-  if (reason === "uploaded-rx-automation" && !evaluateUploadedRxAutomation(order, intent.status).autoVerify) {
+  if (
+    reason === "uploaded-rx-automation" &&
+    !evaluateUploadedRxAutomation(
+      order,
+      intent.status,
+      new Date(),
+      dependencies.uploadedRxProductResolutions,
+    ).autoVerify
+  ) {
     throw captureCommandError(
       UPLOADED_RX_NO_LONGER_ELIGIBLE_CODE,
       "Current uploaded prescription no longer passes automatic verification",
@@ -162,7 +172,12 @@ export async function captureAuthorizedOrderPayment(
     if (
       hasUnresolvedProductMismatch(order) ||
       (reason === "uploaded-rx-automation" &&
-        !evaluateUploadedRxAutomation(order, intent.status).autoVerify)
+        !evaluateUploadedRxAutomation(
+          order,
+          intent.status,
+          new Date(),
+          dependencies.uploadedRxProductResolutions,
+        ).autoVerify)
     ) {
       throw captureCommandError(
         UPLOADED_RX_NO_LONGER_ELIGIBLE_CODE,
@@ -192,7 +207,12 @@ export async function captureAuthorizedOrderPayment(
   }
   if (
     reason === "uploaded-rx-automation" &&
-    !evaluateUploadedRxAutomation(order, intent.status).autoVerify
+    !evaluateUploadedRxAutomation(
+      order,
+      intent.status,
+      new Date(),
+      dependencies.uploadedRxProductResolutions,
+    ).autoVerify
   ) {
     throw captureCommandError(
       UPLOADED_RX_NO_LONGER_ELIGIBLE_CODE,

@@ -19,6 +19,7 @@ import {
   isCustomerReceiptAvailable,
   type CustomerOrder,
 } from "@/lib/orders/customerOrder";
+import { VISION_REIMBURSEMENT_MESSAGE } from "@/lib/visionReimbursement";
 import { getVisionCarrier } from "@/lib/visionBenefits";
 import {
   ensureCustomerOrderNumber,
@@ -123,6 +124,9 @@ export default async function OrderPage({ params }: PageProps) {
             {receiptAvailable
               ? "Download an itemized receipt for your records."
               : "Your itemized receipt will be available here after payment is successfully captured."}
+          </p>
+          <p style={{ color: "#cbd5e1", lineHeight: 1.6 }}>
+            {VISION_REIMBURSEMENT_MESSAGE}
           </p>
           {receiptAvailable && receiptAccess ? (
             <a className="primary-btn" href={`/receipt/${encodeURIComponent(receiptAccess.token)}`}>

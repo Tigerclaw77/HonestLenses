@@ -44,8 +44,14 @@ import {
   getAdminPaymentDisplay,
   shouldShowPaymentOperationalCard,
 } from "@/lib/orders/adminPaymentDisplay";
+import {
+  getAuthoritativeOrderQuantity,
+  getStoredEyeQuantityPresence,
+} from "@/lib/orders/orderQuantity";
 import type { ManualVerificationAttemptMethod } from "@/lib/orders/verificationAttempts";
 import { isOrderRowControlTarget } from "@/lib/admin/orderRowInteraction";
+import { reconcileCachedOrderDetails } from "@/lib/admin/orderMutationReconciliation";
+import { formatRxValue } from "@/lib/formatters/rxFormat";
 
 /* =========================
    Types
@@ -448,24 +454,17 @@ function getOperationalCardQuantity(order: Order): {
   right: string;
   left: string;
 } {
-  if (hasAdjustedOrderQuantity(order)) {
-    return {
-      total: String(order.adjusted_total_box_count),
-      right: String(order.adjusted_right_box_count),
-      left: String(order.adjusted_left_box_count),
-    };
-  }
-
-  const right = finiteCount(order.right_box_count ?? order.od_box_count);
-  const left = finiteCount(order.left_box_count ?? order.os_box_count);
-  const storedTotal = finiteCount(order.total_box_count ?? order.box_count);
-  const total = storedTotal ??
-    (right !== null || left !== null ? (right ?? 0) + (left ?? 0) : null);
+  const quantity = getAuthoritativeOrderQuantity(order);
+  const presence = getStoredEyeQuantityPresence(order);
+  const hasTotal = quantity.adjusted ||
+    finiteCount(order.total_box_count ?? order.box_count) !== null ||
+    presence.right ||
+    presence.left;
 
   return {
-    total: total === null ? "—" : String(total),
-    right: right === null ? "—" : String(right),
-    left: left === null ? "—" : String(left),
+    total: hasTotal ? String(quantity.total) : "—",
+    right: presence.right ? String(quantity.right) : "—",
+    left: presence.left ? String(quantity.left) : "—",
   };
 }
 
@@ -867,26 +866,9 @@ function previewKind(path: string): "pdf" | "image" {
   return isPdfPath(path) ? "pdf" : "image";
 }
 
-function formatRxNumber(value: unknown, decimals: number): string {
-  if (!hasValue(value)) return "-";
-
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value.toFixed(decimals) : "-";
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return "-";
-    const numeric = Number(trimmed);
-    return Number.isFinite(numeric) ? numeric.toFixed(decimals) : trimmed;
-  }
-
-  return String(value);
-}
-
 function rxValueText(value: unknown, kind: "power" | "curve" | "plain"): string {
-  if (kind === "power") return formatRxNumber(value, 2);
-  if (kind === "curve") return formatRxNumber(value, 1);
+  if (kind === "power") return formatRxValue(value, 2);
+  if (kind === "curve") return formatRxValue(value, 1);
   return valueText(value);
 }
 
@@ -1105,23 +1087,23 @@ function parseRx(order: Order): {
       if (!eye) return "-";
       const parts = [
         getEyeLensDisplayName(order, eye, details),
-        `SPH ${formatRxNumber(eye.sphere ?? eye.sph, 2)}`,
+        `SPH ${formatRxValue(eye.sphere ?? eye.sph, 2)}`,
       ];
       if (hasValue(eye.cylinder))
-        parts.push(`CYL ${formatRxNumber(eye.cylinder, 2)}`);
-      if (hasValue(eye.cyl)) parts.push(`CYL ${formatRxNumber(eye.cyl, 2)}`);
+        parts.push(`CYL ${formatRxValue(eye.cylinder, 2)}`);
+      if (hasValue(eye.cyl)) parts.push(`CYL ${formatRxValue(eye.cyl, 2)}`);
       if (hasValue(eye.axis)) parts.push(`AX ${eye.axis}`);
       if (hasValue(eye.ax)) parts.push(`AX ${eye.ax}`);
-      if (hasValue(eye.add)) parts.push(`ADD ${formatRxNumber(eye.add, 2)}`);
+      if (hasValue(eye.add)) parts.push(`ADD ${formatRxValue(eye.add, 2)}`);
       if (hasValue(eye.base_curve))
-        parts.push(`BC ${formatRxNumber(eye.base_curve, 1)}`);
+        parts.push(`BC ${formatRxValue(eye.base_curve, 1)}`);
       if (hasValue(eye.baseCurve))
-        parts.push(`BC ${formatRxNumber(eye.baseCurve, 1)}`);
+        parts.push(`BC ${formatRxValue(eye.baseCurve, 1)}`);
       if (hasValue(eye.bc))
-        parts.push(`BC ${formatRxNumber(eye.bc, 1)}`);
+        parts.push(`BC ${formatRxValue(eye.bc, 1)}`);
       if (hasValue(eye.diameter))
-        parts.push(`DIA ${formatRxNumber(eye.diameter, 1)}`);
-      if (hasValue(eye.dia)) parts.push(`DIA ${formatRxNumber(eye.dia, 1)}`);
+        parts.push(`DIA ${formatRxValue(eye.diameter, 1)}`);
+      if (hasValue(eye.dia)) parts.push(`DIA ${formatRxValue(eye.dia, 1)}`);
       if (eye.color) parts.push(`Color: ${eye.color}`);
       return parts.filter(Boolean).join(" | ");
     };
@@ -2432,6 +2414,7 @@ export default function AdminOrdersPage() {
   >(null);
   const [queueWarnings, setQueueWarnings] = useState<string[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [orderDetails, setOrderDetails] = useState<Record<string, Order>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const [detailsOrderId, setDetailsOrderId] = useState<string | null>(null);
   const [notesModal, setNotesModal] = useState<NotesModalState | null>(null);
@@ -2546,6 +2529,34 @@ export default function AdminOrdersPage() {
     },
     [],
   );
+
+  const loadOrderDetails = useCallback(async (
+    orderId: string,
+    options: { force?: boolean } = {},
+  ) => {
+    if (!options.force && orderDetails[orderId]) return;
+    try {
+      const response = await fetch(`/api/admin/orders/${orderId}`, {
+        headers: await authHeaders(),
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      const payload = (await response.json()) as { order?: Order; error?: string };
+      if (!response.ok || !payload.order) {
+        throw new Error(payload.error || "Unable to load order details.");
+      }
+      setOrderDetails((current) => ({
+        ...current,
+        [orderId]: {
+          ...(orders.find((order) => order.id === orderId) ?? {}),
+          ...(current[orderId] ?? {}),
+          ...payload.order!,
+        },
+      }));
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Unable to load order details.");
+    }
+  }, [authHeaders, orderDetails, orders]);
 
   const clearOrderHighlight = useCallback((orderId: string) => {
     const timeoutId = highlightTimeouts.current.get(orderId);
@@ -2702,7 +2713,11 @@ export default function AdminOrdersPage() {
       setQueueWarnings([json.recovery_warning, json.activity_warning, json.operations_warning]
         .filter((warning): warning is string => Boolean(warning)));
       setQueueIntegrityIssues(json.integrity_issues ?? []);
-      setOrders(combined.sort(compareOperationalPriority));
+      const sortedOrders = combined.sort(compareOperationalPriority);
+      setOrders(sortedOrders);
+      setOrderDetails((current) =>
+        reconcileCachedOrderDetails(current, sortedOrders),
+      );
       return true;
     } catch {
       if (isCurrent()) setLoadError(responseReceived
@@ -2730,6 +2745,15 @@ export default function AdminOrdersPage() {
     };
   }, [refresh]);
   const fetchData = useCallback(() => refresh.request(true), [refresh]);
+  const reconcileOrderAfterMutation = useCallback(
+    async (orderId: string) => {
+      await Promise.all([
+        loadOrderDetails(orderId, { force: true }),
+        fetchData(),
+      ]);
+    },
+    [fetchData, loadOrderDetails],
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -2756,10 +2780,18 @@ export default function AdminOrdersPage() {
           void refresh.request(false);
         },
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "order_events" },
+        () => {
+          if (!mounted) return;
+          void refresh.request(false);
+        },
+      )
       .subscribe();
     const refreshInterval = window.setInterval(() => {
       if (mounted) void refresh.request(false);
-    }, 30_000);
+    }, 10 * 60 * 1000);
 
     return () => {
       mounted = false;
@@ -2844,7 +2876,7 @@ export default function AdminOrdersPage() {
         });
       }
 
-      await fetchData();
+      await reconcileOrderAfterMutation(orderId);
       return true;
     } finally {
       setSavingOrderId(null);
@@ -2872,8 +2904,16 @@ export default function AdminOrdersPage() {
   }
 
   async function acceptPrescription(order: Order) {
-    if (!isPrescriptionAcceptanceAvailable(order)) {
-      setAdminError("Prescription evidence is required before acceptance.");
+    if (
+      !window.confirm(
+        [
+          "Confirm operator prescription acceptance?",
+          "",
+          "This records your authenticated decision after reviewing the prescription evidence.",
+          "It may override an OCR/AI review recommendation for this order, but it does not capture payment or place the supplier order.",
+        ].join("\n"),
+      )
+    ) {
       return;
     }
 
@@ -2891,7 +2931,7 @@ export default function AdminOrdersPage() {
         method: "POST",
         headers: await authHeaders(),
         credentials: "same-origin",
-        body: JSON.stringify({ action: "accept" }),
+        body: JSON.stringify({ action: "accept", confirmed: true }),
       });
       const payload = await readAdminApiPayload(response);
 
@@ -2907,11 +2947,11 @@ export default function AdminOrdersPage() {
         setAdminError(
           `Prescription acceptance failed for ${order.id}. ${message}`,
         );
-        await fetchData();
+        await reconcileOrderAfterMutation(order.id);
         return;
       }
 
-      await fetchData();
+      await reconcileOrderAfterMutation(order.id);
       setVerificationFailures((current) => {
         const next = { ...current };
         delete next[order.id];
@@ -2938,7 +2978,7 @@ export default function AdminOrdersPage() {
       setAdminError(
         `Prescription acceptance could not be confirmed for ${order.id}.`,
       );
-      await fetchData();
+      await reconcileOrderAfterMutation(order.id);
     } finally {
       setSavingOrderId(null);
     }
@@ -2957,9 +2997,10 @@ export default function AdminOrdersPage() {
       const payload = await readAdminApiPayload(response);
       if (!response.ok) {
         setAdminError(adminApiErrorMessage(payload, "Payment action failed."));
+        await reconcileOrderAfterMutation(order.id);
         return;
       }
-      await fetchData();
+      await reconcileOrderAfterMutation(order.id);
       setAdminNotice({
         tone: "success",
         message:
@@ -2989,7 +3030,7 @@ export default function AdminOrdersPage() {
         setAdminError(adminApiErrorMessage(payload, "Restore failed."));
         return;
       }
-      await fetchData();
+      await reconcileOrderAfterMutation(order.id);
       setAdminNotice({ tone: "success", message: "Order restored." });
     } finally {
       setSavingOrderId(null);
@@ -3044,7 +3085,7 @@ export default function AdminOrdersPage() {
         return;
       }
 
-      await fetchData();
+      await reconcileOrderAfterMutation(orderId);
       setAdminNotice({
         tone: "success",
         message: `Prescriber ${method} attempt recorded.`,
@@ -3149,7 +3190,7 @@ export default function AdminOrdersPage() {
         return;
       }
 
-      await fetchData();
+      await reconcileOrderAfterMutation(captureAdjustmentModal.orderId);
       setCaptureAdjustmentModal(null);
       setAdminNotice({
         tone: "success",
@@ -3263,7 +3304,7 @@ export default function AdminOrdersPage() {
         return;
       }
 
-      await fetchData();
+      await reconcileOrderAfterMutation(orderQuantityAdjustmentModal.orderId);
       setOrderQuantityAdjustmentModal(null);
       setAdminNotice({
         tone: "success",
@@ -3408,7 +3449,7 @@ export default function AdminOrdersPage() {
     }
 
     optimisticallyHiddenOrderIds.current.delete(orderId);
-    await fetchData();
+    await reconcileOrderAfterMutation(orderId);
     setAdminNotice({
       tone: "success",
       message: "Order archived. It remains available in Needs Attention for immediate restore.",
@@ -3440,11 +3481,11 @@ export default function AdminOrdersPage() {
         setAdminError(
           adminApiErrorMessage(result.json, "Recovery action failed."),
         );
-        await fetchData();
+        await reconcileOrderAfterMutation(orderId);
         return false;
       }
 
-      await fetchData();
+      await reconcileOrderAfterMutation(orderId);
       setAdminNotice({
         tone: "success",
         message:
@@ -3627,8 +3668,9 @@ export default function AdminOrdersPage() {
     orders: sortSectionOrders(activeOrdersByBucket[section.key]),
   }));
   const archiveCount = archiveOrders.length;
-  const detailsOrder =
-    orders.find((order) => order.id === detailsOrderId) ?? null;
+  const detailsOrder = detailsOrderId
+    ? orderDetails[detailsOrderId] ?? orders.find((order) => order.id === detailsOrderId) ?? null
+    : null;
   const captureAdjustmentPreviewCents = captureAdjustmentModal
     ? parseDollarAmountToCents(captureAdjustmentModal.amount)
     : null;
@@ -3820,10 +3862,12 @@ export default function AdminOrdersPage() {
               <div
                 style={{ display: "flex", flexDirection: "column", gap: 10 }}
               >
-                {section.orders.map((o) => (
+                {section.orders.map((o) => {
+                  const displayedOrder = orderDetails[o.id] ?? o;
+                  return (
                   <ActiveOrderCard
                     key={o.id}
-                    order={o}
+                    order={displayedOrder}
                     isOpen={expanded === o.id}
                     isHighlighted={highlightedOrderIds.has(o.id)}
                     savingOrderId={savingOrderId}
@@ -3831,24 +3875,29 @@ export default function AdminOrdersPage() {
                     onToggleProcess={() => {
                       clearOrderHighlight(o.id);
                       setExpanded(expanded === o.id ? null : o.id);
+                      void loadOrderDetails(o.id);
                     }}
-                    onOpenDetails={() => setDetailsOrderId(o.id)}
-                    onOpenRxImage={() => openRxImage(o, getCustomerName(o))}
+                    onOpenDetails={() => {
+                      setDetailsOrderId(o.id);
+                      void loadOrderDetails(o.id);
+                    }}
+                    onOpenRxImage={() => openRxImage(displayedOrder, getCustomerName(displayedOrder))}
                     onRecordVerificationAttempt={(method) =>
                       recordVerificationAttempt(o.id, method)
                     }
                     onAdvanceFulfillment={(status) =>
-                      updateFulfillmentStatus(o, status)
+                      updateFulfillmentStatus(displayedOrder, status)
                     }
-                    onAcceptPrescription={() => acceptPrescription(o)}
-                    onPaymentAction={(action) => runPaymentAction(o, action)}
-                    onRestoreOrder={() => restoreArchivedOrder(o)}
+                    onAcceptPrescription={() => acceptPrescription(displayedOrder)}
+                    onPaymentAction={(action) => runPaymentAction(displayedOrder, action)}
+                    onRestoreOrder={() => restoreArchivedOrder(displayedOrder)}
                     onResolveEmailAttention={() =>
                       updateAdminOrder(o.id, { resolve_email_attention: true })
                     }
                     verificationFailure={verificationFailures[o.id]}
                   />
-                ))}
+                  );
+                })}
               </div>
             )}
           </section>
@@ -3884,7 +3933,10 @@ export default function AdminOrdersPage() {
                   className="admin-history-row"
                   key={o.id}
                   type="button"
-                  onClick={() => setDetailsOrderId(o.id)}
+                  onClick={() => {
+                    setDetailsOrderId(o.id);
+                    void loadOrderDetails(o.id);
+                  }}
                   aria-haspopup="dialog"
                   style={{
                     width: "100%",

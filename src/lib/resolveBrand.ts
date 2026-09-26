@@ -48,6 +48,15 @@ function tokenize(input: string): string[] {
   return normalize(input).split(" ").filter(Boolean);
 }
 
+function productIdentity(input: string): string {
+  return normalize(input)
+    // Package quantity is commercial metadata, not part of the prescribed
+    // lens identity. Keep clinically meaningful numbers such as 1-Day and
+    // TOTAL30; remove only numbers explicitly labeled as a pack/count.
+    .replace(/\b(?:box\s+of\s+)?\d+[\s-]*(?:pk|pack|count|ct)\b/g, " ")
+    .replace(/[^a-z0-9]/g, "");
+}
+
 function includesAny(hay: string, needles: string[]) {
   for (const n of needles) {
     if (hay.includes(n)) return true;
@@ -238,8 +247,9 @@ export function resolveBrand(
 
   // An exact catalog identity beats heuristic overlap with variants such as
   // OASYS MAX. Physical/structural conflicts still fail closed.
-  const identity = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const exact = candidates.filter(lens => identity(lens.displayName) === identity(rawString));
+  const exact = candidates.filter(
+    (lens) => productIdentity(lens.displayName) === productIdentity(rawString),
+  );
   if (exact.length === 1) {
     const lens = exact[0];
     const compatible = (!input.hasCyl || lens.type.toric) &&

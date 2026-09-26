@@ -12,6 +12,7 @@ import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 import { hasUploadedEvidenceWithoutPrescription } from "@/lib/uploadFlow";
 import type { OcrExtract } from "@/types/ocr";
 import { originalProduct } from "@/lib/orders/productSelection";
+import { hasMultifocalProductSignal } from "@/lib/orders/ocrPrescription";
 
 /* =========================
    TYPES
@@ -123,7 +124,9 @@ export default function ConfirmClient() {
             {
               rawString,
               hasCyl: eye?.cylinder != null,
-              hasAdd: eye?.add != null && eye?.add !== "",
+              hasAdd:
+                (eye?.add != null && eye?.add !== "") ||
+                hasMultifocalProductSignal(rawString),
               bc: eye?.base_curve ? Number(eye.base_curve) : null,
               dia: eye?.diameter ? Number(eye.diameter) : null,
             },
@@ -181,7 +184,9 @@ export default function ConfirmClient() {
               {
                 rawString: rawBrand,
                 hasCyl: firstEye?.cylinder != null,
-                hasAdd: Boolean(firstEye?.add),
+                hasAdd:
+                  Boolean(firstEye?.add) ||
+                  hasMultifocalProductSignal(rawBrand),
                 bc: firstEye?.base_curve ? Number(firstEye.base_curve) : null,
                 dia: firstEye?.diameter ? Number(firstEye.diameter) : null,
               },

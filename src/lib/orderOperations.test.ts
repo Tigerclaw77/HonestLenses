@@ -38,6 +38,7 @@ async function main(){
   const {GET,POST}=await import('@/app/recovery/opt-out/route');
   const tables:Record<string,Row[]>={};
   let disableAfterClaim=false;
+  const selectedColumns:Record<string,string[]>={};
   const reset=()=>{
     tables.orders=[{...base}];tables.recovery_touch_drafts=[];tables.commercial_email_suppressions=[];tables.order_stuck_alerts=[];
     tables.order_operations_control=[{id:true,recovery_enabled:false,postal_address:'Synthetic fixture postal address'}];
@@ -62,7 +63,7 @@ async function main(){
       return {data:structuredClone(result),error:null};
     };
     const q={
-      select:()=>q,order:()=>q,range:()=>q,
+      select:(columns:string)=>{(selectedColumns[table]??=[]).push(columns);return q;},order:()=>q,range:()=>q,
       eq:(k:string,v:unknown)=>{filters.push(r=>r[k]===v);return q;},
       is:(k:string,v:unknown)=>{filters.push(r=>(r[k]??null)===v);return q;},
       in:(k:string,v:unknown[])=>{filters.push(r=>v.includes(r[k]));return q;},
@@ -107,6 +108,9 @@ async function main(){
   assert.equal(await processRecovery(base,[base],send),'needs_review');assert.equal(sends.length,2);
   const old={...base,updated_at:ago(25)};tables.orders=[old];
   assert.equal(await processRecovery(old,[old],send),'needs_review','Uncertain first touch blocks second touch');
+  assert.ok((selectedColumns.orders ?? []).every((columns)=>!columns.includes('*')));
+  assert.ok((selectedColumns.order_operations_control ?? []).every((columns)=>columns==='recovery_enabled,postal_address'));
+  assert.ok((selectedColumns.recovery_touch_drafts ?? []).every((columns)=>!columns.includes('*')));
   reset();sends=[];tables.order_operations_control[0].recovery_enabled=true;
   const url=`https://honestlenses.com/recovery/opt-out?email=${hash}&signature=${signature}`;
   assert.equal((await GET(new Request(url))).status,200);assert.equal(tables.commercial_email_suppressions.length,0,'Link scanners do not unsubscribe');

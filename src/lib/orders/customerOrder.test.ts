@@ -92,4 +92,13 @@ assert.match(receipt, /Total paid\/captured: \$121\.98/);
 assert.match(receipt, /HCPCS S0500/);
 assert.match(receipt, /Vision plan selected by customer:<\/strong> VSP/);
 
+// New orders have no carrier; historical receipts keep their existing label.
+const noCarrierReceipt = buildCustomerReceiptHtml({ ...order, vision_insurance_carrier: null });
+assert.doesNotMatch(noCarrierReceipt, /Vision plan selected by customer/);
+assert.match(noCarrierReceipt, /Total paid\/captured: \$121\.98/);
+for (const body of [confirmation.html, confirmation.text]) {
+  assert.match(body, /out-of-network provider for all vision plans/);
+  assert.match(body, /subject to your plan benefits/);
+  assert.equal(body.split("out-of-network provider for all vision plans").length, 2);
+}
 console.log("Guest order access matrix passed");

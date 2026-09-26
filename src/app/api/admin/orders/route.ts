@@ -35,6 +35,7 @@ import {
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { randomUUID } from "node:crypto";
+import { normalizePrescriptionAddForDisplay } from "@/lib/orders/prescriptionAdd";
 import { readPrimaryOrders, readQueueQuery } from "@/lib/admin/queueQuery";
 
 export const runtime = "nodejs";
@@ -158,6 +159,27 @@ type OrderEventRow = {
   created_at: string | null;
 };
 
+const ADMIN_ORDER_LIST_FIELDS = [
+  "id", "created_at", "updated_at", "user_id", "status",
+  "verification_status", "verification_requested_at", "verification_completed_at",
+  "verification_sent_at",
+  "verification_details_submitted_at", "rx_status", "rx", "rx_source", "rx_upload_path",
+  "rx_lens_brand", "prescriber_name", "prescriber_email",
+  "prescriber_phone", "prescriber_fax", "shipping_email", "shipping_first_name",
+  "shipping_last_name", "shipping_phone", "shipping_address1", "shipping_address2",
+  "shipping_city", "shipping_state", "shipping_zip", "patient_name", "patient_full_name",
+  "patient_first_name", "patient_middle_name", "patient_last_name", "rx_patient_name",
+  "sku", "box_count", "total_box_count", "right_box_count", "left_box_count",
+  "adjusted_right_box_count", "adjusted_left_box_count", "adjusted_total_box_count",
+  "total_amount_cents", "capture_amount_cents", "capture_adjustment_reason",
+  "capture_adjusted_by", "capture_adjusted_at", "order_quantity_adjusted_at", "shipping_cents",
+  "shipping_method", "archived", "archived_at", "payment_intent_id", "admin_notes",
+  "fulfillment_status", "email_delivery_status",
+  "email_last_event", "email_last_event_at", "email_failure_reason",
+  "email_delivery_requires_attention", "confirmation_email_sent_at",
+  "confirmation_email_delivered_at",
+].join(",");
+
 const RECENT_DRAFT_PAYMENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const STRIPE_LOOKUP_CONCURRENCY = 5;
 
@@ -186,7 +208,7 @@ function normalizeRx(rx: RxData): RxData {
           ...rx.left,
           sphere: formatDiopter(rx.left.sphere),
           cyl: formatDiopter(rx.left.cyl),
-          add: formatDiopter(rx.left.add),
+          add: normalizePrescriptionAddForDisplay(rx.left.add),
         }
       : rx.left,
     right: rx.right
@@ -194,7 +216,7 @@ function normalizeRx(rx: RxData): RxData {
           ...rx.right,
           sphere: formatDiopter(rx.right.sphere),
           cyl: formatDiopter(rx.right.cyl),
-          add: formatDiopter(rx.right.add),
+          add: normalizePrescriptionAddForDisplay(rx.right.add),
         }
       : rx.right,
   };
@@ -383,7 +405,7 @@ export async function GET(req: Request) {
     const requestId = randomUUID();
     const primary = await readPrimaryOrders(requestId, () => supabaseServer
       .from("orders")
-      .select("*")
+      .select(ADMIN_ORDER_LIST_FIELDS as "*")
       .order("created_at", { ascending: false }));
 
     if (!primary.ok) {

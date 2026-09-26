@@ -141,7 +141,8 @@ assert.match(
   "supplier placement retains explicit payment and Rx safety prerequisites",
 );
 assert.match(prescriptionRoute, /requireAdminUser\(req\)/, "prescription acceptance requires admin authentication");
-assert.match(prescriptionRoute, /verification_status: "verified"/, "prescription acceptance records verified state");
+assert.match(prescriptionRoute, /confirmed !== true/, "prescription acceptance requires explicit operator confirmation");
+assert.match(prescriptionRoute, /apply_admin_prescription_acceptance/, "prescription acceptance atomically records verified state and audit evidence");
 assert.doesNotMatch(prescriptionRoute, /captureAuthorizedOrderPayment/, "prescription acceptance never captures payment");
 assert.match(paymentRoute, /captureAuthorizedOrderPayment/, "the payment endpoint retains guarded Stripe capture");
 assert.match(paymentRoute, /already_done/, "payment actions report idempotent completion");

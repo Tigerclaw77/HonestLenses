@@ -8,6 +8,7 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-only";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "test-only";
 process.env.RESEND_API_KEY = "re_test_only";
 process.env.STRIPE_SECRET_KEY = "sk_test_only";
+process.env.ORDER_ACCESS_TOKEN_SECRET = "test-only-order-access-secret-0001";
 globalThis.fetch = async () => { throw new Error("Real network forbidden in receipt regression tests"); };
 
 const order = { id: "11111111-1111-4111-8111-111111111111", customer_order_number: "HL-2026-123456ABCDEF",

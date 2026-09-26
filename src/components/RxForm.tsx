@@ -26,6 +26,10 @@ import {
   captureClientError,
   recordRecentUserAction,
 } from "@/lib/telemetry/clientErrors";
+import {
+  canonicalPrescriptionAdd,
+  prescriptionAddsEquivalent,
+} from "@/lib/orders/prescriptionAdd";
 
 import {
   formatBC,
@@ -130,6 +134,20 @@ function resolveEffectiveStringOption(
   return resolveParameterOption(value || null, options).value;
 }
 
+function resolveEffectiveAddOption(
+  value: string,
+  options: readonly string[] | undefined,
+): string | null {
+  const resolved = resolveParameterOption(
+    value || null,
+    options,
+    prescriptionAddsEquivalent,
+  );
+  return resolved.invalid
+    ? null
+    : canonicalPrescriptionAdd(resolved.value, options ?? []);
+}
+
 function syncSingleOptionBC(
   lens: LensCore | undefined,
   currentValue: string,
@@ -183,6 +201,23 @@ function syncSingleOptionString(
 
   if (currentValue && !options.includes(currentValue)) {
     setValue("");
+  }
+}
+
+function syncAddOption(
+  options: readonly string[],
+  currentValue: string,
+  setValue: (value: string) => void,
+) {
+  if (!currentValue) {
+    if (options.length === 1) setValue(options[0]);
+    return;
+  }
+  const canonical = canonicalPrescriptionAdd(currentValue, options);
+  if (!canonical || !options.includes(canonical)) {
+    setValue("");
+  } else if (canonical !== currentValue) {
+    setValue(canonical);
   }
 }
 
@@ -258,7 +293,11 @@ function validateEye(
       baseCurve,
       sphere,
     );
-    const addState = resolveParameterOption(d.add || null, opts);
+    const addState = resolveParameterOption(
+      d.add || null,
+      opts,
+      prescriptionAddsEquivalent,
+    );
 
     if (addState.required || addState.invalid) e.add = true;
   } else if (d.add) {
@@ -460,8 +499,8 @@ export default function RxForm({
       leftSph ? Number(leftSph) : null,
     );
   }, [leftLens, leftEffectiveBC, leftSph]);
-  const rightEffectiveAdd = resolveEffectiveStringOption(rightAdd, rightAddOptions);
-  const leftEffectiveAdd = resolveEffectiveStringOption(leftAdd, leftAddOptions);
+  const rightEffectiveAdd = resolveEffectiveAddOption(rightAdd, rightAddOptions);
+  const leftEffectiveAdd = resolveEffectiveAddOption(leftAdd, leftAddOptions);
 
   const rightSphereOptions = useMemo(() => {
     if (!rightLens) return [];
@@ -679,11 +718,11 @@ export default function RxForm({
   }, [leftAxisOptions, leftAxis]);
 
   useEffect(() => {
-    syncSingleOptionString(rightAddOptions, rightAdd, setRightAdd);
+    syncAddOption(rightAddOptions, rightAdd, setRightAdd);
   }, [rightAddOptions, rightAdd]);
 
   useEffect(() => {
-    syncSingleOptionString(leftAddOptions, leftAdd, setLeftAdd);
+    syncAddOption(leftAddOptions, leftAdd, setLeftAdd);
   }, [leftAddOptions, leftAdd]);
 
   /* =========================
@@ -1741,7 +1780,12 @@ export default function RxForm({
                             rightSph ? Number(rightSph) : null,
                           );
 
-                          if (rightAdd && !nextAddOptions.includes(rightAdd)) {
+                          if (
+                            rightAdd &&
+                            !nextAddOptions.some((option) =>
+                              prescriptionAddsEquivalent(option, rightAdd),
+                            )
+                          ) {
                             setRightAdd("");
                           }
                         }
@@ -2128,7 +2172,12 @@ export default function RxForm({
                             leftSph ? Number(leftSph) : null,
                           );
 
-                          if (leftAdd && !nextAddOptions.includes(leftAdd)) {
+                          if (
+                            leftAdd &&
+                            !nextAddOptions.some((option) =>
+                              prescriptionAddsEquivalent(option, leftAdd),
+                            )
+                          ) {
                             setLeftAdd("");
                           }
                         }

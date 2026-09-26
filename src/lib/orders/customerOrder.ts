@@ -1,3 +1,4 @@
+import { VISION_REIMBURSEMENT_MESSAGE } from "@/lib/visionReimbursement";
 import { projectOrderCommerce } from "@/lib/orders/orderCommerce";
 import { lenses } from "@/LensCore";
 import { getLensSkus } from "@/lib/pricing/getLensSkus";
@@ -195,12 +196,13 @@ export function buildCustomerOrderEmail({
       <p>This secure order link is valid for ${ORDER_ACCESS_TOKEN_TTL_DAYS} days. If it expires, use Find Your Order to request another.</p>
       <hr style="border:0;border-top:1px solid #d9dee8;margin:24px 0" />
       <h3>Using HSA/FSA funds or requesting reimbursement?</h3>
+      <p>${escapeHtml(VISION_REIMBURSEMENT_MESSAGE)}</p>
       <p>Open your secure receipt link. Your itemized receipt is available there after payment is captured.</p>
       <p><a href="${escapeHtml(receiptUrl)}" style="display:inline-block;padding:12px 18px;background:#1d4ed8;color:#fff;text-decoration:none;border-radius:8px">Open secure receipt</a></p>
       <p>You will receive updates as your order progresses.</p>
       <p>- Honest Lenses</p>
     `,
-    text: `Thank you for your order.\n\nOrder number: ${customerOrderNumber}\n\n${verificationMessage}\n\nView Your Order: ${orderUrl}\nThis secure order link is valid for ${ORDER_ACCESS_TOKEN_TTL_DAYS} days. If it expires, use Find Your Order to request another.\n\nUsing HSA/FSA funds or requesting reimbursement?\nOpen your secure receipt link. Your itemized receipt is available there after payment is captured.\nOpen secure receipt: ${receiptUrl}\n\n- Honest Lenses`,
+    text: `Thank you for your order.\n\nOrder number: ${customerOrderNumber}\n\n${verificationMessage}\n\nView Your Order: ${orderUrl}\nThis secure order link is valid for ${ORDER_ACCESS_TOKEN_TTL_DAYS} days. If it expires, use Find Your Order to request another.\n\nUsing HSA/FSA funds or requesting reimbursement?\n${VISION_REIMBURSEMENT_MESSAGE}\nOpen your secure receipt link. Your itemized receipt is available there after payment is captured.\nOpen secure receipt: ${receiptUrl}\n\n- Honest Lenses`,
   };
 }
 

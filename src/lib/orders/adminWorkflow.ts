@@ -61,6 +61,18 @@ export function getAdminFulfillmentStatus(
 /** Routine operator acceptance changes only prescription state. */
 export function isPrescriptionAcceptanceAvailable(order: Order): boolean {
   const verification = getVerificationState(order);
+
+  if (verification.complete) return false;
+
+  return Boolean(
+    isFounderOverrideEligible(order) ||
+      verification.status === "information_needed",
+  );
+}
+
+/** Preserve the narrower eligibility used by the legacy coupled override. */
+export function isFounderOverrideEligible(order: Order): boolean {
+  const verification = getVerificationState(order);
   const rxSource = getRxSourceState(order);
 
   if (verification.complete) return false;
@@ -72,9 +84,6 @@ export function isPrescriptionAcceptanceAvailable(order: Order): boolean {
       order.rx_status === "ocr_failed",
   );
 }
-
-/** Kept as a compatibility alias while callers migrate to operator language. */
-export const isFounderOverrideEligible = isPrescriptionAcceptanceAvailable;
 
 /**
  * Fulfillment states that expect captured payment have two hard gates: a real

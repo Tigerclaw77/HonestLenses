@@ -13,99 +13,61 @@ import {
 } from "@/lib/order-access";
 import { validatePrescriptionUpload } from "@/lib/security/uploadValidation";
 import { originalProduct, record, selectedProduct } from "@/lib/orders/productSelection";
+import { lenses } from "@/LensCore";
+import { getLensSkus } from "@/lib/pricing/getLensSkus";
 import {
   enforceRateLimit,
   rateLimitErrorResponse,
 } from "@/lib/security/rateLimit";
+import {
+  applyCategoricalAddRecovery,
+  categoricalAddRecoveryEyes,
+  mapOcrInterpretationToPrescription,
+  type CategoricalAddRecovery,
+  type OcrPrescriptionInterpretation,
+  type PersistedOcrPrescription,
+} from "@/lib/orders/ocrPrescription";
+import {
+  assessOcrProductRequirements,
+  calibrateOcrConfidence,
+  type OcrProductIssue,
+} from "@/lib/orders/ocrProductRequirements";
 
 /* =========================
    TYPES
 ========================= */
 
-type Eye = {
-  sphere: number | null;
-  cylinder: number | null;
-  axis: number | null;
-  add: string | null;
-  base_curve: number | null;
-  diameter: number | null;
-  brand_raw: string | null;
-};
-
-type Rx = {
-  right: Eye | null;
-  left: Eye | null;
-  expires: string | null;
-};
-
-type Interpretation = {
-  right?: {
-    sphere?: number | null;
-    cylinder?: number | null;
-    axis?: number | null;
-    add?: string | null;
-    baseCurve?: number | null;
-    diameter?: number | null;
-    brand_raw?: string | null;
-  } | null;
-  left?: {
-    sphere?: number | null;
-    cylinder?: number | null;
-    axis?: number | null;
-    add?: string | null;
-    baseCurve?: number | null;
-    diameter?: number | null;
-    brand_raw?: string | null;
-  } | null;
-  expirationDate?: string | null;
-  patient_name?: string | null;
-  doctor_name?: string | null;
-  prescriber_phone?: string | null;
-  brand_raw?: string | null;
-  confidence?: number;
-  looks_like_contact_lens_rx?: boolean;
-  notes?: string | null;
-};
+type Rx = PersistedOcrPrescription;
+type Interpretation = OcrPrescriptionInterpretation;
 
 /* =========================
    HELPERS
 ========================= */
-
-function mapInterpretationToRx(interp: Interpretation): Rx {
-  return {
-    right: interp.right
-      ? {
-          sphere: interp.right.sphere ?? null,
-          cylinder: interp.right.cylinder ?? null,
-          axis: interp.right.axis ?? null,
-          add: interp.right.add ?? null,
-          base_curve: interp.right.baseCurve ?? null,
-          diameter: interp.right.diameter ?? null,
-          brand_raw: interp.right?.brand_raw ?? interp.brand_raw ?? null,
-        }
-      : null,
-
-    left: interp.left
-      ? {
-          sphere: interp.left.sphere ?? null,
-          cylinder: interp.left.cylinder ?? null,
-          axis: interp.left.axis ?? null,
-          add: interp.left.add ?? null,
-          base_curve: interp.left.baseCurve ?? null,
-          diameter: interp.left.diameter ?? null,
-          brand_raw: interp.left?.brand_raw ?? interp.brand_raw ?? null,
-        }
-      : null,
-
-    expires: interp.expirationDate ?? null,
-  };
-}
 
 function hasUsableRx(rx: Rx): boolean {
   return (
     (rx.right?.sphere !== null || rx.left?.sphere !== null) &&
     rx.expires !== null
   );
+}
+
+function extractedFieldPresence(interpretation: Interpretation) {
+  const eye = (value: Interpretation["right"]) => ({
+    sphere: value?.sphere != null,
+    cylinder: value?.cylinder != null,
+    axis: value?.axis != null,
+    add: Boolean(value?.add?.trim()),
+    base_curve: value?.baseCurve != null,
+    diameter: value?.diameter != null,
+    product: Boolean(
+      value?.brand_raw?.trim() || interpretation.brand_raw?.trim(),
+    ),
+  });
+  return {
+    right: eye(interpretation.right),
+    left: eye(interpretation.left),
+    expiration: Boolean(interpretation.expirationDate),
+  };
 }
 
 /* =========================
@@ -115,6 +77,7 @@ function hasUsableRx(rx: Rx): boolean {
 async function runPrescriptionInterpretation(
   base64: string,
   mimeType: string,
+  productContext: unknown,
 ): Promise<Interpretation> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) throw new Error("Prescription OCR is not configured");
@@ -134,9 +97,18 @@ Rules:
 - Axis must be 1–180
 - BC and DIA are decimal values
 - Return expirationDate in YYYY-MM-DD format only
-- Return multifocal add exactly as printed (for example LOW, MID, HIGH)
+- Return multifocal add exactly as printed (for example LO, LOW, MED, MID, HI, HIGH)
 - Prefer correct interpretation over returning null
 - If ambiguous, choose most standard interpretation and note in "notes"
+
+Catalog context for the product selected before upload:
+${JSON.stringify(productContext)}
+
+Use this catalog context to understand which fields must be read from the image.
+It is not prescription evidence: never copy or invent a value merely because a
+product requires it. In particular, a multifocal product requires an ADD value,
+and printed MED is the same catalog option as MID while the extracted value must
+remain exactly as printed.
 
 IMPORTANT:
 
@@ -223,6 +195,70 @@ Return STRICT JSON:
   return parsed as Interpretation;
 }
 
+async function recoverCategoricalAdds(
+  base64: string,
+  mimeType: string,
+  interpretation: Interpretation,
+  missingEyes: readonly ("right" | "left")[],
+): Promise<CategoricalAddRecovery> {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) throw new Error("Prescription OCR is not configured");
+  const openai = new OpenAI({ apiKey });
+  const productEvidence = Object.fromEntries(
+    missingEyes.map((eyeName) => [
+      eyeName,
+      interpretation[eyeName]?.brand_raw ?? interpretation.brand_raw ?? null,
+    ]),
+  );
+  const response = await openai.responses.create({
+    model: "gpt-4.1",
+    store: false,
+    temperature: 0,
+    input: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: `Re-read the contact-lens prescription image only for categorical multifocal ADD labels that the first pass left blank. The affected eye/product evidence is ${JSON.stringify(productEvidence)}. Return the value exactly as printed (LO, LOW, MED, MID, HI, or HIGH). Return NONE when it is not clearly visible. Do not infer from the product, patient selection, or typical parameters.`,
+          },
+          { type: "input_image", image_url: `data:${mimeType};base64,${base64}` },
+        ] as unknown as string,
+      },
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "categorical_add_recovery",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            right_add: {
+              type: "string",
+              enum: ["LO", "LOW", "MED", "MID", "HI", "HIGH", "NONE"],
+            },
+            left_add: {
+              type: "string",
+              enum: ["LO", "LOW", "MED", "MID", "HI", "HIGH", "NONE"],
+            },
+          },
+          required: ["right_add", "left_add"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+  const parsed = JSON.parse(response.output_text || "{}") as {
+    right_add?: string;
+    left_add?: string;
+  };
+  return {
+    right_add: parsed.right_add === "NONE" ? null : parsed.right_add,
+    left_add: parsed.left_add === "NONE" ? null : parsed.left_add,
+  };
+}
+
 /* =========================
    ROUTE HANDLER
 ========================= */
@@ -274,11 +310,39 @@ export async function POST(
       left: { coreId: formData.get("selected_left") },
     } });
     const original = originalProduct(order);
+    const skuCoreId =
+      typeof order.sku === "string"
+        ? lenses.find((lens) => getLensSkus(lens).includes(order.sku))?.coreId ?? null
+        : null;
     const selection = {
       ...original,
-      right: original.right ?? selectedFromUpload.right,
-      left: original.left ?? selectedFromUpload.left,
+      right: original.right ?? selectedFromUpload.right ?? skuCoreId,
+      left: original.left ?? selectedFromUpload.left ?? skuCoreId,
     };
+    const productContext = Object.fromEntries(
+      (["right", "left"] as const).flatMap((eyeName) => {
+        const coreId = selection[eyeName];
+        const lens = coreId
+          ? lenses.find((candidate) => candidate.coreId === coreId)
+          : null;
+        return lens
+          ? [[eyeName, {
+              coreId: lens.coreId,
+              displayName: lens.displayName,
+              toric: lens.type.toric,
+              multifocal: lens.type.multifocal,
+              requiredFields: [
+                "sphere",
+                ...(lens.type.toric ? ["cylinder", "axis"] : []),
+                ...(lens.type.multifocal ? ["add"] : []),
+                "baseCurve",
+                "diameter",
+              ],
+              addOptions: lens.parameters.multifocal?.adds ?? [],
+            }]]
+          : [];
+      }),
+    );
     const file = formData.get("file") as File | null;
 
     if (!file) {
@@ -356,11 +420,65 @@ export async function POST(
     }
 
     let interpretation: Interpretation;
+    let addRecoveryAttempted = false;
+    let addRecoveryEyes: Array<"right" | "left"> = [];
+    let modelConfidence: number | null = null;
+    let productRequirementIssues: OcrProductIssue[] = [];
     try {
       interpretation = await runPrescriptionInterpretation(
         validated.buffer.toString("base64"),
         validated.mimeType,
+        productContext,
       );
+      modelConfidence =
+        typeof interpretation.confidence === "number" &&
+        Number.isFinite(interpretation.confidence)
+          ? interpretation.confidence
+          : null;
+
+      let productAssessment = assessOcrProductRequirements(interpretation, selection);
+      const missingCategoricalAdds = categoricalAddRecoveryEyes(
+        interpretation,
+        productAssessment.multifocalEyes,
+      );
+      if (missingCategoricalAdds.length) {
+        addRecoveryAttempted = true;
+        try {
+          const recovered = await recoverCategoricalAdds(
+            validated.buffer.toString("base64"),
+            validated.mimeType,
+            interpretation,
+            missingCategoricalAdds,
+          );
+          interpretation = applyCategoricalAddRecovery(
+            interpretation,
+            recovered,
+            productAssessment.multifocalEyes,
+          );
+          addRecoveryEyes = missingCategoricalAdds.filter(
+            (eyeName) => Boolean(interpretation[eyeName]?.add),
+          );
+        } catch (recoveryError) {
+          console.error("Categorical ADD recovery failed", {
+            orderId,
+            error:
+              recoveryError instanceof Error
+                ? recoveryError.message
+                : "Unknown recovery failure",
+          });
+        }
+      }
+      productAssessment = assessOcrProductRequirements(interpretation, selection);
+      productRequirementIssues = productAssessment.issues;
+      const effectiveConfidence = calibrateOcrConfidence(
+        modelConfidence,
+        productRequirementIssues,
+        addRecoveryAttempted,
+      );
+      interpretation = {
+        ...interpretation,
+        confidence: effectiveConfidence,
+      };
     } catch (interpretationError) {
       await supabaseServer
         .from("orders")
@@ -393,11 +511,12 @@ export async function POST(
       });
     }
 
-    const rx = mapInterpretationToRx(interpretation);
+    const rx = mapOcrInterpretationToPrescription(interpretation);
     const usable = hasUsableRx(rx);
 
     const isLikelyRx =
       usable &&
+      productRequirementIssues.length === 0 &&
       interpretation.looks_like_contact_lens_rx === true &&
       (interpretation.confidence ?? 0) > 0.85;
 
@@ -410,7 +529,9 @@ export async function POST(
           usable,
           is_likely_rx: isLikelyRx,
           confidence: interpretation.confidence ?? null,
-          reason: usable ? "low_confidence_or_not_contact_lens_rx" : "missing_required_rx_fields",
+          reason: !usable || productRequirementIssues.length
+            ? "missing_required_rx_fields"
+            : "low_confidence_or_not_contact_lens_rx",
         },
       });
     }
@@ -422,6 +543,8 @@ export async function POST(
         rx: Object.keys(record(order.rx)).length ? order.rx : rx,
         rx_status: !usable
           ? "automation_review_ocr_missing_required_fields"
+          : productRequirementIssues.length
+            ? "automation_review_ocr_missing_required_fields"
           : !isLikelyRx
             ? interpretation.looks_like_contact_lens_rx === true
               ? "automation_review_ocr_low_confidence"
@@ -429,6 +552,17 @@ export async function POST(
             : "ocr_customer_confirmation_required",
         verification_status: "pending",
         rx_ocr_raw: interpretation,
+        rx_ocr_meta: {
+          ...record(order.rx_ocr_meta),
+          selected_product: selection,
+          ocr_reconciliation: {
+            model_confidence: modelConfidence,
+            effective_confidence: interpretation.confidence ?? null,
+            product_requirement_issues: productRequirementIssues,
+            categorical_add_attempted: addRecoveryAttempted,
+            categorical_add_recovered_eyes: addRecoveryEyes,
+          },
+        },
       })
       .eq("id", orderId)
       .eq("rx_upload_path", storagePath)
@@ -442,11 +576,49 @@ export async function POST(
       );
     }
 
+    const extractionReason = !usable
+      ? "ocr_missing_required_fields"
+      : productRequirementIssues.length
+        ? "ocr_missing_required_fields"
+      : !isLikelyRx
+        ? interpretation.looks_like_contact_lens_rx === true
+          ? "ocr_low_confidence"
+          : "ocr_not_contact_lens_prescription"
+        : "customer_confirmation_required";
+    const { error: auditError } = await supabaseServer.from("order_events").insert({
+      order_id: orderId,
+      event_type: "verification_ocr_evaluated",
+      actor: "system",
+      message: extractionReason,
+      after: {
+        stage: "ocr_extraction",
+        reason: extractionReason,
+        usable,
+        confidence: interpretation.confidence ?? null,
+        looks_like_contact_lens_rx:
+          interpretation.looks_like_contact_lens_rx === true,
+        fields: extractedFieldPresence(interpretation),
+        model_confidence: modelConfidence,
+        effective_confidence: interpretation.confidence ?? null,
+        product_requirement_issues: productRequirementIssues,
+        recovery: {
+          categorical_add_attempted: addRecoveryAttempted,
+          categorical_add_recovered_eyes: addRecoveryEyes,
+        },
+      },
+    });
+    if (auditError) {
+      console.error("OCR evaluation audit event failed", {
+        orderId,
+        error: auditError.message,
+      });
+    }
+
     return NextResponse.json({
       ok: true,
       usable,
       confidence: interpretation.confidence ?? 0,
-      reviewRequired: !usable,
+      reviewRequired: !isLikelyRx,
     });
   } catch (err) {
     console.error("RX OCR ROUTE ERROR:", err);

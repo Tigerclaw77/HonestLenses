@@ -3,10 +3,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   evaluateUploadedRxAutomation,
+  evaluateUploadedRxAutomationWithProductFallback,
   isCompletedUploadedRxFinalization,
+  isPersistedUploadedRxReview,
   runUploadedRxAutomation,
   uploadedRxFinalizationAllowedOrderStatuses,
   uploadedRxFinalizationOutcome,
+  uploadedRxFailureStage,
   uploadedRxReviewStatus,
   UPLOADED_RX_CAPTURE_FAILURE_CODE,
   type UploadedRxAutomationOrder,
@@ -133,6 +136,99 @@ assert.deepEqual(moistDecision.evidence.resolvedProducts, {
   right: "MOIST",
   left: "MOIST",
 });
+assert.equal(uploadedRxFailureStage("product_unresolved"), "product_matching");
+assert.equal(uploadedRxFailureStage("parameter_mismatch"), "parameter_validation");
+assert.equal(uploadedRxFailureStage("ocr_low_confidence"), "ocr_extraction");
+
+const oasysPackEquivalent: UploadedRxAutomationOrder = {
+  id: "00000000-0000-4000-8000-000000000024",
+  sku: "OASYS_2W_12",
+  rx_upload_path: "rx/order/acuvue-oasys-24pk.jpg",
+  rx_status: "uploaded_customer_confirmed",
+  patient_name: "Sofia Cordova",
+  prescriber_name: "Dr. Clear Prescriber",
+  prescriber_phone: "3125550124",
+  rx: {
+    expires: "2027-04-24",
+    right: { coreId: "OASYS_2W", sphere: -2.25, base_curve: 8.4, diameter: 14 },
+    left: { coreId: "OASYS_2W", sphere: -2.25, base_curve: 8.4, diameter: 14 },
+  },
+  rx_ocr_raw: {
+    right: {
+      sphere: -2.25,
+      cylinder: 0,
+      axis: 0,
+      add: null,
+      baseCurve: 8.4,
+      diameter: 14,
+      brand_raw: "ACUVUE OASYS 24PK",
+    },
+    left: {
+      sphere: -2.25,
+      cylinder: 0,
+      axis: 0,
+      add: null,
+      baseCurve: 8.4,
+      diameter: 14,
+      brand_raw: "ACUVUE OASYS 24PK",
+    },
+    expirationDate: "2027-04-24",
+    patient_name: "Sofia Cordova",
+    doctor_name: "Clear Prescriber",
+    prescriber_phone: "3125550124",
+    confidence: 1,
+    looks_like_contact_lens_rx: true,
+    notes:
+      "Axis is listed as 000, which is standard for spherical lenses. ADD is 0.00, so this is not multifocal.",
+  },
+};
+const oasysPackEquivalentDecision = evaluateUploadedRxAutomation(
+  oasysPackEquivalent,
+  "requires_capture",
+  NOW,
+);
+assert.equal(
+  oasysPackEquivalentDecision.autoVerify,
+  true,
+  "ACUVUE OASYS 24PK Rx auto-verifies an equivalent OASYS 12-pack order",
+);
+assert.deepEqual(oasysPackEquivalentDecision.evidence.resolvedProducts, {
+  right: "OASYS_2W",
+  left: "OASYS_2W",
+});
+
+for (const [brand, expectedReason] of [
+  ["ACUVUE OASYS 1-Day 90PK", "product_mismatch"],
+  ["ACUVUE OASYS MAX 1-Day 90PK", "product_mismatch"],
+] as const) {
+  const differentVariant = structuredClone(oasysPackEquivalent) as UploadedRxAutomationOrder;
+  const raw = differentVariant.rx_ocr_raw as ReturnType<typeof validOrder>["rx_ocr_raw"];
+  raw.right.brand_raw = brand;
+  raw.left.brand_raw = brand;
+  raw.right.baseCurve = 8.5;
+  raw.left.baseCurve = 8.5;
+  raw.right.diameter = 14.3;
+  raw.left.diameter = 14.3;
+  assert.equal(
+    evaluateUploadedRxAutomation(differentVariant, "requires_capture", NOW).reason,
+    expectedReason,
+    `${brand} remains distinct from 2-week OASYS despite its pack suffix`,
+  );
+}
+
+for (const change of [
+  { cylinder: -0.75, axis: 90, add: null },
+  { cylinder: 0, axis: 0, add: "LOW" },
+]) {
+  const differentClinicalVariant = structuredClone(oasysPackEquivalent) as UploadedRxAutomationOrder;
+  const raw = differentClinicalVariant.rx_ocr_raw as ReturnType<typeof validOrder>["rx_ocr_raw"];
+  Object.assign(raw.right, change);
+  assert.equal(
+    evaluateUploadedRxAutomation(differentClinicalVariant, "requires_capture", NOW).reason,
+    "parameter_mismatch",
+    "toric and multifocal signals remain blocking on a spherical order",
+  );
+}
 assert.deepEqual(
   uploadedRxFinalizationOutcome(moistDecision, null),
   {
@@ -150,6 +246,24 @@ assert.equal(
   ),
   true,
   "late or retried authorization webhooks cannot downgrade a completed upload",
+);
+assert.equal(
+  isPersistedUploadedRxReview(
+    "authorized",
+    "requires_review",
+    "automation_review_parameter_mismatch",
+  ),
+  true,
+  "a concurrent finalizer preserves an already-persisted uploaded-Rx review reason",
+);
+assert.equal(
+  isPersistedUploadedRxReview(
+    "draft",
+    "pending",
+    "automation_review_ocr_low_confidence",
+  ),
+  false,
+  "a pre-confirmation OCR exception is not mistaken for a completed checkout review",
 );
 assert.deepEqual(
   uploadedRxFinalizationAllowedOrderStatuses(
@@ -286,6 +400,140 @@ assert.equal(
 );
 
 async function runAutomationWorkflowTests() {
+  const uncertainProduct = structuredClone(
+    oasysPackEquivalent,
+  ) as UploadedRxAutomationOrder;
+  const uncertainOcr = uncertainProduct.rx_ocr_raw as ReturnType<
+    typeof validOrder
+  >["rx_ocr_raw"];
+  uncertainOcr.right.brand_raw = "ACUV OASY reusable 2 week lens";
+  uncertainOcr.left.brand_raw = "ACUV OASY reusable 2 week lens";
+  assert.equal(
+    evaluateUploadedRxAutomation(
+      uncertainProduct,
+      "requires_capture",
+      NOW,
+    ).reason,
+    "product_unresolved",
+    "uncertain product wording remains unresolved deterministically",
+  );
+
+  let productFallbackCalls = 0;
+  const fallbackRecovered =
+    await evaluateUploadedRxAutomationWithProductFallback(
+      uncertainProduct,
+      "requires_capture",
+      async (rawString, candidates) => {
+        productFallbackCalls += 1;
+        assert.equal(rawString, "ACUV OASY reusable 2 week lens");
+        assert.ok(candidates.some((candidate) => candidate.coreId === "OASYS_2W"));
+        assert.ok(candidates.every((candidate) => !candidate.coreId.includes("1D")));
+        assert.ok(candidates.length <= 15, "clinical filtering keeps the AI choice set narrow");
+        return "OASYS_2W";
+      },
+      NOW,
+    );
+  assert.equal(fallbackRecovered.autoVerify, true);
+  assert.equal(productFallbackCalls, 2, "each uncertain eye is resolved once");
+  assert.deepEqual(fallbackRecovered.evidence.aiResolvedProducts, {
+    right: {
+      rawString: "ACUV OASY reusable 2 week lens",
+      coreId: "OASYS_2W",
+    },
+    left: {
+      rawString: "ACUV OASY reusable 2 week lens",
+      coreId: "OASYS_2W",
+    },
+  });
+  assert.deepEqual(fallbackRecovered.evidence.productFallback, {
+    right: "resolved",
+    left: "resolved",
+  });
+
+  let fallbackCaptureCalls = 0;
+  const fallbackRun = await runUploadedRxAutomation(
+    uncertainProduct,
+    "requires_capture",
+    async (decision) => {
+      fallbackCaptureCalls += 1;
+      assert.equal(
+        decision.evidence.aiResolvedProducts.right?.coreId,
+        "OASYS_2W",
+      );
+      return { paymentIntentId: "pi_ai_fallback", alreadyCaptured: false };
+    },
+    NOW,
+    async () => "OASYS_2W",
+  );
+  assert.equal(fallbackRun.decision.autoVerify, true);
+  assert.equal(fallbackCaptureCalls, 1, "AI-resolved product proceeds to guarded capture");
+
+  const fallbackContradiction =
+    await evaluateUploadedRxAutomationWithProductFallback(
+      uncertainProduct,
+      "requires_capture",
+      async () => "VITA",
+      NOW,
+    );
+  assert.equal(
+    fallbackContradiction.reason,
+    "product_mismatch",
+    "AI cannot override a product contradiction with the confirmed catalog core",
+  );
+  assert.deepEqual(fallbackContradiction.evidence.productFallback, {
+    right: "resolved",
+    left: "resolved",
+  });
+
+  for (const deterministicFailure of [
+    mutate((order) => {
+      order.rx_ocr_raw.right.cylinder = -0.75;
+      order.rx_ocr_raw.right.axis = 90;
+    }),
+    mutate((order) => {
+      order.rx_ocr_raw.confidence = 0.9;
+    }),
+  ]) {
+    let unexpectedFallbackCalls = 0;
+    const decision = await evaluateUploadedRxAutomationWithProductFallback(
+      deterministicFailure,
+      "requires_capture",
+      async () => {
+        unexpectedFallbackCalls += 1;
+        return "OASYS_MAX_1D";
+      },
+      NOW,
+    );
+    assert.equal(decision.autoVerify, false);
+    assert.equal(
+      unexpectedFallbackCalls,
+      0,
+      "known clinical contradictions and non-product OCR uncertainty bypass product AI",
+    );
+  }
+
+  const reboundDecision = evaluateUploadedRxAutomation(
+    {
+      ...uncertainProduct,
+      rx_ocr_raw: {
+        ...(uncertainProduct.rx_ocr_raw as Record<string, unknown>),
+        right: {
+          ...((uncertainProduct.rx_ocr_raw as Record<string, unknown>)
+            .right as Record<string, unknown>),
+          brand_raw: "different OCR text",
+        },
+      },
+    },
+    "requires_capture",
+    NOW,
+    fallbackRecovered.evidence.aiResolvedProducts,
+  );
+  assert.equal(
+    reboundDecision.reason,
+    "product_unresolved",
+    "an AI resolution is bound to the exact OCR text used to obtain it",
+  );
+
   let captureCalls = 0;
   const successfulRun = await runUploadedRxAutomation(
   validOrder(),
@@ -393,10 +641,25 @@ async function runAutomationWorkflowTests() {
   "automation reuses the guarded idempotent capture command",
 );
   assert.match(
-  checkoutRoute,
-  /mode: "uploaded_auto_verified",[\s\S]*idempotent: true/,
-  "completed automation retries return without duplicate capture or email",
-);
+    checkoutRoute,
+    /mode: "uploaded_auto_verified",[\s\S]*idempotent: true/,
+    "completed automation retries return without duplicate capture or email",
+  );
+  assert.match(
+    checkoutRoute,
+    /isPersistedUploadedRxReview\([\s\S]*mode: "uploaded_review",[\s\S]*idempotent: true/,
+    "concurrent checkout finalizers preserve the first uploaded-Rx review outcome",
+  );
+  assert.match(
+    checkoutRoute,
+    /evaluateUploadedRxAutomationWithProductFallback\([\s\S]*resolveBrandAI/,
+    "checkout finalization invokes product AI before persisting unresolved review",
+  );
+  assert.match(
+    checkoutRoute,
+    /uploadedRxProductResolutions:[\s\S]*decision\.evidence\.aiResolvedProducts/,
+    "capture-time deterministic rechecks reuse the exact audited AI product resolution",
+  );
   assert.match(
   readFileSync(
     join(process.cwd(), "src", "lib", "orders", "uploadedRxAutomation.ts"),
@@ -409,6 +672,11 @@ async function runAutomationWorkflowTests() {
     checkoutRoute,
     /verification_uploaded_exception/,
     "review routing retains an audit event",
+  );
+  assert.match(
+    checkoutRoute,
+    /stage:[\s\S]*uploadedRxFailureStage/,
+    "automation audit evidence records the first blocking pipeline stage",
   );
   assert.match(
     checkoutRoute,

@@ -5,6 +5,10 @@ import { resolveCylinderOptions } from "./helpers/resolveCylinderOptions";
 import { resolveParameterOption } from "./helpers/resolveParameterOption";
 import { resolveSphereOptions } from "./helpers/resolveSphereOptions";
 import type { ParameterResolution } from "./helpers/resolveParameterOption";
+import {
+  canonicalPrescriptionAdd,
+  prescriptionAddsEquivalent,
+} from "@/lib/orders/prescriptionAdd";
 
 export type ResolvedRxState = {
   sphere: number | null;
@@ -64,7 +68,18 @@ export function resolveLensRxState(
   const addOptions = lens.type.multifocal
     ? resolveAddOptions(lens, baseCurve.value, sphere)
     : [];
-  const add = resolveParameterOption(rx.add ?? null, addOptions);
+  const resolvedAdd = resolveParameterOption(
+    rx.add ?? null,
+    addOptions,
+    prescriptionAddsEquivalent,
+  );
+  const add = {
+    ...resolvedAdd,
+    value:
+      resolvedAdd.value == null || resolvedAdd.invalid
+        ? resolvedAdd.value
+        : canonicalPrescriptionAdd(resolvedAdd.value, addOptions),
+  };
 
   const sphereOptions = resolveSphereOptions(
     lens,

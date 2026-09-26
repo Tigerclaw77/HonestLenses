@@ -160,6 +160,16 @@ assert.equal(
 assert.equal(
   isPrescriptionAcceptanceAvailable({
     ...riskyOrder,
+    verification_status: "information_needed",
+    rx_status: "automation_review_product_unresolved",
+    rx: null,
+  }),
+  true,
+  "an authorized operator can review and override an automation information-needed decision",
+);
+assert.equal(
+  isPrescriptionAcceptanceAvailable({
+    ...riskyOrder,
     status: "draft",
     payment_intent_id: null,
     verification_status: "pending",

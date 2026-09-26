@@ -13,6 +13,9 @@ import type {
 } from "./types";
 import { COMMERCE_V2_SCHEMA } from "./types";
 
+const PAYMENT_RECORD_FIELDS = "id,order_id,stripe_payment_intent_id,lifecycle_status,currency,authorized_amount_cents,capturable_amount_cents,captured_amount_cents,refunded_amount_cents,disputed_amount_cents,latest_charge_id,last_stripe_event_id,last_stripe_event_created_at,last_projection_observed_at,stripe_snapshot";
+const PAYMENT_OPERATION_FIELDS = "idempotency_key,order_id,payment_id,operation_type,request_hash,operation_status,response_snapshot,last_error";
+
 export type OperationClaim =
   | { state: "new"; operation: PaymentOperation }
   | { state: "existing"; operation: PaymentOperation };
@@ -130,7 +133,7 @@ export class SupabaseCommerceRepository implements CommerceRepository {
   ): Promise<PaymentRecord | null> {
     const { data, error } = await this.db
       .from("payments")
-      .select("*")
+      .select(PAYMENT_RECORD_FIELDS as "*")
       .eq("order_id", orderId)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -144,7 +147,7 @@ export class SupabaseCommerceRepository implements CommerceRepository {
   ): Promise<PaymentRecord | null> {
     const { data, error } = await this.db
       .from("payments")
-      .select("*")
+      .select(PAYMENT_RECORD_FIELDS as "*")
       .eq("stripe_payment_intent_id", intentId)
       .maybeSingle();
     throwOnError(error, "Load v2 payment by PaymentIntent");
@@ -241,7 +244,7 @@ export class SupabaseCommerceRepository implements CommerceRepository {
     const inserted = await this.db
       .from("payment_operations")
       .insert(operation)
-      .select("*")
+      .select(PAYMENT_OPERATION_FIELDS as "*")
       .maybeSingle();
 
     if (!inserted.error && inserted.data) {
@@ -257,7 +260,7 @@ export class SupabaseCommerceRepository implements CommerceRepository {
 
     const existing = await this.db
       .from("payment_operations")
-      .select("*")
+      .select(PAYMENT_OPERATION_FIELDS as "*")
       .eq("idempotency_key", input.idempotencyKey)
       .single();
     throwOnError(existing.error, "Load existing payment operation");
@@ -350,7 +353,7 @@ export class SupabaseCommerceRepository implements CommerceRepository {
   async listPaymentsForReconciliation(limit: number): Promise<PaymentRecord[]> {
     const { data, error } = await this.db
       .from("payments")
-      .select("*")
+      .select(PAYMENT_RECORD_FIELDS as "*")
       .order("updated_at", { ascending: true })
       .limit(limit);
     throwOnError(error, "List payments for reconciliation");
