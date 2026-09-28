@@ -16,10 +16,67 @@ export type { AnalyticsProperties, PostHogEventName };
 
 const TIMING_PREFIX = "hl_timing:";
 const RETRY_PREFIX = "hl_retry:";
+const LANDING_ATTRIBUTION_KEY = "hl_landing_attribution_v1";
 const posthogConfig = getPublicPostHogConfig();
 
 function isBrowser() {
   return typeof window !== "undefined";
+}
+
+function referrerHost(): string | null {
+  if (!document.referrer) return null;
+  try {
+    return new URL(document.referrer).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+export function getLandingAttributionProperties(): AnalyticsProperties {
+  if (!isBrowser()) return {};
+
+  const stored = window.sessionStorage.getItem(LANDING_ATTRIBUTION_KEY);
+  if (stored) {
+    try {
+      return JSON.parse(stored) as AnalyticsProperties;
+    } catch {
+      window.sessionStorage.removeItem(LANDING_ATTRIBUTION_KEY);
+    }
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const host = referrerHost();
+  const medium = params.get("utm_medium")?.slice(0, 120) ?? null;
+  const hasPaidSignal =
+    params.has("gclid") ||
+    params.has("msclkid") ||
+    Boolean(medium && /^(cpc|ppc|paid|paid_search)$/i.test(medium));
+  const isSearchReferrer = Boolean(
+    host &&
+      /(^|\.)(google|bing|duckduckgo|yahoo)\.[a-z.]+$|(^|\.)search\.brave\.com$/i.test(
+        host,
+      ),
+  );
+  const attribution: AnalyticsProperties = {
+    landing_page_path: sanitizeAnalyticsPath(window.location.pathname),
+    landing_referrer_host: host,
+    landing_utm_source: params.get("utm_source")?.slice(0, 120) ?? null,
+    landing_utm_medium: medium,
+    landing_utm_campaign: params.get("utm_campaign")?.slice(0, 120) ?? null,
+    traffic_channel: hasPaidSignal
+      ? "paid_search"
+      : isSearchReferrer
+        ? "organic_search"
+        : host
+          ? "referral"
+          : "direct",
+  };
+
+  window.sessionStorage.setItem(
+    LANDING_ATTRIBUTION_KEY,
+    JSON.stringify(attribution),
+  );
+  return attribution;
 }
 
 export function isPostHogConfigured(): boolean {
@@ -63,6 +120,7 @@ export function track(
     ...sanitizeAnalyticsProperties(properties),
     device_type: getDeviceType(),
     page_path: sanitizeAnalyticsPath(window.location.pathname),
+    ...getLandingAttributionProperties(),
   });
 }
 

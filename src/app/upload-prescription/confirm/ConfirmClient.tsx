@@ -13,6 +13,7 @@ import { hasUploadedEvidenceWithoutPrescription } from "@/lib/uploadFlow";
 import type { OcrExtract } from "@/types/ocr";
 import { originalProduct } from "@/lib/orders/productSelection";
 import { hasMultifocalProductSignal } from "@/lib/orders/ocrPrescription";
+import { getCompatibleSelectedSku } from "@/lib/pricing/selectedPackSize";
 
 /* =========================
    TYPES
@@ -48,6 +49,10 @@ export default function ConfirmClient() {
   const orderId = searchParams.get("orderId");
   const rightLens = searchParams.get("right")?.trim() || null;
   const leftLens = searchParams.get("left")?.trim() || null;
+  const selectedSku = getCompatibleSelectedSku(
+    [rightLens, leftLens],
+    searchParams.get("sku"),
+  );
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +65,7 @@ export default function ConfirmClient() {
   const recoveryParams = new URLSearchParams();
   if (rightLens) recoveryParams.set("right", rightLens);
   if (leftLens) recoveryParams.set("left", leftLens);
+  if (selectedSku) recoveryParams.set("sku", selectedSku);
   const recoveryQuery = recoveryParams.toString();
   const uploadHref = recoveryQuery
     ? `/upload-prescription?${recoveryQuery}`
@@ -284,7 +290,11 @@ export default function ConfirmClient() {
         <button type="button" onClick={() => { if (prescribedDraft) setInitialDraft(prescribedDraft); }}>Review prescribed product</button>
         {" · "}<Link href={uploadHref}>Upload a different prescription</Link>
       </div> : null}
-      <RxForm mode="ocr" initialDraft={initialDraft} ocrExtract={ocrExtract ?? undefined} />
+      <RxForm mode="ocr"
+        initialDraft={initialDraft}
+        initialSku={selectedSku ?? undefined}
+        ocrExtract={ocrExtract ?? undefined}
+      />
     </div>
   );
 }

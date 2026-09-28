@@ -13,6 +13,7 @@ import { getLensSkus } from "@/lib/pricing/getLensSkus";
 import { getPackSizeFromSku } from "@/lib/pricing/getPackSize";
 import { getPrice } from "@/lib/pricing/getPrice";
 import { getLowestPrice } from "@/lib/pricing/getLowestPrice";
+import { getCompatibleSelectedSku } from "@/lib/pricing/selectedPackSize";
 import { getPopularityRank } from "@/data/lensPopularityTiers";
 
 import { POSTHOG_EVENTS, track } from "@/lib/posthog/client";
@@ -22,8 +23,8 @@ import { recordRecentUserAction } from "@/lib/telemetry/clientErrors";
 import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 
 type LensSelection = {
-  right?: string;
-  left?: string;
+  right?: { coreId: string; sku: string | null };
+  left?: { coreId: string; sku: string | null };
 };
 
 type LensImageVariant = "card" | "modal";
@@ -182,11 +183,16 @@ export default function BrowsePage() {
     COOPERVISION: "CooperVision",
   };
 
-  function assignLens(lensId: string, eye: "right" | "left" | "both") {
+  function assignLens(
+    lensId: string,
+    sku: string | null,
+    eye: "right" | "left" | "both",
+  ) {
+    const selected = { coreId: lensId, sku };
     if (eye === "both") {
-      setSelection({ right: lensId, left: lensId });
+      setSelection({ right: selected, left: selected });
     } else {
-      setSelection((prev) => ({ ...prev, [eye]: lensId }));
+      setSelection((prev) => ({ ...prev, [eye]: selected }));
     }
 
     setSelectedLens(null);
@@ -195,8 +201,20 @@ export default function BrowsePage() {
   function goToPrescription() {
     const params = new URLSearchParams();
 
-    if (selection.right) params.set("right", selection.right);
-    if (selection.left) params.set("left", selection.left);
+    if (selection.right) params.set("right", selection.right.coreId);
+    if (selection.left) params.set("left", selection.left.coreId);
+
+    const selectedSkus = [selection.right?.sku, selection.left?.sku].filter(
+      (sku): sku is string => Boolean(sku),
+    );
+    const requestedSku =
+      new Set(selectedSkus).size === 1
+        ? getCompatibleSelectedSku(
+            [selection.right?.coreId, selection.left?.coreId],
+            selectedSkus[0],
+          )
+        : null;
+    if (requestedSku) params.set("sku", requestedSku);
 
     recordRecentUserAction("browse_enter_prescription_click", {
       has_right_lens: Boolean(selection.right),
@@ -392,8 +410,10 @@ export default function BrowsePage() {
               const lowest = getLowestPrice(skus);
 
               return (
-                <div
+                <button
+                  type="button"
                   key={lens.coreId}
+                  aria-label={`Select ${lens.displayName}`}
                   onClick={() => {
                     recordRecentUserAction("product_modal_opened", {
                       core_id: lens.coreId,
@@ -416,6 +436,9 @@ export default function BrowsePage() {
                     padding: "1rem",
                     cursor: "pointer",
                     background: "rgba(255,255,255,0.02)",
+                    color: "inherit",
+                    font: "inherit",
+                    textAlign: "left",
                     display: "flex",
                     alignItems: "center",
                     gap: "1rem",
@@ -451,7 +474,7 @@ export default function BrowsePage() {
                       {replacementLabel(lens.replacement)}
                     </div>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -484,11 +507,15 @@ export default function BrowsePage() {
           >
             <div>
               Right eye:{" "}
-              {selection.right ? lensMap[selection.right] : "Select lens"}
+              {selection.right
+                ? lensMap[selection.right.coreId]
+                : "Select lens"}
             </div>
             <div>
               Left eye:{" "}
-              {selection.left ? lensMap[selection.left] : "Select lens"}
+              {selection.left
+                ? lensMap[selection.left.coreId]
+                : "Select lens"}
             </div>
 
             <div style={{ marginTop: 10 }}>
@@ -538,7 +565,11 @@ function LensModal({
 }: {
   lens: LensCore;
   onClose: () => void;
-  onSelect: (lensId: string, eye: "right" | "left" | "both") => void;
+  onSelect: (
+    lensId: string,
+    sku: string | null,
+    eye: "right" | "left" | "both",
+  ) => void;
 }) {
   const skus = getLensSkus(lens);
   const [selectedSku, setSelectedSku] = useState("");
@@ -694,7 +725,7 @@ function LensModal({
             recordRecentUserAction("lens_selected_for_both", {
               core_id: lens.coreId,
             });
-            onSelect(lens.coreId, "both");
+            onSelect(lens.coreId, selectedSkuValue || null, "both");
           }}
         >
           Use for Both Eyes
@@ -720,7 +751,7 @@ function LensModal({
               recordRecentUserAction("lens_selected_for_right", {
                 core_id: lens.coreId,
               });
-              onSelect(lens.coreId, "right");
+              onSelect(lens.coreId, selectedSkuValue || null, "right");
             }}
           >
             Right Only
@@ -738,7 +769,7 @@ function LensModal({
               recordRecentUserAction("lens_selected_for_left", {
                 core_id: lens.coreId,
               });
-              onSelect(lens.coreId, "left");
+              onSelect(lens.coreId, selectedSkuValue || null, "left");
             }}
           >
             Left Only

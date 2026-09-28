@@ -8,6 +8,7 @@ import type { Session, User } from "@supabase/supabase-js";
 
 import { supabase } from "@/lib/supabase-client";
 import {
+  getLandingAttributionProperties,
   identifyPostHogUser,
   resetPostHogUser,
 } from "./client";
@@ -114,6 +115,7 @@ function PageviewTracker() {
     posthog.capture("$pageview", {
       path: safePath,
       url: window.location.origin + safePath,
+      ...getLandingAttributionProperties(),
     });
   }, [pathname]);
 

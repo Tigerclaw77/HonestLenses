@@ -41,6 +41,12 @@ Privacy notes:
 
 Operational dashboard foundations:
 
+- Acquisition attribution: every pageview and client funnel event includes the
+  session's first `landing_page_path`, `landing_referrer_host`, UTM values, and
+  a compact `traffic_channel` classification. This supports an
+  `organic_search` landing page → product engagement → cart → checkout → order
+  success funnel without adding another analytics client.
+
 - Browse interest: `viewed_product`, `product_modal_opened`,
   `searched_lens`, `viewed_brand`.
 - Cart funnel: `added_to_cart`, `cart_quantity_changed`,

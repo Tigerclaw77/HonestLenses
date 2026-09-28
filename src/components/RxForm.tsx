@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { getCompatibleSelectedSku } from "@/lib/pricing/selectedPackSize";
 import { supabase } from "@/lib/supabase-client";
 import Link from "next/link";
 import AddSelector from "../components/AddSelector";
@@ -99,6 +100,7 @@ type Props = {
   ocrExtract?: OcrExtract;
   initialRightLens?: string;
   initialLeftLens?: string;
+  initialSku?: string;
 };
 
 /* =========================
@@ -329,6 +331,7 @@ export default function RxForm({
   ocrExtract,
   initialRightLens,
   initialLeftLens,
+  initialSku,
 }: Props) {
   const router = useRouter();
 
@@ -1231,13 +1234,20 @@ export default function RxForm({
 
       console.log("STEP 4: resolving cart");
 
+      const requestedSku = getCompatibleSelectedSku(
+        [rx.right?.coreId, rx.left?.coreId],
+        initialSku,
+      );
       const resolveRes = await fetch("/api/cart/resolve", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...optionalAuthHeaders(accessToken),
         },
-        body: JSON.stringify({ order_id: finalOrderId }),
+        body: JSON.stringify({
+          order_id: finalOrderId,
+          ...(requestedSku ? { sku: requestedSku } : {}),
+        }),
         cache: "no-store",
       });
 

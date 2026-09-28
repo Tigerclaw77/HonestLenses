@@ -26,6 +26,7 @@ import {
   uploadNeedsRecovery,
   type UploadResponseBody,
 } from "@/lib/uploadFlow";
+import { getCompatibleSelectedSku } from "@/lib/pricing/selectedPackSize";
 
 const LS_ORDER_ID = "rx_upload_order_id";
 const SS_PENDING_UPLOAD_INTENT = "hl_pending_upload_intent_v1";
@@ -85,6 +86,10 @@ function UploadPrescriptionContent() {
 
   const rightLens = searchParams.get("right")?.trim() || null;
   const leftLens = searchParams.get("left")?.trim() || null;
+  const selectedSku = getCompatibleSelectedSku(
+    [rightLens, leftLens],
+    searchParams.get("sku"),
+  );
   const selectedLensSummary = (() => {
     if (rightLens && leftLens && rightLens === leftLens) {
       return `Both eyes: ${getLensDisplayName(rightLens, null)}`;
@@ -102,6 +107,7 @@ function UploadPrescriptionContent() {
 
     if (rightLens) params.set("right", rightLens);
     if (leftLens) params.set("left", leftLens);
+    if (selectedSku) params.set("sku", selectedSku);
 
     const query = params.toString();
     return query ? `/enter-prescription?${query}` : "/enter-prescription";
@@ -398,6 +404,7 @@ function UploadPrescriptionContent() {
     const params = new URLSearchParams({ orderId });
     if (rightLens) params.set("right", rightLens);
     if (leftLens) params.set("left", leftLens);
+    if (selectedSku) params.set("sku", selectedSku);
     router.push(`/upload-prescription/confirm?${params.toString()}`);
   }
 
@@ -573,6 +580,7 @@ function UploadPrescriptionContent() {
 
       if (rightLens) params.set("right", rightLens);
       if (leftLens) params.set("left", leftLens);
+      if (selectedSku) params.set("sku", selectedSku);
 
       router.push(`/upload-prescription/confirm?${params.toString()}`);
     } catch (err: unknown) {

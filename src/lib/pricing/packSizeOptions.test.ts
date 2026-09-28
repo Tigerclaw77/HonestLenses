@@ -10,6 +10,7 @@ import {
   getPackSizeOptionsForCoreId,
   isSkuAvailableForCoreId,
 } from "./packSizeOptions";
+import { getCompatibleSelectedSku } from "./selectedPackSize";
 import { getQuantityOptionsWithSelectedValue } from "@/lib/cart/quantityConfig";
 import {
   getLensFamilyQuantityReset,
@@ -34,6 +35,14 @@ assert.equal(convertEquivalentPackQuantity(1, small, large), null);
 assert.equal(
   isSkuAvailableForCoreId("OASYS_2W_AST", "OASYS_2W_12"),
   false,
+);
+assert.equal(
+  getCompatibleSelectedSku(["OASYS_2W", "OASYS_2W"], "OASYS_2W_12"),
+  "OASYS_2W_12",
+);
+assert.equal(
+  getCompatibleSelectedSku(["OASYS_2W", "OASYS_2W_AST"], "OASYS_2W_12"),
+  null,
 );
 
 const largeQuote = getAuthoritativeOrderQuote({

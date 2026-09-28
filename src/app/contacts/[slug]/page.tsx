@@ -33,6 +33,7 @@ import {
 } from "@/lib/seo/contactSeoRoutes";
 import { serializeJsonLd } from "@/lib/seo/jsonLd";
 import {
+  getAnnualSupplyEstimate,
   getPricePerLensCents,
   getPricePerWearingDayCents,
 } from "@/lib/seo/productEconomics";
@@ -190,16 +191,63 @@ function getParameterRows(lens: LensCore) {
   ].filter((row): row is { label: string; value: string } => Boolean(row));
 }
 
+function getProductFaqs(lens: LensCore, priceOptions: PriceOption[]) {
+  const pricingAnswer = priceOptions.length
+    ? `${lens.displayName} is currently ${priceOptions
+        .map(
+          (option) =>
+            `${formatCurrency(option.pricePerBoxCents)} for a ${option.boxSize}-lens box`,
+        )
+        .join(" or ")}. Shipping and any applicable tax are confirmed in the cart.`
+    : `Current pricing for ${lens.displayName} is confirmed during ordering.`;
+
+  const annualAnswer = priceOptions.length
+    ? `${priceOptions
+        .map((option) => {
+          const oneEye = getAnnualSupplyEstimate({
+            monthsPerBox: option.monthsPerBox,
+            pricePerBoxCents: option.pricePerBoxCents,
+            eyeCount: 1,
+          });
+          const twoEyes = getAnnualSupplyEstimate({
+            monthsPerBox: option.monthsPerBox,
+            pricePerBoxCents: option.pricePerBoxCents,
+            eyeCount: 2,
+          });
+
+          return `Using ${option.boxSize}-lens boxes, an estimated 12-month supply is ${oneEye.totalBoxes} boxes (${formatCurrency(oneEye.totalPriceCents)}) for one eye or ${twoEyes.totalBoxes} boxes (${formatCurrency(twoEyes.totalPriceCents)}) for two eyes`;
+        })
+        .join(". ")}. Estimates assume continuous use at the catalog replacement schedule and exclude shipping and tax; actual quantities depend on the prescription and wear pattern.`
+    : `Annual quantity depends on the prescribed replacement schedule, pack size, number of eyes using ${lens.displayName}, and intended wear pattern.`;
+
+  return [
+    {
+      question: `What does ${lens.displayName} cost?`,
+      answer: pricingAnswer,
+    },
+    {
+      question: `How much is a 12-month supply of ${lens.displayName}?`,
+      answer: annualAnswer,
+    },
+    {
+      question: `Do I need a prescription to order ${lens.displayName}?`,
+      answer: `Yes. Order the exact ${lens.displayName} product and parameters on a valid contact lens prescription. Honest Lenses must obtain or verify that prescription before fulfillment. Shipping method and cost are shown in the cart, and carrier transit begins after verification and product processing.`,
+    },
+  ];
+}
+
 function ProductJsonLd({
   lens,
   slug,
   imageUrl,
   priceOptions,
+  faqs,
 }: {
   lens: LensCore;
   slug: string;
   imageUrl: string | null;
   priceOptions: PriceOption[];
+  faqs: ReturnType<typeof getProductFaqs>;
 }) {
   const canonicalUrl = `${SITE_URL}/contacts/${slug}`;
   const category = getCategory(lens);
@@ -273,11 +321,25 @@ function ProductJsonLd({
       },
     ],
   };
+  const faqSchema = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqs.map((faq) => ({
+      "@type": "Question",
+      name: faq.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: faq.answer,
+      },
+    })),
+  };
 
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: serializeJsonLd([schema, breadcrumb]) }}
+      dangerouslySetInnerHTML={{
+        __html: serializeJsonLd([schema, breadcrumb, faqSchema]),
+      }}
     />
   );
 }
@@ -313,6 +375,7 @@ export default async function LensPage({ params }: Props) {
   const imageUrl = getVerifiedProductImage(lens);
   const category = getCategory(lens);
   const parameterRows = getParameterRows(lens);
+  const faqs = getProductFaqs(lens, priceOptions);
   const lowestPrice = priceOptions.length
     ? Math.min(...priceOptions.map((option) => option.pricePerBoxCents))
     : null;
@@ -324,6 +387,7 @@ export default async function LensPage({ params }: Props) {
         slug={slug}
         imageUrl={imageUrl}
         priceOptions={priceOptions}
+        faqs={faqs}
       />
       <Header variant="shop" />
 
@@ -507,6 +571,16 @@ export default async function LensPage({ params }: Props) {
                 <Link href="/guides/why-is-my-contact-lens-order-delayed">Shipping expectations</Link>
                 <Link href="/returns">Returns and refunds</Link>
               </p>
+            </section>
+
+            <section aria-labelledby="product-faqs">
+              <h2 id="product-faqs">Questions about {lens.displayName}</h2>
+              {faqs.map((faq) => (
+                <div key={faq.question}>
+                  <h3>{faq.question}</h3>
+                  <p>{faq.answer}</p>
+                </div>
+              ))}
             </section>
 
             <section

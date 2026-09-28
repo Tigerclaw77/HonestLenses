@@ -2,11 +2,13 @@ import Header from "../../components/Header";
 import RxForm, { type RxDraft } from "../../components/RxForm";
 import { lenses } from "@/LensCore";
 import { redirect } from "next/navigation";
+import { getCompatibleSelectedSku } from "@/lib/pricing/selectedPackSize";
 
 type PageProps = {
   searchParams: Promise<{
     right?: string | string[];
     left?: string | string[];
+    sku?: string | string[];
   }>;
 };
 
@@ -48,6 +50,10 @@ export default async function EnterPrescriptionPage({
   const rightLens = normalizeLensParam(params.right);
   const leftLens = normalizeLensParam(params.left);
   const hasPrefill = Boolean(rightLens || leftLens);
+  const initialSku = getCompatibleSelectedSku(
+    [rightLens, leftLens],
+    firstParam(params.sku),
+  );
 
   if (hasLensParams && (rawRightLens || rawLeftLens) && !hasPrefill) {
     redirect("/upload-prescription");
@@ -70,7 +76,7 @@ export default async function EnterPrescriptionPage({
   return (
     <>
       <Header variant="shop" />
-      <RxForm initialDraft={initialDraft} />
+      <RxForm initialDraft={initialDraft} initialSku={initialSku ?? undefined} />
     </>
   );
 }
