@@ -17,7 +17,7 @@ const mocks = {
   '@stripe/stripe-js': `export const loadStripe = () => Promise.resolve({});`,
   '@stripe/react-stripe-js': `import React from 'react'; export const Elements = ({children}) => children; export const PaymentElement = ({options}) => <div data-testid="mock-stripe" data-methods={options.paymentMethodOrder.join(',')}><label>Card details (mock)<input placeholder="Card number" /></label></div>; export const useStripe = () => ({confirmPayment: async () => {window.calls.push('stripe.confirmPayment'); return window.scenario === 'decline' ? {error:{message:'Mock card declined'}} : {};}}); export const useElements = () => ({fetchUpdates:async()=>{}});`,
   '@/lib/supabase-client': `export const supabase = {auth:{getSession:async()=>({data:{session: location.search.includes('member=1') ? {access_token:'fixture-token'} : null}})}};`,
-  '@/lib/posthog/client': `export const POSTHOG_EVENTS = {}; export const track=()=>{}; export const captureClientException=()=>{}; export const consumeStepDurationMs=()=>0; export const getStepDurationMs=()=>0; export const incrementRetryCount=()=>0; export const markStepStart=()=>{};`,
+  '@/lib/posthog/client': `export const POSTHOG_EVENTS = {PAYMENT_VIEWED:'payment_viewed'}; export const track=(event,properties)=>window.events.push({event,properties}); export const captureClientException=(error,properties)=>window.events.push({event:'exception',properties}); export const consumeStepDurationMs=()=>0; export const getStepDurationMs=()=>0; export const incrementRetryCount=()=>0; export const markStepStart=()=>{};`,
   '@/components/AbandonmentFeedbackExperiment': `export default function Feedback(){return null;}`,
 };
 await build({
@@ -45,7 +45,7 @@ try {
       const page = await browser.newPage({viewport});
       await page.route('**/*', route => route.request().url().startsWith(origin) ? route.continue() : route.abort());
       await page.addInitScript(({scenario}) => {
-        window.calls=[]; window.scenario=scenario;
+        window.calls=[]; window.events=[]; window.scenario=scenario;
         let quotes=0;
         window.fetch=async(url,options={})=>{
           window.calls.push({url,options});
@@ -60,6 +60,7 @@ try {
       }, {scenario});
       await page.goto(`${origin}/checkout?orderId=fixture-order${member?'&member=1':''}`);
       await page.getByRole('button',{name:'Place order securely'}).waitFor();
+      assert.equal(await page.evaluate(()=>window.events.filter(e=>e.event==='payment_viewed').length),1);
       assert.equal(await page.getByRole('combobox').count(),0);
       assert.equal(await page.getByText('Have vision insurance?').count(),0);
       const bodyText=await page.locator('body').innerText();
@@ -97,10 +98,27 @@ try {
       console.log(`PASS checkout ${width}px ${member?'member':'guest'} ${scenario}`);
     }
   }
+  for (const status of [401,403,404,500]) {
+    const page=await browser.newPage({viewport:{width:1280,height:800}});
+    await page.route('**/*',route=>route.request().url().startsWith(origin)?route.continue():route.abort());
+    await page.addInitScript(({status})=>{
+      window.events=[]; window.calls=[];
+      window.fetch=async(url)=>{window.calls.push(url); return {ok:false,status,json:async()=>({})};};
+    },{status});
+    await page.goto(`${origin}/checkout?orderId=fixture-order`);
+    await page.getByText('Order not found.').waitFor();
+    const events=await page.evaluate(()=>window.events);
+    assert.equal(events.filter(e=>e.event==='payment_viewed').length,1);
+    assert.equal(events.find(e=>e.event==='exception').properties.http_status,status);
+    assert.equal(events.find(e=>e.event==='exception').properties.failure_category,'order_lookup_http_error');
+    assert.doesNotMatch(JSON.stringify(events),/fixture-order/);
+    await page.close();
+    console.log(`PASS checkout init ${status} diagnostics`);
+  }
   for (const width of [1440,390]) for (const mode of ['uploaded','passive','unknown']) {
     const page=await browser.newPage({viewport:{width,height:900}});
     await page.route('**/*',route=>route.request().url().startsWith(origin)?route.continue():route.abort());
-    await page.addInitScript(()=>{window.fetch=async()=>({ok:true,json:async()=>({order:{id:'fixture-order',status:'authorized'}})});});
+    await page.addInitScript(()=>{window.events=[]; window.fetch=async()=>({ok:true,json:async()=>({order:{id:'fixture-order',status:'authorized'}})});});
     await page.goto(`${origin}/success?orderId=fixture-order&mode=${mode}`);
     await page.getByRole('heading',{name:'Have vision insurance?'}).waitFor();
     assert.equal(await page.getByRole('combobox').count(),0);

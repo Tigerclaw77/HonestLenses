@@ -19,6 +19,12 @@ export const POSTHOG_EVENTS = {
   CHECKOUT_SHIPPING_UPDATED: "checkout_shipping_updated",
 
   CHECKOUT_STARTED: "checkout_started",
+  SHIPPING_VIEWED: "shipping_viewed",
+  SHIPPING_FORM_STARTED: "shipping_form_started",
+  SHIPPING_VALIDATION_FAILED: "shipping_validation_failed",
+  SHIPPING_SAVE_SUCCEEDED: "shipping_save_succeeded",
+  SHIPPING_SAVE_FAILED: "shipping_save_failed",
+  PAYMENT_VIEWED: "payment_viewed",
   PAYMENT_INTENT_CREATED: "payment_intent_created",
   ORDER_AUTHORIZED: "order_authorized",
   ORDER_CAPTURED: "order_captured",

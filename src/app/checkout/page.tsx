@@ -408,18 +408,29 @@ function CheckoutInner() {
   const [loading, setLoading] = useState(true);
   const checkoutStartTracked = useRef(false);
   const clientSecretReady = useRef(false);
+  const paymentViewedTracked = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    if (!paymentViewedTracked.current) {
+      paymentViewedTracked.current = true;
+      track(POSTHOG_EVENTS.PAYMENT_VIEWED, { has_order_reference: Boolean(orderId) });
+    }
 
     async function init() {
+      let failureCategory = "unexpected";
+      let httpStatus: number | null = null;
       try {
-        if (!orderId) throw new Error("Missing orderId.");
+        if (!orderId) {
+          failureCategory = "missing_order_reference";
+          throw new Error("Missing orderId.");
+        }
 
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
+        failureCategory = "order_lookup_network_error";
         const orderRes = await fetch(`/api/orders/${orderId}`, {
           cache: "no-store",
           headers: {
@@ -433,6 +444,10 @@ function CheckoutInner() {
         const orderData = orderJson.order;
 
         if (!orderRes.ok || !orderData) {
+          failureCategory = orderRes.ok
+            ? "order_lookup_missing_payload"
+            : "order_lookup_http_error";
+          httpStatus = orderRes.status;
           throw new Error("Order not found.");
         }
 
@@ -472,6 +487,7 @@ function CheckoutInner() {
 
         markStepStart(`payment_init:${orderId}`);
 
+        failureCategory = "payment_init_network_error";
         const res = await fetch("/api/checkout/pay", {
           method: "POST",
           headers: {
@@ -483,6 +499,8 @@ function CheckoutInner() {
           body: JSON.stringify({ orderId }),
         });
 
+        httpStatus = res.status;
+        failureCategory = "payment_init_response_error";
         const body: CheckoutPayResponse = await res.json();
 
         if (
@@ -492,6 +510,8 @@ function CheckoutInner() {
           typeof body.total_amount_cents !== "number" ||
           typeof body.amount_due_cents !== "number"
         ) {
+          failureCategory = "payment_init_http_error";
+          httpStatus = res.status;
           throw new Error(body.error || "Payment init failed.");
         }
 
@@ -538,7 +558,8 @@ function CheckoutInner() {
         if (cancelled) return;
         captureClientException(err, {
           source: "checkout_init",
-          order_id: orderId,
+          failure_category: failureCategory,
+          http_status: httpStatus,
         });
         setError(err instanceof Error ? err.message : "Checkout failed.");
         setLoading(false);
