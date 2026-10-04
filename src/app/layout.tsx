@@ -9,9 +9,9 @@ import { GOOGLE_ADS_TAG_ID } from "@/lib/googleAds";
 import { serializeJsonLd } from "@/lib/seo/jsonLd";
 
 const siteUrl = "https://honestlenses.com";
-const siteTitle = "Contact Lenses Online | Clear Per-Box Prices | Honest Lenses";
+const siteTitle = "Honest Lenses | Contact Lenses Online";
 const siteDescription =
-  "Shop authentic contact lenses with current per-box prices and pack sizes shown before checkout. Valid prescription verification is included.";
+  "Order authentic contact lenses online with prescription verification and manufacturer-direct fulfillment.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
