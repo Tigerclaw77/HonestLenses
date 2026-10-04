@@ -318,9 +318,9 @@ export const commercialContactPages = {
     primaryIntent: "Evaluate and order a larger contact lens supply.",
     primaryConversionGoal:
       "Increase qualified larger-quantity orders by helping shoppers understand prescription timing, pack size, and replacement schedule.",
-    title: "Annual Supply Contact Lenses",
+    title: "Annual Supply Contact Lenses | Quantities & Prices | Honest Lenses",
     metaDescription:
-      "Learn how to think about annual supply contact lens orders, prescription expiration timing, pack sizes, and product matching before ordering.",
+      "Compare current box prices and estimated 12-month quantities for popular contact lenses. Match your valid prescription before ordering.",
     h1: "Annual Supply Contact Lenses",
     eyebrow: "Larger Contact Lens Orders",
     intro:
@@ -335,6 +335,7 @@ export const commercialContactPages = {
     },
     productCoreIds: [
       "OASYS_1D",
+      "OASYS_MAX_1D",
       "DT1",
       "PRECISION1",
       "BIOFINITY",

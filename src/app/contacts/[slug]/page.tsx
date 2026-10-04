@@ -356,6 +356,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   if (!lens) return {};
 
+  if (lens.coreId === "OASYS_MAX_1D") {
+    return {
+      title: { absolute: "ACUVUE OASYS MAX 1-Day | 30 & 90-Pack Prices | Honest Lenses" },
+      description:
+        "Shop ACUVUE OASYS MAX 1-Day in 30- or 90-lens boxes. Compare current per-box prices and estimate a 12-month supply. Valid prescription required.",
+      alternates: { canonical: `${SITE_URL}/contacts/${slug}` },
+    };
+  }
+
   return {
     title: `${lens.displayName} Contact Lenses`,
     description: `Shop ${lens.displayName} contact lenses with verified catalog pricing and prescription verification. ${replacementLabel(lens.replacement)} product from ${lens.manufacturer}.`,
@@ -494,6 +503,13 @@ export default async function LensPage({ params }: Props) {
               <section aria-labelledby="annual-supply-estimate">
                 <h2 id="annual-supply-estimate">Estimate a 12-month supply</h2>
                 <AnnualSupplyEstimator options={priceOptions} />
+                {lens.coreId === "OASYS_MAX_1D" ? (
+                  <p>
+                    <Link href="/contacts/annual-supply-contact-lenses">
+                      Compare annual-supply quantities and prices across lenses
+                    </Link>
+                  </p>
+                ) : null}
               </section>
             ) : null}
 

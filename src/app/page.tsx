@@ -123,7 +123,7 @@ export default function HomePage() {
         <div className="home-hero-inner">
           <div className="home-hero-copy">
             <p className="home-eyebrow">
-              Honest pricing. Honest sourcing. Honest Lenses.
+              Clear per-box prices. Authentic lenses. Valid prescription.
             </p>
             <h1 id="home-hero-title">
               Contact lenses.
@@ -144,7 +144,7 @@ export default function HomePage() {
                 Shop contact lenses
               </button>
               <Link href="/browse" className="home-secondary-button">
-                Browse all brands
+                Browse all brands and prices
               </Link>
             </div>
             <form
@@ -288,7 +288,7 @@ export default function HomePage() {
           <div>
             <p>Pricing you can understand</p>
             <h2 id="value-title">The honest price is the price you can see.</h2>
-            <span>Each product shows its current per-box price from our live catalog, with available pack sizes clearly identified.</span>
+            <span>Each product shows its current per-box price from our live catalog, with available pack sizes clearly identified. Planning a larger order? <Link href="/contacts/annual-supply-contact-lenses">Compare annual-supply quantities and prices</Link>.</span>
           </div>
           <ul>
             <li><span aria-hidden="true">✓</span>Current catalog pricing</li>

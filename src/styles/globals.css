@@ -317,6 +317,7 @@
 .home-value-inner { max-width: 1380px; margin: 0 auto; display: grid; grid-template-columns: 1.2fr .8fr auto; gap: clamp(32px, 5vw, 74px); align-items: center; }
 .home-value h2 { color: #fff; max-width: 660px; }
 .home-value-inner > div > span { max-width: 650px; color: #b9c9dd; }
+.home-value-inner > div > span a { color: #ffffff; text-underline-offset: 3px; }
 .home-value ul { margin: 0; padding: 0; display: grid; gap: 13px; list-style: none; color: #dce8f6; font-size: 14px; }
 .home-value li { display: flex; gap: 10px; align-items: center; }
 .home-value li span { color: #6eb6ff; font-weight: 900; }

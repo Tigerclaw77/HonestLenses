@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { lenses } from "@/LensCore/data/lenses";
 import type { LensCore } from "@/LensCore/types";
@@ -17,6 +18,7 @@ import type { CommercialContactPageConfig } from "./commercialPages";
 
 type Props = {
   page: CommercialContactPageConfig;
+  children?: ReactNode;
 };
 
 function replacementLabel(code: string) {
@@ -110,7 +112,7 @@ function ProductCard({ lens }: { lens: LensCore }) {
   );
 }
 
-export default function CommercialContactPage({ page }: Props) {
+export default function CommercialContactPage({ page, children }: Props) {
   const products = findSelectedProducts(page.productCoreIds).sort(
     (a, b) =>
       page.productCoreIds.indexOf(a.coreId) -
@@ -165,6 +167,8 @@ export default function CommercialContactPage({ page }: Props) {
             </section>
           ))}
         </section>
+
+        {children}
 
         <section className={styles.productsSection}>
           <div className={styles.sectionHeader}>

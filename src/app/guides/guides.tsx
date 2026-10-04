@@ -580,9 +580,8 @@ export const guides: GuidePage[] = [
             </p>
             <div className={styles.actionLinks}>
               <ActionLink href="/upload-prescription">
-                Upload prescription
+                Start an order with your current prescription
               </ActionLink>
-              <ActionLink href="/browse">Browse contacts</ActionLink>
             </div>
           </>
         ),
@@ -704,6 +703,11 @@ export const guides: GuidePage[] = [
               <li>Review shipping, taxes, and any required verification steps.</li>
               <li>Choose a retailer that takes prescription matching and sourcing seriously.</li>
             </ul>
+            <p>
+              To compare Honest Lenses products, <Link href="/">
+                see current contact lens prices
+              </Link> and select the exact lens named on your prescription.
+            </p>
             <div className={styles.actionLinks}>
               <ActionLink href="/browse">Browse contact lenses</ActionLink>
               <ActionLink href="/about">About Honest Lenses</ActionLink>
