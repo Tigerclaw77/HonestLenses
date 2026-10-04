@@ -217,6 +217,10 @@ export const commercialContactPages = {
         label: "Order contact lenses online",
       },
       {
+        href: "/contacts/contact-lens-prices",
+        label: "Find current prices for your prescribed lens",
+      },
+      {
         href: "/contacts/annual-supply-contact-lenses",
         label: "Annual supply contact lenses",
       },
@@ -299,6 +303,10 @@ export const commercialContactPages = {
         label: "Daily contact lenses",
       },
       {
+        href: "/contacts/contact-lens-prices",
+        label: "See current ACUVUE box prices",
+      },
+      {
         href: "/contacts/toric-contact-lenses",
         label: "Toric contact lenses",
       },
@@ -378,6 +386,10 @@ export const commercialContactPages = {
       {
         href: "/contacts/order-contact-lenses-online",
         label: "Order contact lenses online",
+      },
+      {
+        href: "/contacts/contact-lens-prices",
+        label: "Look up current box prices",
       },
       {
         href: "/contacts/daily-contact-lenses",

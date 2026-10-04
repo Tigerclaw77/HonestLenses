@@ -288,14 +288,14 @@ export default function HomePage() {
           <div>
             <p>Pricing you can understand</p>
             <h2 id="value-title">The honest price is the price you can see.</h2>
-            <span>Each product shows its current per-box price from our live catalog, with available pack sizes clearly identified. Planning a larger order? <Link href="/contacts/annual-supply-contact-lenses">Compare annual-supply quantities and prices</Link>.</span>
+            <span>Find your prescribed product in our <Link href="/contacts/contact-lens-prices">current box-price index</Link>. Planning a larger order? <Link href="/contacts/annual-supply-contact-lenses">Calculate supply quantities and costs</Link>.</span>
           </div>
           <ul>
             <li><span aria-hidden="true">✓</span>Current catalog pricing</li>
             <li><span aria-hidden="true">✓</span>Pack sizes shown before you order</li>
             <li><span aria-hidden="true">✓</span>Prescription verification built in</li>
           </ul>
-          <Link href="/browse" className="home-value-button">Compare lenses</Link>
+          <Link href="/contacts/contact-lens-prices" className="home-value-button">Find your lens price</Link>
         </div>
       </section>
 

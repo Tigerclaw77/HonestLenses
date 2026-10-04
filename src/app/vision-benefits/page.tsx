@@ -29,6 +29,24 @@ export default function VisionBenefitsPage() {
         </section>
 
         <section className={styles.section}>
+          <h2>Can I buy contact lenses without vision insurance?</h2>
+          <p>
+            Yes. Vision insurance is not required to buy contact lenses from
+            Honest Lenses. You can pay out of pocket for the exact product on
+            your valid contact lens prescription; prescription verification is
+            still required before fulfillment.
+          </p>
+          <p>
+            An eye examination, refraction, or contact lens fitting is separate
+            from the lens purchase and is not included in our box prices. Find
+            your prescribed product in the{" "}
+            <Link href="/contacts/contact-lens-prices" className={styles.sourceLink}>
+              current contact-lens price index
+            </Link>, then open its product page to order.
+          </p>
+        </section>
+
+        <section className={styles.section}>
           <h2>Out-of-network vision reimbursement</h2>
           <p>
             You can optionally identify your vision carrier during checkout.

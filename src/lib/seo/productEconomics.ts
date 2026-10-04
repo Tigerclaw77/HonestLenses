@@ -48,3 +48,41 @@ export function getAnnualSupplyEstimate({
     totalPriceCents: totalBoxes * pricePerBoxCents,
   };
 }
+
+export type SupplyEyeMode = "one" | "both-same" | "both-different";
+
+export function getSupplyEstimate({
+  durationMonths,
+  boxSize,
+  replacement,
+  pricePerBoxCents,
+  eyeMode,
+}: {
+  durationMonths: 1 | 3 | 6 | 12;
+  boxSize: number;
+  replacement: string;
+  pricePerBoxCents: number;
+  eyeMode: SupplyEyeMode;
+}) {
+  const replacementDays = getReplacementDays(replacement);
+  if (!replacementDays || boxSize <= 0 || pricePerBoxCents < 0) {
+    throw new Error("Cannot estimate supply for this catalog option");
+  }
+
+  // A planning month is 30 days; round lenses and purchases upward.
+  const lensesPerEye = Math.ceil((durationMonths * 30) / replacementDays);
+  const boxesPerEye = Math.ceil(lensesPerEye / boxSize);
+  const totalBoxes =
+    eyeMode === "one"
+      ? boxesPerEye
+      : eyeMode === "both-same"
+        ? Math.ceil((lensesPerEye * 2) / boxSize)
+        : boxesPerEye * 2;
+
+  return {
+    lensesPerEye,
+    boxesPerEye,
+    totalBoxes,
+    totalPriceCents: totalBoxes * pricePerBoxCents,
+  };
+}

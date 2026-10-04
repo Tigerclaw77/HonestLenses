@@ -26,6 +26,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.9,
     },
     {
+      url: `${SITE_URL}/contacts/contact-lens-prices`,
+      changeFrequency: "weekly",
+      priority: 0.8,
+    },
+    {
       url: `${SITE_URL}/guides`,
       changeFrequency: "monthly",
       priority: 0.7,

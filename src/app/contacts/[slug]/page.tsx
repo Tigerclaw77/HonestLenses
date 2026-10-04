@@ -25,7 +25,6 @@ import {
 import { getLensSkus } from "@/lib/pricing/getLensSkus";
 import { getPackSizeFromSku } from "@/lib/pricing/getPackSize";
 import { getPrice } from "@/lib/pricing/getPrice";
-import { getSkuBoxDurationMonths } from "@/lib/pricing/skuDefaults";
 import {
   findLensBySlug,
   getLensSlug,
@@ -33,7 +32,7 @@ import {
 } from "@/lib/seo/contactSeoRoutes";
 import { serializeJsonLd } from "@/lib/seo/jsonLd";
 import {
-  getAnnualSupplyEstimate,
+  getSupplyEstimate,
   getPricePerLensCents,
   getPricePerWearingDayCents,
 } from "@/lib/seo/productEconomics";
@@ -48,7 +47,6 @@ type PriceOption = {
   sku: string;
   boxSize: number;
   pricePerBoxCents: number;
-  monthsPerBox: number;
 };
 
 function getPriceOptions(lens: LensCore): PriceOption[] {
@@ -62,7 +60,6 @@ function getPriceOptions(lens: LensCore): PriceOption[] {
           sku,
           boxSize,
           pricePerBoxCents: getPrice({ sku, box_count: 1 }).price_per_box_cents,
-          monthsPerBox: getSkuBoxDurationMonths(sku),
         };
       } catch {
         return null;
@@ -204,20 +201,24 @@ function getProductFaqs(lens: LensCore, priceOptions: PriceOption[]) {
   const annualAnswer = priceOptions.length
     ? `${priceOptions
         .map((option) => {
-          const oneEye = getAnnualSupplyEstimate({
-            monthsPerBox: option.monthsPerBox,
+          const oneEye = getSupplyEstimate({
+            durationMonths: 12,
+            boxSize: option.boxSize,
+            replacement: lens.replacement,
             pricePerBoxCents: option.pricePerBoxCents,
-            eyeCount: 1,
+            eyeMode: "one",
           });
-          const twoEyes = getAnnualSupplyEstimate({
-            monthsPerBox: option.monthsPerBox,
+          const twoEyes = getSupplyEstimate({
+            durationMonths: 12,
+            boxSize: option.boxSize,
+            replacement: lens.replacement,
             pricePerBoxCents: option.pricePerBoxCents,
-            eyeCount: 2,
+            eyeMode: "both-different",
           });
 
           return `Using ${option.boxSize}-lens boxes, an estimated 12-month supply is ${oneEye.totalBoxes} boxes (${formatCurrency(oneEye.totalPriceCents)}) for one eye or ${twoEyes.totalBoxes} boxes (${formatCurrency(twoEyes.totalPriceCents)}) for two eyes`;
         })
-        .join(". ")}. Estimates assume continuous use at the catalog replacement schedule and exclude shipping and tax; actual quantities depend on the prescription and wear pattern.`
+        .join(". ")}. Estimates use twelve 30-day months at the catalog replacement schedule, with separate whole boxes per eye. They exclude shipping, tax, and reusable-lens care supplies; actual quantities depend on the prescription and wear pattern.`
     : `Annual quantity depends on the prescribed replacement schedule, pack size, number of eyes using ${lens.displayName}, and intended wear pattern.`;
 
   return [
@@ -502,7 +503,7 @@ export default async function LensPage({ params }: Props) {
             {priceOptions.length ? (
               <section aria-labelledby="annual-supply-estimate">
                 <h2 id="annual-supply-estimate">Estimate a 12-month supply</h2>
-                <AnnualSupplyEstimator options={priceOptions} />
+                <AnnualSupplyEstimator options={priceOptions} replacement={lens.replacement} />
                 {lens.coreId === "OASYS_MAX_1D" ? (
                   <p>
                     <Link href="/contacts/annual-supply-contact-lenses">

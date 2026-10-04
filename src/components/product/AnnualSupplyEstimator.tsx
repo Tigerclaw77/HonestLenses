@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import { getAnnualSupplyEstimate } from "@/lib/seo/productEconomics";
+import { getSupplyEstimate } from "@/lib/seo/productEconomics";
 
 import styles from "./AnnualSupplyEstimator.module.css";
 
@@ -10,7 +10,6 @@ export type SupplyPriceOption = {
   sku: string;
   boxSize: number;
   pricePerBoxCents: number;
-  monthsPerBox: number;
 };
 
 function currency(cents: number) {
@@ -22,8 +21,10 @@ function currency(cents: number) {
 
 export default function AnnualSupplyEstimator({
   options,
+  replacement,
 }: {
   options: SupplyPriceOption[];
+  replacement: string;
 }) {
   const [sku, setSku] = useState(options[0]?.sku ?? "");
   const [eyeCount, setEyeCount] = useState<1 | 2>(2);
@@ -31,13 +32,15 @@ export default function AnnualSupplyEstimator({
   const estimate = useMemo(
     () =>
       selected
-        ? getAnnualSupplyEstimate({
-            monthsPerBox: selected.monthsPerBox,
+        ? getSupplyEstimate({
+            durationMonths: 12,
+            boxSize: selected.boxSize,
+            replacement,
             pricePerBoxCents: selected.pricePerBoxCents,
-            eyeCount,
+            eyeMode: eyeCount === 1 ? "one" : "both-different",
           })
         : null,
-    [eyeCount, selected],
+    [eyeCount, replacement, selected],
   );
 
   if (!selected || !estimate) return null;
@@ -70,7 +73,7 @@ export default function AnnualSupplyEstimator({
         <strong>{estimate.totalBoxes} boxes total</strong> ({estimate.boxesPerEye} per eye) — estimated product cost {currency(estimate.totalPriceCents)}.
       </p>
       <p className={styles.assumption}>
-        Estimate assumes continuous use for approximately 12 months at this product&apos;s catalog replacement schedule. It excludes shipping and taxes. Your actual order can use different products or quantities for each eye; follow your prescription and intended wear schedule.
+        Estimate uses twelve 30-day months at this product&apos;s catalog replacement schedule, with whole boxes allocated separately to each eye. It excludes shipping, taxes, and reusable-lens care supplies. If your eyes have identical prescription values, boxes may be shared; if they use different products, calculate each product separately. Follow your prescription and intended wear schedule.
       </p>
     </div>
   );

@@ -51,3 +51,38 @@
 .note {
   font-size: 0.85rem;
 }
+
+.calculator {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.calculator h2 { margin: 0 0 0.75rem; font-size: 1.5rem; }
+.calculator p { color: rgba(255, 255, 255, 0.78); line-height: 1.6; }
+.controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1.25rem; }
+.controls label { display: grid; gap: 0.4rem; font-weight: 700; }
+.controls input, .controls select {
+  width: 100%;
+  min-height: 48px;
+  padding: 0.7rem;
+  border: 1px solid #7590b0;
+  border-radius: 7px;
+  background: #fff;
+  color: #10233c;
+}
+.controls select:disabled { opacity: 0.65; }
+.calculatorResult {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1.3rem;
+  padding: 1.2rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+}
+.calculatorResult a { color: #b7d9ff; text-underline-offset: 3px; }
+
+@media (max-width: 680px) {
+  .controls { grid-template-columns: 1fr; }
+  .calculator, .section { padding: 1.5rem 1rem; }
+}

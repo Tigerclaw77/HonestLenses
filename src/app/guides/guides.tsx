@@ -704,9 +704,9 @@ export const guides: GuidePage[] = [
               <li>Choose a retailer that takes prescription matching and sourcing seriously.</li>
             </ul>
             <p>
-              To compare Honest Lenses products, <Link href="/">
-                see current contact lens prices
-              </Link> and select the exact lens named on your prescription.
+              To check Honest Lenses pricing, <Link href="/contacts/contact-lens-prices">
+                find the exact lens on your prescription and see its box prices
+              </Link>.
             </p>
             <div className={styles.actionLinks}>
               <ActionLink href="/browse">Browse contact lenses</ActionLink>

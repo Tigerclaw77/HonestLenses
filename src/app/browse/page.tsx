@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Header from "../../components/Header";
 import Footer from "../../components/Footer";
 
@@ -307,6 +308,12 @@ export default function BrowsePage() {
             Compare contact lens pricing and pack sizes before ordering. When
             you are ready, we will collect or upload your valid prescription and
             verify it before fulfillment.
+          </p>
+          <p className="browse-helper">
+            Know the product on your prescription?{" "}
+            <Link href="/contacts/contact-lens-prices">
+              See its current box prices and pack sizes
+            </Link>.
           </p>
         </section>
 

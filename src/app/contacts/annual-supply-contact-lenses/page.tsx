@@ -5,12 +5,13 @@ import { lenses } from "@/LensCore/data/lenses";
 import { getLensSkus } from "@/lib/pricing/getLensSkus";
 import { getPackSizeFromSku } from "@/lib/pricing/getPackSize";
 import { getPricePerBox } from "@/lib/pricing/getPricePerBox";
-import { getSkuBoxDurationMonths } from "@/lib/pricing/skuDefaults";
 import { getLensSlug } from "@/lib/seo/contactSeoRoutes";
-import { getAnnualSupplyEstimate } from "@/lib/seo/productEconomics";
+import { getSupplyEstimate } from "@/lib/seo/productEconomics";
+import { getCatalogPriceProducts } from "@/lib/seo/catalogPriceIndex";
 import CommercialContactPage from "../_commercial/CommercialContactPage";
 import { commercialContactPages } from "../_commercial/commercialPages";
 import styles from "./annualSupplyComparison.module.css";
+import SupplyCalculator from "./SupplyCalculator";
 
 const page = commercialContactPages.annualSupplyContactLenses;
 
@@ -39,18 +40,12 @@ function AnnualSupplyComparison() {
       const boxPriceCents = getPricePerBox(sku);
       if (!boxSize || boxPriceCents === null) return [];
 
-      let monthsPerBox: number;
-      try {
-        monthsPerBox = getSkuBoxDurationMonths(sku);
-      } catch {
-        return [];
-      }
-      if (monthsPerBox <= 0) return [];
-
-      const estimate = getAnnualSupplyEstimate({
-        monthsPerBox,
+      const estimate = getSupplyEstimate({
+        durationMonths: 12,
+        boxSize,
+        replacement: lens.replacement,
         pricePerBoxCents: boxPriceCents,
-        eyeCount: 2,
+        eyeMode: "both-different",
       });
       return [{ sku, boxSize, boxPriceCents, estimate }];
     });
@@ -72,6 +67,8 @@ function AnnualSupplyComparison() {
         Current catalog prices and estimated quantities for two eyes using the
         same prescribed product. Each row uses the pack size with the lowest
         calculated 12-month product cost among available options.
+        For all available pack prices, use the{" "}
+        <Link href="/contacts/contact-lens-prices">exact-lens price index</Link>.
       </p>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
@@ -113,6 +110,7 @@ function AnnualSupplyComparison() {
 export default function AnnualSupplyContactLensesPage() {
   return (
     <CommercialContactPage page={page}>
+      <SupplyCalculator products={getCatalogPriceProducts()} />
       <AnnualSupplyComparison />
     </CommercialContactPage>
   );
