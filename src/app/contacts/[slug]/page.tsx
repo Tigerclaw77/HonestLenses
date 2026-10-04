@@ -31,6 +31,7 @@ import {
   SITE_URL,
 } from "@/lib/seo/contactSeoRoutes";
 import { serializeJsonLd } from "@/lib/seo/jsonLd";
+import { buildProductSchema } from "@/lib/seo/productSchema";
 import {
   getSupplyEstimate,
   getPricePerLensCents,
@@ -252,57 +253,15 @@ function ProductJsonLd({
 }) {
   const canonicalUrl = `${SITE_URL}/contacts/${slug}`;
   const category = getCategory(lens);
-  const schema = {
-    "@context": "https://schema.org",
-    "@type": "Product",
-    name: `${lens.displayName} Contact Lenses`,
-    description: `${lens.displayName} contact lenses by ${lens.manufacturer}. ${replacementLabel(lens.replacement)} replacement. A valid contact lens prescription is required.`,
-    url: canonicalUrl,
-    ...(imageUrl ? { image: `${SITE_URL}${imageUrl}` } : {}),
-    brand: {
-      "@type": "Brand",
-      name: brandLabel(lens.manufacturer),
-    },
-    manufacturer: {
-      "@type": "Organization",
-      name: lens.manufacturer,
-    },
-    category: category.name,
-    additionalProperty: [
-      {
-        "@type": "PropertyValue",
-        name: "Replacement schedule",
-        value: replacementLabel(lens.replacement),
-      },
-      ...(priceOptions.length
-        ? [
-            {
-              "@type": "PropertyValue",
-              name: "Available box sizes",
-              value: priceOptions
-                .map((option) => `${option.boxSize} lenses`)
-                .join(", "),
-            },
-          ]
-        : []),
-    ],
-    ...(priceOptions.length
-      ? {
-          offers: priceOptions.map((option) => ({
-            "@type": "Offer",
-            name: `${option.boxSize}-lens box`,
-            sku: option.sku,
-            priceCurrency: "USD",
-            price: (option.pricePerBoxCents / 100).toFixed(2),
-            url: canonicalUrl,
-            seller: {
-              "@type": "Organization",
-              name: "Honest Lenses",
-            },
-          })),
-        }
-      : {}),
-  };
+  const schema = buildProductSchema({
+    lens,
+    slug,
+    imageUrl,
+    priceOptions,
+    brandName: brandLabel(lens.manufacturer),
+    categoryName: category.name,
+    replacementName: replacementLabel(lens.replacement),
+  });
   const breadcrumb = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
