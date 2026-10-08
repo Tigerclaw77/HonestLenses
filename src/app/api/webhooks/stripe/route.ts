@@ -18,6 +18,8 @@ import {
 import { reconcileAuthorizedPaymentIntent } from "@/lib/payments/checkoutAuthorizationFinalizer";
 import { ensureReceiptSnapshotWithoutAffectingPayment } from "@/lib/receipts/server";
 import { ensureOrderConfirmation } from "@/lib/receipts/confirmation";
+import { POSTHOG_EVENTS } from "@/lib/posthog/events";
+import { captureServerEvent } from "@/lib/posthog/server";
 
 const legacyRepository: LegacyStripeWebhookRepository = {
   async findOrder(orderId, paymentIntentId) {
@@ -111,6 +113,17 @@ export async function POST(request: Request) {
           new Date(event.created * 1000).toISOString(),
         );
         if (!receiptReady) throw new Error("Paid receipt facts unavailable; webhook retry required");
+        await captureServerEvent({
+          event: POSTHOG_EVENTS.ORDER_CAPTURED,
+          request,
+          properties: {
+            $insert_id: `stripe:${event.id}:order_captured`,
+            capture_source: "stripe_webhook",
+            reconciliation_reason: result.reason,
+            currency: intent.currency,
+            amount_received_cents: intent.amount_received,
+          },
+        });
         await ensureOrderConfirmation(result.orderId);
       }
       return NextResponse.json({

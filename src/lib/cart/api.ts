@@ -1,5 +1,6 @@
 import type { CartOrder } from "./types";
 import type { ShippingMethod } from "../shipping";
+import { fetchWithOrderAccess } from "@/lib/auth/orderAccessFetch";
 
 /* =========================
    Types
@@ -33,6 +34,13 @@ export type ResolveErr = {
   ok?: false;
   error: string;
 };
+
+export class OrderAccessExpiredError extends Error {
+  constructor() {
+    super("Order access expired.");
+    this.name = "OrderAccessExpiredError";
+  }
+}
 
 /* =========================
    Type Guards
@@ -77,18 +85,14 @@ export function isResolveOkFlat(value: unknown): value is ResolveOkFlat {
    API calls
 ========================= */
 
-function authHeaders(accessToken?: string | null): HeadersInit {
-  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
-}
-
 export async function fetchCart(
   accessToken?: string | null,
 ): Promise<CartOrder | null> {
-  const res = await fetch("/api/cart", {
-    headers: authHeaders(accessToken),
+  const res = await fetchWithOrderAccess("/api/cart", {
     cache: "no-store",
-  });
+  }, accessToken);
 
+  if (res.status === 401) throw new OrderAccessExpiredError();
   if (!res.ok) return null;
 
   const body: unknown = await res.json();
@@ -110,15 +114,14 @@ export async function resolveCart(
     shipping_method?: ShippingMethod;
   },
 ): Promise<CartOrder> {
-  const res = await fetch("/api/cart/resolve", {
+  const res = await fetchWithOrderAccess("/api/cart/resolve", {
     method: "POST",
     headers: {
-      ...authHeaders(accessToken),
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     cache: "no-store",
     ...(body ? { body: JSON.stringify(body) } : {}),
-  });
+  }, accessToken);
 
   let parsed: unknown = null;
   try {

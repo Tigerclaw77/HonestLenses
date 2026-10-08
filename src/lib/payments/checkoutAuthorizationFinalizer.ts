@@ -526,22 +526,6 @@ export async function finalizeCheckoutAuthorization({
     },
   });
   if (uploadedAutoVerified) {
-    await captureServerEvent({
-      event: POSTHOG_EVENTS.ORDER_CAPTURED,
-      distinctId,
-      request,
-      properties: {
-        order_id: orderId,
-        verification_mode: mode,
-        order_value_cents:
-          typeof orderRaw.total_amount_cents === "number"
-            ? orderRaw.total_amount_cents
-            : null,
-        has_uploaded_rx: true,
-        has_payment_intent: true,
-        capture_reason: "uploaded_rx_evidence_gate_passed",
-      },
-    });
     try {
       await sendFounderOperationalAlert({
         orderId,

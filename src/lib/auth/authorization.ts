@@ -117,8 +117,10 @@ export function hasTrustedMutationOrigin(request: Request): boolean {
   if (!origin) return false;
 
   const normalized = normalizeOrigin(origin);
+  const requestOrigin = normalizeOrigin(request.url);
   return Boolean(
-    normalized && getConfiguredBrowserOrigins().has(normalized),
+    normalized &&
+      (normalized === requestOrigin || getConfiguredBrowserOrigins().has(normalized)),
   );
 }
 

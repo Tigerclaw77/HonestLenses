@@ -14,7 +14,10 @@ await mkdir(out, { recursive: true });
 const mocks = {
   "next/navigation": "export const useRouter=()=>({push:p=>window.destination=p});",
   "next/link": "export default function Link({prefetch,...props}){return <a {...props}/>;}",
-  "@/lib/supabase-client": "export const supabase={auth:{getSession:async()=>({data:{session:null}})}};",
+  "@/lib/supabase-client": `export const supabase={auth:{
+    getSession:async()=>{const mode=new URLSearchParams(location.search).get('mode');return {data:{session:mode?.startsWith('stale-auth')?{access_token:'stale-token',user:{id:'fixture-user'}}:null}}},
+    refreshSession:async()=>{const mode=new URLSearchParams(location.search).get('mode');return mode==='stale-auth-refresh'?{data:{session:{access_token:'fresh-token'}},error:null}:{data:{session:null},error:new Error('refresh unavailable')}}
+  }};`,
   "@/lib/posthog/client": `export const POSTHOG_EVENTS={SHIPPING_VIEWED:'shipping_viewed',SHIPPING_FORM_STARTED:'shipping_form_started',SHIPPING_VALIDATION_FAILED:'shipping_validation_failed',SHIPPING_SAVE_SUCCEEDED:'shipping_save_succeeded',SHIPPING_SAVE_FAILED:'shipping_save_failed',CHECKOUT_STEP_TIMED:'checkout_step_timed',VALIDATION_ERROR:'validation_error'};
     export const track=(event,properties)=>window.events.push({event,properties});
     export const captureClientException=(error,properties)=>window.events.push({event:'exception',properties});
@@ -47,7 +50,13 @@ const init = () => {
   window.events = [];
   window.calls = [];
   window.fetch = async (url, options = {}) => {
-    window.calls.push({ url, options });
+    window.calls.push({
+      url,
+      options: {
+        ...options,
+        headers: Object.fromEntries(new Headers(options.headers).entries()),
+      },
+    });
     const params = new URLSearchParams(location.search);
     const mode = params.get("mode");
     if (url === "/api/cart") {
@@ -57,7 +66,12 @@ const init = () => {
         id: orderId, status: "draft", rx: { right: { sphere: -2 } }, sku: "FIXTURE", box_count: 2, total_amount_cents: 12000,
       } }) };
     }
-    if (String(url).includes("/shipping")) return { ok: mode !== "save-error", status: mode === "save-error" ? 400 : 200 };
+    if (String(url).includes("/shipping")) {
+      const authorization = new Headers(options.headers).get("authorization");
+      if (mode === "stale-auth-refresh" && authorization === "Bearer stale-token") return { ok: false, status: 401 };
+      if (mode === "stale-auth-guest" && authorization === "Bearer stale-token") return { ok: false, status: 401 };
+      return { ok: mode !== "save-error", status: mode === "save-error" ? 400 : 200 };
+    }
     throw new Error(`Unexpected fixture request: ${url}`);
   };
 };
@@ -148,6 +162,28 @@ try {
   assert.notEqual(await failed.evaluate(() => sessionStorage.getItem("hl_shipping_draft_v1")), null);
   await failed.close();
   console.log("PASS shipping failed save retains draft and status");
+
+  for (const mode of ["stale-auth-refresh", "stale-auth-guest"]) {
+    const recovered = await pageFor(390, `/shipping?mode=${mode}`);
+    for (const [id, value] of Object.entries({
+      "shipping-first-name": "Fixture", "shipping-last-name": "Customer", "shipping-email": "fixture@example.test",
+      "shipping-address1": "123 Test St", "shipping-city": "Austin", "shipping-zip": "78701",
+    })) await recovered.locator(`#${id}`).fill(value);
+    await recovered.locator("#shipping-state").selectOption("TX");
+    await recovered.getByRole("button", { name: "Continue to Payment" }).click();
+    await recovered.waitForFunction(() => window.destination?.startsWith("/checkout?orderId="));
+    const authorizationHeaders = await recovered.evaluate(() => window.calls
+      .filter(call => String(call.url).includes("/shipping") && call.options.method === "POST")
+      .map(call => call.options.headers.authorization ?? null));
+    assert.deepEqual(
+      authorizationHeaders,
+      mode === "stale-auth-refresh"
+        ? ["Bearer stale-token", "Bearer fresh-token"]
+        : ["Bearer stale-token", null],
+    );
+    await recovered.close();
+    console.log(`PASS shipping ${mode} recovery`);
+  }
 } finally {
   await browser.close();
   await new Promise(resolve => server.close(resolve));

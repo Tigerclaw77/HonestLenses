@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase-client";
-import { fetchCart } from "@/lib/cart/api";
+import { fetchCart, OrderAccessExpiredError } from "@/lib/cart/api";
+import { fetchWithOrderAccess } from "@/lib/auth/orderAccessFetch";
 import { isEmailAddress, isUsPostalCode } from "@/lib/security/inputValidation";
 import {
   clearShippingDraft,
@@ -131,9 +132,16 @@ export default function ShippingPage() {
           cart_state: "ready",
           order_status: data.status,
         });
-      } catch {
-        setError("Unable to load cart. Please return to your cart and try again.");
-        track(POSTHOG_EVENTS.SHIPPING_VIEWED, { cart_state: "load_failed" });
+      } catch (initError) {
+        const accessExpired = initError instanceof OrderAccessExpiredError;
+        setError(
+          accessExpired
+            ? "Your checkout session expired. Return to your cart to continue."
+            : "Unable to load cart. Please return to your cart and try again.",
+        );
+        track(POSTHOG_EVENTS.SHIPPING_VIEWED, {
+          cart_state: accessExpired ? "access_expired" : "load_failed",
+        });
       } finally {
         setLoading(false);
       }
@@ -192,21 +200,23 @@ export default function ShippingPage() {
     setSubmitting(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`/api/orders/${order.id}/shipping`, {
+      const res = await fetchWithOrderAccess(`/api/orders/${order.id}/shipping`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(session?.access_token
-            ? { Authorization: `Bearer ${session.access_token}` }
-            : {}),
         },
         body: JSON.stringify(formRef.current),
-      });
+      }, session?.access_token ?? null);
 
       if (!res.ok) {
-        setError("Failed to save shipping.");
+        setError(
+          res.status === 401
+            ? "Your checkout session expired. Return to your cart to continue."
+            : "Failed to save shipping.",
+        );
         track(POSTHOG_EVENTS.SHIPPING_SAVE_FAILED, {
-          failure_category: "http_error",
+          failure_category:
+            res.status === 401 ? "access_expired" : "http_error",
           http_status: res.status,
         });
         captureClientException(new Error("Failed to save shipping."), {

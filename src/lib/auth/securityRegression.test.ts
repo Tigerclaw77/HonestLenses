@@ -126,6 +126,16 @@ assert.equal(
 );
 assert.equal(
   hasTrustedMutationOrigin(
+    new Request("https://honestlenses.com/api/orders", {
+      method: "POST",
+      headers: { origin: "https://honestlenses.com" },
+    }),
+  ),
+  true,
+  "a same-origin guest mutation remains valid on a production domain alias",
+);
+assert.equal(
+  hasTrustedMutationOrigin(
     new Request("https://www.honestlenses.com/api/orders", {
       method: "POST",
       headers: { origin: "https://attacker.example" },

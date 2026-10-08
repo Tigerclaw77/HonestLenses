@@ -11,6 +11,8 @@ import {
   isUsPostalCode,
   isUsState,
 } from "@/lib/security/inputValidation";
+import { POSTHOG_EVENTS } from "@/lib/posthog/events";
+import { captureServerEvent } from "@/lib/posthog/server";
 
 type ShippingBody = {
   shipping_first_name?: string;
@@ -31,6 +33,19 @@ export async function POST(
 ) {
   const access = await getOrderAccess(req);
   if (!hasOrderAccessContext(access)) {
+    await captureServerEvent({
+      event: POSTHOG_EVENTS.SHIPPING_SAVE_FAILED,
+      distinctId: access.distinctId,
+      request: req,
+      properties: {
+        failure_category: access.guestOrderId
+          ? "untrusted_origin"
+          : req.headers.has("authorization")
+            ? "invalid_bearer"
+            : "missing_order_access",
+        http_status: 401,
+      },
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -51,6 +66,15 @@ export async function POST(
   }
 
   if (!canAccessOrder(access, order)) {
+    await captureServerEvent({
+      event: POSTHOG_EVENTS.SHIPPING_SAVE_FAILED,
+      distinctId: access.distinctId,
+      request: req,
+      properties: {
+        failure_category: "order_access_mismatch",
+        http_status: 403,
+      },
+    });
     return NextResponse.json({ error: "Order not authorized." }, { status: 403 });
   }
 

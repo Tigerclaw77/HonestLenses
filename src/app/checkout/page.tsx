@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { loadStripe } from "@stripe/stripe-js";
 import type { StripePaymentElementOptions } from "@stripe/stripe-js";
 import {
@@ -14,6 +15,7 @@ import {
 } from "@stripe/react-stripe-js";
 import AbandonmentFeedbackExperiment from "@/components/AbandonmentFeedbackExperiment";
 import { supabase } from "@/lib/supabase-client";
+import { fetchWithOrderAccess } from "@/lib/auth/orderAccessFetch";
 import {
   POSTHOG_EVENTS,
   captureClientException,
@@ -182,16 +184,13 @@ function CheckoutForm({
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      const quoteRes = await fetch("/api/checkout/pay", {
+      const quoteRes = await fetchWithOrderAccess("/api/checkout/pay", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(session?.access_token
-            ? { Authorization: `Bearer ${session.access_token}` }
-            : {}),
         },
         body: JSON.stringify({ orderId: order.id }),
-      });
+      }, session?.access_token ?? null);
       const quote: CheckoutPayResponse = await quoteRes.json().catch(() => ({}));
 
       if (
@@ -266,16 +265,13 @@ function CheckoutForm({
         return;
       }
 
-      const markRes = await fetch("/api/checkout/authorized", {
+      const markRes = await fetchWithOrderAccess("/api/checkout/authorized", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(session?.access_token
-            ? { Authorization: `Bearer ${session.access_token}` }
-            : {}),
         },
         body: JSON.stringify({ orderId: order.id }),
-      });
+      }, session?.access_token ?? null);
 
       const markBody: AuthorizedResponse = await markRes
         .json()
@@ -305,7 +301,7 @@ function CheckoutForm({
       }
 
       onPaymentComplete();
-      track(POSTHOG_EVENTS.PAYMENT_SUCCEEDED, {
+      track(POSTHOG_EVENTS.PAYMENT_AUTHORIZED, {
         order_id: order.id,
         order_status: order.status,
         verification_mode: mode,
@@ -431,14 +427,9 @@ function CheckoutInner() {
         } = await supabase.auth.getSession();
 
         failureCategory = "order_lookup_network_error";
-        const orderRes = await fetch(`/api/orders/${orderId}`, {
+        const orderRes = await fetchWithOrderAccess(`/api/orders/${orderId}`, {
           cache: "no-store",
-          headers: {
-            ...(session?.access_token
-              ? { Authorization: `Bearer ${session.access_token}` }
-              : {}),
-          },
-        });
+        }, session?.access_token ?? null);
 
         const orderJson = await orderRes.json().catch(() => ({}));
         const orderData = orderJson.order;
@@ -488,16 +479,13 @@ function CheckoutInner() {
         markStepStart(`payment_init:${orderId}`);
 
         failureCategory = "payment_init_network_error";
-        const res = await fetch("/api/checkout/pay", {
+        const res = await fetchWithOrderAccess("/api/checkout/pay", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(session?.access_token
-              ? { Authorization: `Bearer ${session.access_token}` }
-              : {}),
           },
           body: JSON.stringify({ orderId }),
-        });
+        }, session?.access_token ?? null);
 
         httpStatus = res.status;
         failureCategory = "payment_init_response_error";
@@ -632,6 +620,7 @@ function CheckoutInner() {
     return (
       <main className="content-shell">
         <p className="order-error">{error}</p>
+        <Link href="/cart">Return to cart</Link>
       </main>
     );
   }

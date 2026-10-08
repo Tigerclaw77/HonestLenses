@@ -9,6 +9,7 @@ function source(path: string): string {
 const checkoutPage = source("src/app/checkout/page.tsx");
 const checkoutStyles = source("src/app/checkout/checkout.module.css");
 const checkoutPayRoute = source("src/app/api/checkout/pay/route.ts");
+const stripeWebhookRoute = source("src/app/api/webhooks/stripe/route.ts");
 
 assert.match(
   checkoutStyles,
@@ -31,6 +32,26 @@ assert.doesNotMatch(
   checkoutPage,
   /Have vision insurance|Vision plan|HSA\/FSA|reimbursement/i,
   "checkout must not render insurance or HSA/FSA UI",
+);
+assert.match(
+  stripeWebhookRoute,
+  /event: POSTHOG_EVENTS\.ORDER_CAPTURED/,
+  "capture must be recorded only from a confirmed Stripe success webhook",
+);
+assert.match(
+  stripeWebhookRoute,
+  /\$insert_id: `stripe:\$\{event\.id\}:order_captured`/,
+  "capture telemetry must deduplicate Stripe webhook retries",
+);
+assert.match(
+  checkoutPage,
+  /track\(POSTHOG_EVENTS\.PAYMENT_AUTHORIZED/,
+  "browser completion must be recorded as authorization, not capture",
+);
+assert.doesNotMatch(
+  checkoutPage,
+  /PAYMENT_SUCCEEDED/,
+  "browser authorization must never be labeled as payment success",
 );
 
 assert.match(

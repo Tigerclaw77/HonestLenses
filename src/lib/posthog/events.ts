@@ -47,7 +47,6 @@ export const POSTHOG_EVENTS = {
   DOCTOR_INFO_ENTERED: "doctor_info_entered",
   PAYMENT_STARTED: "payment_started",
   PAYMENT_AUTHORIZED: "payment_authorized",
-  PAYMENT_SUCCEEDED: "payment_succeeded",
   PAYMENT_FAILED: "payment_failed",
   ORDER_SUCCESS_VIEWED: "order_success_viewed",
 

@@ -52,7 +52,7 @@ Operational dashboard foundations:
 - Cart funnel: `added_to_cart`, `cart_quantity_changed`,
   `removed_from_cart`, `checkout_started`.
 - Checkout funnel: `checkout_step_timed`, `payment_started`,
-  `payment_authorized`, `payment_succeeded`, `payment_failed`,
+  `payment_authorized`, `order_captured`, `payment_failed`,
   `order_success_viewed`.
 - Verification funnel: `rx_method_selected`, `rx_upload_started`,
   `rx_upload_completed`, `doctor_info_entered`, `OCR_failed`.
