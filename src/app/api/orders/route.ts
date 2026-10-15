@@ -25,6 +25,9 @@ export async function POST(req: Request) {
        1️⃣ Auth
     ========================= */
     const access = await getOrderAccess(req);
+    if (access.deniedSession) {
+      return NextResponse.json({ error: "Session not authorized." }, { status: 403 });
+    }
     const user = access.user;
 
     /* =========================

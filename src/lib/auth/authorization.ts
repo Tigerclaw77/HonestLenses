@@ -3,6 +3,7 @@ import { createClient, type User } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import type { NextResponse } from "next/server";
 import { getSupabaseServerAuth } from "@/lib/supabase-server-auth";
+import { decideVerifiedAuthSession } from "@/lib/auth/sessionDenylist";
 import { ORDER_STATUS_COOKIE_NAME, readOrderStatusSession } from "@/lib/orders/orderStatusSession";
 
 const GUEST_ORDER_COOKIE = "hl_guest_order";
@@ -28,7 +29,11 @@ export type OrderAccess = {
   distinctId: string | null;
   source: AuthSource | "guest" | null;
   originValid: boolean;
+  deniedSession?: boolean;
 };
+
+type AuthLookup = { user: User; denied: false } | { user: null; denied: boolean };
+type RequestIdentity = RequestUser | { denied: true };
 
 export type AdminAuthSuccess = {
   ok: true;
@@ -124,53 +129,74 @@ export function hasTrustedMutationOrigin(request: Request): boolean {
   );
 }
 
-async function getBearerUser(token: string): Promise<User | null> {
+function verifiedSessionDenied(token: string): boolean {
+  try {
+    return decideVerifiedAuthSession(token) === "deny";
+  } catch {
+    // Fail closed for authenticated requests if the active configuration is invalid.
+    return true;
+  }
+}
+
+async function getBearerUser(token: string): Promise<AuthLookup> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
-  if (!url || !key) return null;
+  if (!url || !key) return { user: null, denied: false };
 
   const client = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
-  const {
-    data: { user },
-    error,
-  } = await client.auth.getUser();
-
-  return error ? null : user;
+  try {
+    const { data: { user }, error } = await client.auth.getUser(token);
+    if (error || !user) return { user: null, denied: false };
+    return verifiedSessionDenied(token)
+      ? { user: null, denied: true }
+      : { user, denied: false };
+  } catch {
+    return { user: null, denied: false };
+  }
 }
 
-async function getCookieUser(): Promise<User | null> {
+async function getCookieUser(): Promise<AuthLookup> {
   try {
     const client = await getSupabaseServerAuth();
-    const {
-      data: { user },
-      error,
-    } = await client.auth.getUser();
-    return error ? null : user;
+    const { data: { session }, error: sessionError } = await client.auth.getSession();
+    if (sessionError || !session?.access_token) return { user: null, denied: false };
+    const { data: { user }, error } = await client.auth.getUser(session.access_token);
+    if (error || !user) return { user: null, denied: false };
+    return verifiedSessionDenied(session.access_token)
+      ? { user: null, denied: true }
+      : { user, denied: false };
   } catch {
-    return null;
+    return { user: null, denied: false };
   }
 }
 
 export async function getServerUser(): Promise<User | null> {
-  return getCookieUser();
+  return (await getCookieUser()).user;
 }
 
-export async function getRequestUser(
+async function getRequestIdentity(
   request: Request,
-): Promise<RequestUser | null> {
+): Promise<RequestIdentity | null> {
   const authorization = request.headers.get("authorization");
   if (authorization) {
     const token = getBearerToken(authorization);
     if (!token) return null;
-    const user = await getBearerUser(token);
-    return user ? { user, source: "bearer" } : null;
+    const identity = await getBearerUser(token);
+    if (identity.denied) return { denied: true };
+    return identity.user ? { user: identity.user, source: "bearer" } : null;
   }
 
-  const user = await getCookieUser();
-  return user ? { user, source: "cookie" } : null;
+  const identity = await getCookieUser();
+  if (identity.denied) return { denied: true };
+  return identity.user ? { user: identity.user, source: "cookie" } : null;
+}
+
+export async function getRequestUser(request: Request): Promise<RequestUser | null> {
+  const identity = await getRequestIdentity(request);
+  return identity && "user" in identity ? identity : null;
 }
 
 function getGuestCookieSecret(): string | null {
@@ -268,7 +294,14 @@ export function readGuestOrderIdFromCookieHeader(
 }
 
 export async function getOrderAccess(request: Request): Promise<OrderAccess> {
-  const identity = await getRequestUser(request);
+  const resolved = await getRequestIdentity(request);
+  if (resolved && "denied" in resolved) {
+    return {
+      user: null, userId: null, userEmail: null, guestOrderId: null,
+      distinctId: null, source: null, originValid: false, deniedSession: true,
+    };
+  }
+  const identity = resolved;
   const originValid =
     identity?.source === "bearer" || hasTrustedMutationOrigin(request);
 
@@ -318,7 +351,14 @@ export async function getServerOrderAccess(): Promise<OrderAccess> {
     .join("; ");
   if (cookieHeader) requestHeaders.set("cookie", cookieHeader);
 
-  const user = await getCookieUser();
+  const identity = await getCookieUser();
+  if (identity.denied) {
+    return {
+      user: null, userId: null, userEmail: null, guestOrderId: null,
+      distinctId: null, source: null, originValid: false, deniedSession: true,
+    };
+  }
+  const user = identity.user;
   const guestOrderId = readOrderStatusSession(cookieStore.get(ORDER_STATUS_COOKIE_NAME)?.value) ??
     readGuestOrderIdFromCookieHeader(cookieHeader);
   if (user) {
@@ -390,7 +430,8 @@ export function isAdminUser(user: User): AdminSource | null {
 export async function requireAdmin(
   request: Request,
 ): Promise<AdminAuthResult> {
-  const identity = await getRequestUser(request);
+  const resolved = await getRequestIdentity(request);
+  const identity = resolved && "user" in resolved ? resolved : null;
   if (!identity) {
     return {
       ok: false,
