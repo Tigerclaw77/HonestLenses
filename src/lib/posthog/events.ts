@@ -132,6 +132,7 @@ export function sanitizeAnalyticsProperties(
 
 export function sanitizeAnalyticsPath(path: string): string {
   return path
+    .replace(/\/(g\/session|g|receipt|order-access)\/[^/?#]+/gi, "/$1/[redacted]")
     .replace(
       /\/(order|orders|prescription-handoffs|abandoned-checkouts)\/[^/?#]+/gi,
       "/$1/[redacted]",
@@ -142,17 +143,32 @@ export function sanitizeAnalyticsPath(path: string): string {
     );
 }
 
+export function sanitizePostHogEventProperties(
+  properties: Record<string, unknown>,
+  origin: string,
+  pathname: string,
+): Record<string, unknown> {
+  const safe = { ...properties };
+  for (const key of Object.keys(safe)) {
+    if (/url|referr|search|query/i.test(key)) {
+      delete safe[key];
+    } else if (isSensitiveAnalyticsKey(key)) {
+      safe[key] = "[redacted]";
+    }
+  }
+
+  const safePath = sanitizeAnalyticsPath(pathname);
+  safe.$current_url = origin + safePath;
+  safe.$pathname = safePath;
+  return safe;
+}
+
 export function errorToAnalyticsProperties(
   error: unknown,
 ): AnalyticsProperties {
-  if (error instanceof Error) {
-    return {
-      error_name: error.name,
-      error_message: error.message,
-    };
-  }
-
+  const allowedNames = new Set(["Error", "TypeError", "RangeError", "ReferenceError", "SyntaxError"]);
   return {
-    error_message: String(error),
+    error_name: error instanceof Error && allowedNames.has(error.name) ? error.name : "Error",
+    error_message: "[redacted]",
   };
 }

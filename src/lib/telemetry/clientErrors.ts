@@ -58,35 +58,6 @@ function sanitizeForClientErrors(
   return safe;
 }
 
-function readJsonObject(key: string): AnalyticsProperties {
-  if (!isBrowser()) return {};
-
-  try {
-    const raw = window.sessionStorage.getItem(key);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as unknown;
-
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as AnalyticsProperties)
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function browserProperties(): AnalyticsProperties {
-  if (!isBrowser()) return {};
-
-  return {
-    browser_user_agent: navigator.userAgent,
-    browser_language: navigator.language,
-    browser_online: navigator.onLine,
-    viewport_width: window.innerWidth,
-    viewport_height: window.innerHeight,
-    device_type: getDeviceType(),
-  };
-}
-
 function normalizeError(error: unknown): Error {
   if (error instanceof Error) return error;
   return new Error(typeof error === "string" ? error : String(error));
@@ -136,18 +107,23 @@ export async function captureClientError(
     data: { session: null },
   }));
 
-  const safeProperties = sanitizeForClientErrors({
-    ...getBaseFunnelProperties(context),
-    ...browserProperties(),
-    ...errorToAnalyticsProperties(normalizedError),
-    error_stack: normalizedError.stack ?? null,
+  const base = getBaseFunnelProperties();
+  const safeErrorProperties = errorToAnalyticsProperties(normalizedError);
+  const safeProperties = {
+    session_id: base.session_id,
+    page_path: base.page_path,
+    device_type: getDeviceType(),
+    source: typeof context.source === "string" && /^[a-z_]{1,60}$/.test(context.source) ? context.source : "client",
+    component: typeof context.component === "string" && /^[A-Za-z0-9_]{1,80}$/.test(context.component) ? context.component : "unknown",
+    ...safeErrorProperties,
     auth_state: authState,
     has_auth_session: Boolean(session),
-    recent_action: JSON.stringify(readJsonObject(RECENT_ACTION_KEY)),
-    upload_state: JSON.stringify(readJsonObject(UPLOAD_STATE_KEY)),
-  });
+  };
 
-  posthog.captureException(normalizedError, safeProperties);
+  const safeError = new Error("[redacted]");
+  safeError.name = String(safeErrorProperties.error_name);
+  safeError.stack = `${safeError.name}: [redacted]`;
+  posthog.captureException(safeError, safeProperties);
   posthog.capture(POSTHOG_EVENTS.CLIENT_ERROR, safeProperties);
 }
 

@@ -13,7 +13,11 @@ import {
   resetPostHogUser,
 } from "./client";
 import { getPublicPostHogConfig } from "./config";
-import { isSensitiveAnalyticsKey, sanitizeAnalyticsPath } from "./events";
+import {
+  isSensitiveAnalyticsKey,
+  sanitizeAnalyticsPath,
+  sanitizePostHogEventProperties,
+} from "./events";
 import {
   captureClientError,
   installGlobalClientErrorHandlers,
@@ -97,6 +101,15 @@ if (typeof window !== "undefined" && posthogKey && !posthog.__loaded) {
         ".ph-block,[data-ph-block='true'],[data-ph-block-replay='true'],[data-sensitive-media='true'],input[type='file'],iframe,canvas",
     },
     sanitize_properties: sanitizePostHogProperties,
+    before_send: (event) => {
+      if (!event) return null;
+      event.properties = sanitizePostHogEventProperties(
+        event.properties ?? {},
+        window.location.origin,
+        window.location.pathname,
+      );
+      return event;
+    },
     loaded: (client) => {
       client.register({ auth_state: "anonymous" });
       logPostHogStatus("loaded");

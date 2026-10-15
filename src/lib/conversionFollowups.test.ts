@@ -7,7 +7,7 @@ function source(path: string): string {
 }
 
 const browsePage = source("src/app/browse/page.tsx");
-const homePage = source("src/app/page.tsx");
+const homePage = source("src/app/HomeClient.tsx");
 const globalStyles = source("src/styles/globals.css");
 const uploadPage = source("src/app/upload-prescription/page.tsx");
 const checkoutPage = source("src/app/checkout/page.tsx");
