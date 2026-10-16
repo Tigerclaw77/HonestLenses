@@ -1,0 +1,48 @@
+.page {
+  min-height: calc(100vh - 220px);
+  padding: clamp(48px, 6vw, 88px) 20px;
+  background: #0b0b0b;
+  color: #f5f5f5;
+}
+
+.content {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.content h1 {
+  margin: 0 0 18px;
+  color: #fff;
+  font-size: clamp(34px, 4vw, 48px);
+  line-height: 1.12;
+}
+
+.lead {
+  color: #d0dae7;
+  font-size: 18px;
+  line-height: 1.65;
+}
+
+.content section {
+  padding: 24px 0;
+  border-top: 1px solid #26374d;
+}
+
+.content section:first-of-type {
+  margin-top: 38px;
+}
+
+.content h2 {
+  margin: 0 0 10px;
+  color: #fff;
+  font-size: clamp(21px, 3vw, 26px);
+}
+
+.content section p {
+  margin: 0 0 10px;
+  color: #bdc9d9;
+  line-height: 1.7;
+}
+
+.content a { color: #8dc5ff; }
+.content a:hover { color: #fff; }

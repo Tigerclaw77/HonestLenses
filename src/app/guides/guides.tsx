@@ -2973,6 +2973,9 @@ Boxes needed for that eye`}</ProcessDiagram>
             </p>
             <p>This is an Honest Lenses policy, not a federal requirement.</p>
             <p>
+              Review <Link href="/shipping-delivery">shipping and delivery options</Link> before ordering.
+            </p>
+            <p>
               For larger purchases, see{" "}
               <Link href="/contacts/annual-supply-contact-lenses">
                 Annual Supply Contact Lenses
@@ -3213,8 +3216,8 @@ Capture of the authorized amount`}</ProcessDiagram>
               <li>Tracking becomes available.</li><li>The customer receives the order.</li>
             </ol>
             <p>
-              Prescription verification time and shipping time are separate. Fast
-              shipping does not make verification instantaneous, and completed
+              Prescription verification time and shipping time are separate. An
+              expedited delivery service does not make verification instantaneous, and completed
               verification does not guarantee that every product is immediately available.
             </p>
             <p>Common causes of additional time include:</p>

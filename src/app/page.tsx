@@ -5,7 +5,7 @@ import HomeClient from "./HomeClient";
 export const metadata: Metadata = {
   title: { absolute: "Contact Lenses Online | Clear Per-Box Prices | Honest Lenses" },
   description:
-    "Shop authentic contact lenses with current per-box prices and pack sizes shown before checkout. Valid prescription verification is included.",
+    "Shop authentic contact lenses with current per-box prices and pack sizes shown before checkout. Optometrist-owned with clear, upfront pricing.",
 };
 
 export default function HomePage() {

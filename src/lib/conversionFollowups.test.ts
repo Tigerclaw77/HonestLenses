@@ -71,7 +71,7 @@ assert.match(
 );
 assert.match(purchaseTrust, /href="\/contact">Questions\? Contact us/);
 assert.doesNotMatch(purchaseTrust, /Accessible support|mailto:/);
-assert.match(purchaseTrust, /Fast prescription processing/);
+assert.match(purchaseTrust, /Clear pricing before checkout/);
 assert.doesNotMatch(
   purchaseTrust,
   /Normal prescription verification|Clear fulfillment updates|instant verification/i,

@@ -617,7 +617,7 @@ export default function CartPage() {
               >
                 <div style={{ fontWeight: 800 }}>Standard Shipping</div>
                 <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.45 }}>
-                  Most orders arrive within 7-10 business days.
+                  Standard shipping cost is shown before payment. Delivery timing may vary.
                 </div>
               </button>
 
@@ -643,7 +643,7 @@ export default function CartPage() {
               >
                 <div style={{ fontWeight: 800 }}>Express Shipping</div>
                 <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.45 }}>
-                  Priority processing and expedited shipping where available.
+                  Expedited delivery service where available. Processing times may vary.
                 </div>
                 <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.45 }}>
                   Delivery timing may vary based on manufacturer fulfillment and

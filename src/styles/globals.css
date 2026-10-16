@@ -203,6 +203,10 @@
   font-weight: 800;
   cursor: pointer;
 }
+.home-shipping-benefits { max-width: 560px; margin-top: 16px; color: #bdc9d9; font-size: 12px; line-height: 1.5; }
+.home-shipping-benefits p { margin: 0 0 4px; }
+.home-shipping-benefits a { color: #8dc5ff; text-decoration: underline; text-underline-offset: 3px; }
+.home-shipping-benefits a:hover { color: #fff; }
 .home-hero-visual {
   position: relative;
   width: 100%;

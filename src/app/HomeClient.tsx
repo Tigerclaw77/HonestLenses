@@ -123,7 +123,7 @@ export default function HomePage() {
         <div className="home-hero-inner">
           <div className="home-hero-copy">
             <p className="home-eyebrow">
-              Clear per-box prices. Authentic lenses. Valid prescription.
+              Clear per-box prices. Authentic lenses. Optometrist-owned.
             </p>
             <h1 id="home-hero-title">
               Contact lenses.
@@ -131,7 +131,7 @@ export default function HomePage() {
             </h1>
             <p className="home-hero-lede">
               Shop authentic contact lenses with straightforward per-box
-              pricing and prescription verification built into your order.
+              pricing from an optometrist-owned retailer.
             </p>
             <div className="home-hero-actions">
               <button
@@ -167,6 +167,10 @@ export default function HomePage() {
                 <button type="submit">Search</button>
               </div>
             </form>
+            <div className="home-shipping-benefits">
+              <p>Free standard shipping on qualifying annual supplies · Flat-rate standard shipping on smaller orders · Express options where available</p>
+              <Link href="/shipping-delivery">Shipping &amp; delivery details <span aria-hidden="true">→</span></Link>
+            </div>
           </div>
           <div
             className="home-hero-visual"
@@ -205,10 +209,10 @@ export default function HomePage() {
 
       <section className="home-assurance" aria-label="Ordering assurances">
         <div className="home-assurance-inner">
-          <div><span aria-hidden="true">✓</span><p><strong>Authentic lenses</strong><small>Genuine manufacturer products</small></p></div>
-          <div><span aria-hidden="true">✓</span><p><strong>Valid prescription required</strong><small>Verification included</small></p></div>
-          <div><span aria-hidden="true">$</span><p><strong>Clear per-box pricing</strong><small>See the price before ordering</small></p></div>
-          <div><span aria-hidden="true">◆</span><p><strong>Secure checkout</strong><small>Your order details stay protected</small></p></div>
+          <div><span aria-hidden="true">✓</span><p><strong>Optometrist-owned</strong><small>Eye care expertise behind every order</small></p></div>
+          <div><span aria-hidden="true">✓</span><p><strong>Authentic contact lenses</strong><small>Genuine, name-brand products</small></p></div>
+          <div><span aria-hidden="true">$</span><p><strong>Clear, upfront pricing</strong><small>Know your cost before checkout</small></p></div>
+          <div><span aria-hidden="true">◆</span><p><strong>Secure checkout</strong><small>Your payment information is protected</small></p></div>
         </div>
       </section>
 
@@ -293,7 +297,7 @@ export default function HomePage() {
           <ul>
             <li><span aria-hidden="true">✓</span>Current catalog pricing</li>
             <li><span aria-hidden="true">✓</span>Pack sizes shown before you order</li>
-            <li><span aria-hidden="true">✓</span>Prescription verification built in</li>
+            <li><span aria-hidden="true">✓</span>Shipping costs shown before payment</li>
           </ul>
           <Link href="/contacts/contact-lens-prices" className="home-value-button">Find your lens price</Link>
         </div>

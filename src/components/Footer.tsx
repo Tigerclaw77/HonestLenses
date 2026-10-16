@@ -11,7 +11,7 @@ export default function Footer({ variant = "default" }: { variant?: "default" | 
         <div className="home-footer-main">
           <div className="home-footer-brand">
             <Link href="/" className="home-footer-logo">HONEST <span>LENSES</span></Link>
-            <p>Authentic contact lenses, straightforward pricing, and prescription verification.</p>
+            <p>Authentic contact lenses, straightforward pricing, and clear shipping costs.</p>
           </div>
           <nav aria-label="Shop">
             <h2>Shop</h2>
@@ -33,7 +33,7 @@ export default function Footer({ variant = "default" }: { variant?: "default" | 
           <nav aria-label="Company">
             <h2>Company</h2>
             <Link href="/about">About Honest Lenses</Link>
-            <Link href="/shipping">Shipping</Link>
+            <Link href="/shipping-delivery">Shipping</Link>
             <Link href="/returns">Returns</Link>
             <Link href="/privacy">Privacy</Link>
           </nav>
@@ -56,6 +56,7 @@ export default function Footer({ variant = "default" }: { variant?: "default" | 
         <Link href="/privacy">Privacy</Link>
         <Link href="/terms">Terms</Link>
         <Link href="/returns">Returns</Link>
+        <Link href="/shipping-delivery">Shipping</Link>
         <Link href="/guides">Guides</Link>
         <Link href="/verification">Prescription Verification</Link>
         <Link href="/vision-benefits">Vision Insurance &amp; HSA/FSA</Link>

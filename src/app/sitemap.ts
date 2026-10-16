@@ -38,6 +38,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     ...[
       "/verification",
       "/returns",
+      "/shipping-delivery",
       "/about",
       "/contact",
       "/vision-benefits",
