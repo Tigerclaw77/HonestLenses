@@ -386,7 +386,8 @@ export default function ShippingPage() {
 
           <p className="shipping-note col-12">
             You will review payment on the next step. Lenses are not shipped
-            until prescription verification is complete.
+            until prescription verification is complete. Need help?{" "}
+            <Link href="/contact">Contact us</Link>.
           </p>
         </form>
 

@@ -7,7 +7,7 @@ import { getLensSkus } from "@/lib/pricing/getLensSkus";
 import { getLensSlug } from "@/lib/seo/contactSeoRoutes";
 import { buildProductSchema } from "@/lib/seo/productSchema";
 
-for (const coreId of ["OASYS_MAX_1D", "BIOFINITY", "BIOFINITY_AST", "MOIST", "DT1_MF"]) {
+for (const coreId of ["OASYS_MAX_1D", "OASYS_2W", "BIOFINITY", "BIOFINITY_AST", "MOIST", "DT1_MF"]) {
   const lens = lenses.find((item) => item.coreId === coreId);
   assert.ok(lens, `Missing catalog lens ${coreId}`);
   const options = getLensSkus(lens).map((sku) => ({
@@ -29,6 +29,7 @@ for (const coreId of ["OASYS_MAX_1D", "BIOFINITY", "BIOFINITY_AST", "MOIST", "DT
   assert.equal(schema["@type"], "Product");
   assert.equal(schema.url, `https://honestlenses.com/contacts/${slug}`);
   assert.equal(schema.name, `${lens.displayName} Contact Lenses`);
+  assert.equal(schema.manufacturer.name, lens.manufacturer);
   assert.equal(schema.image, `https://honestlenses.com/lens-images/${coreId}.webp`);
   assert.equal(schema.offers?.length, options.length);
   assert.deepEqual(schema.offers?.map((offer) => offer.name), options.map((option) => `${option.boxSize}-lens box`));

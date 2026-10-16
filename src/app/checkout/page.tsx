@@ -681,7 +681,8 @@ function CheckoutInner() {
 
             <p className={styles.authorizationNote}>
               Your card is authorized when you order and charged after
-              prescription verification.
+              prescription verification. Questions?{" "}
+              <Link href="/contact">Contact us</Link>.
             </p>
           </div>
 

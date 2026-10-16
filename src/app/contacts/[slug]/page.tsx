@@ -485,7 +485,7 @@ export default async function LensPage({ params }: Props) {
                   ))}
                 </dl>
                 <p className={styles.finePrint}>
-                  Catalog availability can depend on combinations of values.
+                  Supported parameter combinations vary by lens.
                   Your order must match the exact product and eye-specific
                   parameters on a valid contact lens prescription.
                 </p>
@@ -537,10 +537,15 @@ export default async function LensPage({ params }: Props) {
               <p>
                 Verification, product processing, and carrier transit are
                 separate stages. Shipping method and cost are confirmed in the
-                cart; delivery timing can also depend on product sourcing and the
-                carrier.
+                cart. Delivery timing may vary.
+              </p>
+              <p>
+                Qualifying annual supplies receive free standard shipping.
+                Smaller orders have a flat standard shipping charge, and express
+                shipping is priced in the cart when offered.
               </p>
               <p className={styles.resourceLinks}>
+                <Link href="/shipping-delivery">Shipping &amp; delivery details</Link>
                 <Link href="/guides/buying-contact-lenses-online">Buying contact lenses online</Link>
                 <Link href="/guides/how-contact-lens-prescription-verification-works">How verification works</Link>
                 <Link href="/guides/why-are-contact-lenses-cheaper-online">Pricing transparency</Link>

@@ -25,7 +25,7 @@ export default function ShippingDeliveryPage() {
 
           <section aria-labelledby="standard-shipping">
             <h2 id="standard-shipping">Standard Shipping</h2>
-            <p>Qualifying annual supplies receive free standard shipping. Smaller orders have a flat standard shipping charge that varies by manufacturer. Your shipping charge is displayed before payment.</p>
+            <p>Qualifying annual supplies receive free standard shipping. For smaller orders, a flat standard shipping charge is calculated for your order and shown in the cart before payment.</p>
           </section>
 
           <section aria-labelledby="annual-supply">
