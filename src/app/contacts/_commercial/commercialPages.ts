@@ -61,6 +61,11 @@ const pricingGuide = {
   label: "Why are contact lenses cheaper online?",
 };
 
+const buyingGuide = {
+  href: "/guides/buying-contact-lenses-online",
+  label: "Buying contact lenses online: a complete guide",
+};
+
 const expirationGuide = {
   href: "/guides/why-do-contact-lens-prescriptions-expire",
   label: "Why do contact lens prescriptions expire?",
@@ -210,7 +215,7 @@ export const commercialContactPages = {
         ],
       },
     ],
-    relatedGuides: [verificationGuide, expiredGuide, rejectedGuide, pricingGuide],
+    relatedGuides: [verificationGuide, expiredGuide, rejectedGuide, pricingGuide, buyingGuide],
     relatedPages: [
       {
         href: "/contacts/order-contact-lenses-online",
@@ -381,7 +386,7 @@ export const commercialContactPages = {
         ],
       },
     ],
-    relatedGuides: [expiredGuide, pricingGuide, expirationGuide, verificationGuide],
+    relatedGuides: [expiredGuide, pricingGuide, expirationGuide, verificationGuide, buyingGuide],
     relatedPages: [
       {
         href: "/contacts/order-contact-lenses-online",

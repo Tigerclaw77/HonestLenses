@@ -135,6 +135,7 @@ export default function Header({
                   Shop lenses
                 </a>
               )}
+              <Link href="/contacts">All lens details</Link>
               {isHome && <Link href="/contacts/daily-contact-lenses">Daily lenses</Link>}
               {isHome && <Link href="/contacts/toric-contact-lenses">Astigmatism</Link>}
               {isHome && <Link href="/contacts/multifocal-contact-lenses">Multifocal</Link>}
@@ -209,6 +210,7 @@ export default function Header({
               <a href="/browse" onClick={handleShopClick}>
                 Shop
               </a>
+              <Link href="/contacts">All lens details</Link>
               <Link href="/contacts/daily-contact-lenses">Daily lenses</Link>
               <Link href="/contacts/toric-contact-lenses">Astigmatism lenses</Link>
               <Link href="/contacts/multifocal-contact-lenses">Multifocal lenses</Link>

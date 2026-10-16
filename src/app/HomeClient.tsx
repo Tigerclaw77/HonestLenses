@@ -345,6 +345,7 @@ export default function HomePage() {
         </div>
         <div className="home-help-links">
           <Link href="/guides/what-happens-if-my-eye-doctor-does-not-respond">How verification works</Link>
+          <Link href="/guides/buying-contact-lenses-online">Guide to buying contact lenses online</Link>
           <button onClick={() => setIsFindDoctorOpen(true)}>Find a doctor</button>
         </div>
       </section>

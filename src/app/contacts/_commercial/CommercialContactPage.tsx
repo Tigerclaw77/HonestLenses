@@ -182,6 +182,10 @@ export default function CommercialContactPage({ page, children }: Props) {
               <ProductCard key={lens.coreId} lens={lens} />
             ))}
           </div>
+          <p>
+            Looking for another prescribed lens?{" "}
+            <Link href="/contacts">View the complete contact lens catalog</Link>.
+          </p>
         </section>
 
         <section className={styles.relatedGrid} aria-label="Related resources">

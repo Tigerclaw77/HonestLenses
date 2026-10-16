@@ -20,6 +20,7 @@ import { getPopularityRank } from "@/data/lensPopularityTiers";
 import { POSTHOG_EVENTS, track } from "@/lib/posthog/client";
 import { getLensAnalyticsProperties } from "@/lib/posthog/lensMetadata";
 import { getLensImagePresentation } from "@/lib/display/lensImagePresentation";
+import { getLensSlug, SITE_URL } from "@/lib/seo/contactSeoRoutes";
 import { recordRecentUserAction } from "@/lib/telemetry/clientErrors";
 import { trackFunnelEvent } from "@/lib/telemetry/funnel";
 
@@ -417,71 +418,86 @@ export default function BrowsePage() {
               const lowest = getLowestPrice(skus);
 
               return (
-                <button
-                  type="button"
+                <div
                   key={lens.coreId}
-                  aria-label={`Select ${lens.displayName}`}
-                  onClick={() => {
-                    recordRecentUserAction("product_modal_opened", {
-                      core_id: lens.coreId,
-                    });
-                    track(
-                      POSTHOG_EVENTS.PRODUCT_MODAL_OPENED,
-                      getLensAnalyticsProperties(lens, {
-                        source: "browse_grid",
-                        lowestPriceCents: lowest ?? null,
-                        skus,
-                      }),
-                    );
-
-                    setSelectedLens(lens);
-                  }}
-                  style={{
-                    position: "relative",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    borderRadius: 10,
-                    padding: "1rem",
-                    cursor: "pointer",
-                    background: "rgba(255,255,255,0.02)",
-                    color: "inherit",
-                    font: "inherit",
-                    textAlign: "left",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "1rem",
-                  }}
+                  style={{ display: "flex", flexDirection: "column", gap: 8 }}
                 >
-                  <div
+                  <button
+                    type="button"
+                    aria-label={`Select ${lens.displayName}`}
+                    onClick={() => {
+                      recordRecentUserAction("product_modal_opened", {
+                        core_id: lens.coreId,
+                      });
+                      track(
+                        POSTHOG_EVENTS.PRODUCT_MODAL_OPENED,
+                        getLensAnalyticsProperties(lens, {
+                          source: "browse_grid",
+                          lowestPriceCents: lowest ?? null,
+                          skus,
+                        }),
+                      );
+
+                      setSelectedLens(lens);
+                    }}
                     style={{
-                      width: 172,
-                      height: 116,
-                      padding: 8,
+                      position: "relative",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      borderRadius: 10,
+                      padding: "1rem",
+                      cursor: "pointer",
+                      background: "rgba(255,255,255,0.02)",
+                      color: "inherit",
+                      font: "inherit",
+                      textAlign: "left",
                       display: "flex",
                       alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                      borderRadius: 10,
-                      border: "1px solid rgba(255,255,255,0.06)",
-                      background:
-                        "linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018))",
-                      overflow: "hidden",
+                      gap: "1rem",
+                      width: "100%",
                     }}
                   >
-                    <LensImage coreId={lens.coreId} />
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column" }}>
-                    <div style={{ fontWeight: 600 }}>{lens.displayName}</div>
-
-                    <div style={{ fontSize: ".9rem", opacity: 0.75 }}>
-                      {lowest ? `from $${(lowest / 100).toFixed(2)} / box` : ""}
+                    <div
+                      style={{
+                        width: 172,
+                        height: 116,
+                        padding: 8,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                        borderRadius: 10,
+                        border: "1px solid rgba(255,255,255,0.06)",
+                        background:
+                          "linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018))",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <LensImage coreId={lens.coreId} />
                     </div>
 
-                    <div style={{ fontSize: ".82rem", opacity: 0.65 }}>
-                      {replacementLabel(lens.replacement)}
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      <div style={{ fontWeight: 600 }}>{lens.displayName}</div>
+
+                      <div style={{ fontSize: ".9rem", opacity: 0.75 }}>
+                        {lowest ? `from $${(lowest / 100).toFixed(2)} / box` : ""}
+                      </div>
+
+                      <div style={{ fontSize: ".82rem", opacity: 0.65 }}>
+                        {replacementLabel(lens.replacement)}
+                      </div>
                     </div>
-                  </div>
-                </button>
+                  </button>
+                  <a
+                    href={`${SITE_URL}/contacts/${getLensSlug(lens)}`}
+                    style={{
+                      alignSelf: "flex-start",
+                      color: "inherit",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    View {lens.displayName} details
+                  </a>
+                </div>
               );
             })}
           </div>
