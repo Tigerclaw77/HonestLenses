@@ -1,0 +1,33 @@
+import assert from "node:assert/strict";
+import { centralDayBounds, linkPaymentToOrder, parseInvestigation } from "./investigationModel";
+
+assert.equal(parseInvestigation("Victoria West", "history").kind, "text");
+assert.equal(parseInvestigation("victoria@example.com", "history").kind, "email");
+assert.equal(parseInvestigation("7c5feaee-d5fd-42f3-835a-542c470888bd", "search").kind, "order");
+assert.equal(parseInvestigation("HL-2026-ABC123", "search").kind, "order");
+assert.equal(parseInvestigation("pi_123456789", "payment").kind, "intent");
+assert.equal(parseInvestigation("ch_123456789", "payment").kind, "charge");
+assert.equal(parseInvestigation("in_123456789", "payment").kind, "invoice");
+assert.equal(parseInvestigation("$101.99", "payment").amountCents, 10199);
+assert.equal(parseInvestigation("2026-10-18", "date").kind, "date");
+assert.throws(() => parseInvestigation("2026-02-30", "date"));
+assert.equal(new Date(centralDayBounds("2026-10-18").gte * 1000).toISOString(),
+  "2026-10-18T05:00:00.000Z");
+assert.equal(centralDayBounds("2026-11-01").lt - centralDayBounds("2026-11-01").gte,
+  25 * 60 * 60);
+assert.throws(() => parseInvestigation("", "search"));
+
+const orders = [{ id: "order-one", paymentIntentId: "pi_exact", email: "victoria@example.com",
+  amountCents: 10199 }];
+assert.deepEqual(linkPaymentToOrder({ intentId: "pi_exact", amountCents: 9999,
+  email: "other@example.com" }, orders), { orderId: "order-one", confidence: "Confirmed",
+  reason: "Exact PaymentIntent ID on order" });
+assert.deepEqual(linkPaymentToOrder({ metadataOrderId: "order-one", amountCents: 9999 }, orders),
+  { orderId: "order-one", confidence: "Confirmed", reason: "Exact order ID in Stripe metadata" });
+assert.equal(linkPaymentToOrder({ email: "victoria@example.com", amountCents: 10199 }, orders)
+  .confidence, "Probable");
+assert.equal(linkPaymentToOrder({ email: "victoria@example.com", amountCents: 10199 },
+  [...orders, { ...orders[0], id: "order-two" }]).confidence, "Unmatched");
+assert.equal(linkPaymentToOrder({ email: "victoria@example.com", amountCents: 10200 }, orders)
+  .confidence, "Unmatched");
+console.log("Investigation classification and conservative reconciliation passed.");

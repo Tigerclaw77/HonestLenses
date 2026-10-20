@@ -3690,6 +3690,9 @@ export default function AdminOrdersPage() {
       <h1 style={{ fontSize: 26, fontWeight: 800, marginBottom: 20 }}>
         Order Work Queue
       </h1>
+      <a href="/admin/investigate" style={{ color: "#7dd3fc", display: "inline-block", marginBottom: 16 }}>
+        Investigate historical orders and Stripe payments ↗
+      </a>
 
       {isLoading && (
         <div role="status" style={{ marginBottom: 12, color: "#bae6fd" }}>
