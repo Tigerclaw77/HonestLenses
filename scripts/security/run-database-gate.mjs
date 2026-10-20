@@ -1640,6 +1640,36 @@ async function runGate(client, connectionConfig) {
     "select * from public.reorder_recall_metrics()");
   assert(recallMetrics.rows.length === 1, "Recall metrics must be service-readable");
 
+  const permissionMigration = "20261020195105_checkout_reminder_permission.sql";
+  applied.push(await applySqlFile(client, path.join(migrationDirectory, permissionMigration), {
+    version: "20261020195105", name: "checkout_reminder_permission",
+  }));
+  const choiceRls = await client.query(`select relrowsecurity as rls
+    from pg_class where oid = 'public.customer_reminder_choices'::regclass`);
+  assert(choiceRls.rows[0]?.rls, "Checkout reminder choices must have RLS");
+  await expectDenied(client, "anon", "select * from public.customer_reminder_choices");
+  await expectDenied(client, "authenticated", "select * from public.customer_reminder_choices");
+  const insertChoice = `insert into public.customer_reminder_choices
+    (order_id,customer_email,email_hash,decision,wording,wording_version,
+     privacy_policy_version,source,categories,payment_intent_id)
+    values ($1,'internal@example.test',$2,'requested','exact consent copy',
+      '2026-10-20.v1','2026-10-20.v1','checkout',
+      array['replenishment','prescription_expiration'],'pi_internal_fixture')
+    on conflict (order_id) do nothing`;
+  const firstChoice = await executeAs(client, "service_role", insertChoice,
+    [fixtureOrder, "a".repeat(64)]);
+  const duplicateChoice = await executeAs(client, "service_role", insertChoice,
+    [fixtureOrder, "a".repeat(64)]);
+  assert(firstChoice.rowCount === 1 && duplicateChoice.rowCount === 0,
+    "Checkout permission must insert once per order without overwriting the audit row");
+  const savedChoice = await queryAs(client, "service_role",
+    "select decision,source,categories from public.customer_reminder_choices where order_id=$1",
+    [fixtureOrder]);
+  assert(savedChoice.rows[0]?.decision === "requested" &&
+    savedChoice.rows[0]?.source === "checkout" &&
+    savedChoice.rows[0]?.categories?.length === 2,
+    "Checkout permission audit row must be service-readable");
+
   return {
     applied,
     preRemediationExploit: {
@@ -1692,6 +1722,8 @@ async function runGate(client, connectionConfig) {
       unknownOutcomesBlockAutomaticRetry: true,
       browserDirectAccessRejected: true,
       senderDisabledByDefault: true, metricsReadableByService: true },
+    checkoutReminderPermission: { browserDirectAccessRejected: true,
+      serviceInsert: true, duplicateOrderIgnored: true },
   };
 }
 

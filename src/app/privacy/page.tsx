@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Header from "../../components/Header";
 import Footer from "../../components/Footer";
+import { REMINDER_PRIVACY_POLICY_VERSION } from "@/lib/reorder/permissionCopy";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/privacy" },
@@ -16,7 +17,7 @@ export default function PrivacyPage() {
           <h1 className="upper">Privacy Policy</h1>
 
           <p>
-            Effective Date: {new Date().getFullYear()}
+            Effective Date: October 20, 2026 (version {REMINDER_PRIVACY_POLICY_VERSION})
           </p>
 
           <p style={{ marginTop: 20 }}>
@@ -60,9 +61,21 @@ export default function PrivacyPage() {
           <h3 style={{ marginTop: 32 }}>Prescription Data</h3>
 
           <p>
-            Prescription information is collected solely for order fulfillment
-            and verification in accordance with the FTC Contact Lens Rule.
-            We do not sell or use prescription data for marketing purposes.
+            Prescription information is collected for order fulfillment and
+            verification in accordance with the FTC Contact Lens Rule. We do not
+            sell prescription data or use it for unrelated marketing or
+            third-party advertising.
+          </p>
+
+          <p>
+            For orders placed on or after October 20, 2026, you may choose at
+            checkout to request occasional contact lens reorder and prescription
+            renewal reminders. If you choose this option, we may use that order&apos;s
+            lens supply and documented prescription expiration to estimate when
+            a reminder may be useful. Reminder emails do not include prescription
+            details. You can postpone or stop reminders at any time. This choice
+            does not enroll customers from earlier orders or authorize unrelated
+            marketing.
           </p>
 
           <p>

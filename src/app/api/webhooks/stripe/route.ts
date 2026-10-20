@@ -19,6 +19,7 @@ import { reconcileAuthorizedPaymentIntent } from "@/lib/payments/checkoutAuthori
 import { ensureReceiptSnapshotWithoutAffectingPayment } from "@/lib/receipts/server";
 import { ensureOrderConfirmation } from "@/lib/receipts/confirmation";
 import { scheduleReorderReminder } from "@/lib/reorder/schedule";
+import { recordCapturedCheckoutReminderPermission } from "@/lib/reorder/permission";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { captureServerEvent } from "@/lib/posthog/server";
 
@@ -101,6 +102,11 @@ export async function POST(request: Request) {
         event,
         legacyRepository,
       );
+      if (event.type === "payment_intent.succeeded" && result.orderId) {
+        await recordCapturedCheckoutReminderPermission(
+          result.orderId, event.data.object as Stripe.PaymentIntent,
+        );
+      }
       if (
         event.type === "payment_intent.succeeded" &&
         result.orderId &&

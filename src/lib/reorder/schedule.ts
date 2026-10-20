@@ -4,6 +4,7 @@ import { estimateReplenishment } from "./estimate";
 import { documentedExpiration, expirationReminderAt } from "./recallPolicy";
 import { isExplicitDraftOrTest } from "@/lib/orders/operationalQueue";
 import { getAuthoritativeOrderQuantity } from "@/lib/orders/orderQuantity";
+import { reminderPermissionState } from "./permission";
 import { createReminderControlToken, hashReorderToken, REMINDER_ACTIONS } from "./tokens";
 
 export async function ensureReminderControls(orderId: string): Promise<void> {
@@ -61,6 +62,8 @@ export async function scheduleReorderReminder(
     .gt("created_at", order.created_at).limit(1).maybeSingle();
   if (newerError) throw newerError;
   if (newer) return; // Delayed webhook replay cannot reinstate an older supply schedule.
+  if (await reminderPermissionState(orderId, order.shipping_email) !==
+      "affirmatively_requested") return;
   const { data: receipt, error: receiptError } = await supabaseServer
     .from("order_receipt_snapshots").select("captured_at")
     .eq("order_id", orderId).maybeSingle();

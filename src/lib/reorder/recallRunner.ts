@@ -10,6 +10,7 @@ import { chooseRecall, documentedExpiration, nextEligibleAt, suppressionReason,
   type RecallKind, type SuppressionReason } from "./recallPolicy";
 import { buildReorderReminder } from "./reminders";
 import { hasConfirmedManualInvoicePurchase } from "./invoiceSuppression";
+import { reminderPermissionState } from "./permission";
 
 type Preference = {
   order_id: string; email_hash: string; next_reminder_at: string | null;
@@ -88,6 +89,13 @@ export async function evaluateRecall(preference: Preference, now = Date.now(), d
   if (!selected) return { order: safeOrder, kind: null, scheduledFor: null,
     reason: preference.next_expiration_at && Date.parse(preference.next_expiration_at) <= now &&
       !verifiedExpiration ? "unreliable_prescription" : "not_due", nextEligible: null };
+  const permissionState = await reminderPermissionState(order.id, order.shipping_email);
+  if (permissionState !== "affirmatively_requested") {
+    return { order: safeOrder, kind: selected.kind, scheduledFor: selected.scheduledFor,
+      reason: permissionState === "unsubscribed" ? "opted_out"
+        : permissionState === "explicitly_declined" ? "explicitly_declined"
+        : "no_lawful_basis", nextEligible: null };
+  }
   const suppressed = await db.from("commercial_email_suppressions").select("email_hash")
     .eq("email_hash", preference.email_hash).maybeSingle();
   if (suppressed.error) throw suppressed.error;

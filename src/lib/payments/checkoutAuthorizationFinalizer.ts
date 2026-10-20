@@ -30,6 +30,8 @@ import {
 import { buildCustomerOrderEmail } from "@/lib/orders/customerOrder";
 import { ensureReorderEntry } from "@/lib/reorder/entry";
 import { findReusablePrescription, recordReusedPrescription } from "@/lib/reorder/verification";
+import { recordCheckoutReminderPermission } from "@/lib/reorder/permission";
+import { scheduleReorderReminder } from "@/lib/reorder/schedule";
 import {
   ensureCustomerOrderNumber,
   getReceiptUrl,
@@ -92,6 +94,28 @@ function isTerminal(order: UnknownRecord): boolean {
   return ["completed", "delivered", "cancelled", "canceled"].includes(
     getString(order, "fulfillment_status")?.trim().toLowerCase() ?? "",
   );
+}
+
+async function finishReminderChoice(
+  order: UnknownRecord, intent: Stripe.PaymentIntent, status: string,
+): Promise<void> {
+  try {
+    await recordCheckoutReminderPermission({
+      id: getString(order, "id") ?? "",
+      payment_intent_id: getString(order, "payment_intent_id"),
+      shipping_email: getString(order, "shipping_email"),
+      status,
+    }, intent);
+    if (status === "captured") {
+      await scheduleReorderReminder(getString(order, "id") ?? "");
+    }
+  } catch (error) {
+    // Permission must never turn a completed payment into a checkout error.
+    // The captured-payment webhook makes a second, durable attempt.
+    console.error("Checkout reminder permission could not be finalized", {
+      orderId: getString(order, "id"), error,
+    });
+  }
 }
 
 async function hasTrackedEmail(orderId: string, emailType: string) {
@@ -211,6 +235,7 @@ export async function finalizeCheckoutAuthorization({
     ) &&
     (intent.status === "succeeded" || !allowAutomaticCapture)
   ) {
+    await finishReminderChoice(orderRaw, intent, orderStatus);
     return {
       ok: true,
       orderId,
@@ -227,6 +252,7 @@ export async function finalizeCheckoutAuthorization({
       getString(orderRaw, "rx_status"),
     )
   ) {
+    await finishReminderChoice(orderRaw, intent, orderStatus);
     return {
       ok: true,
       orderId,
@@ -364,6 +390,7 @@ export async function finalizeCheckoutAuthorization({
   } as PostAuthorizationNotificationOrder & UnknownRecord;
 
   if (orderStatus === nextStatus && verificationStatus === nextVerificationStatus) {
+    await finishReminderChoice(orderRaw, intent, nextStatus);
     if (reusedPrescription) {
       await recordReusedPrescription(orderId, reusedPrescription.sourceOrderId);
     }
@@ -495,6 +522,8 @@ export async function finalizeCheckoutAuthorization({
   if (reusedPrescription) {
     await recordReusedPrescription(orderId, reusedPrescription.sourceOrderId);
   }
+
+  await finishReminderChoice(orderRaw, intent, nextStatus);
 
   try {
     await sendNotifications({

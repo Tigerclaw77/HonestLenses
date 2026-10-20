@@ -108,6 +108,44 @@
   max-width: 100% !important;
 }
 
+.reminderChoice {
+  margin-top: 18px;
+  padding: 14px 0 2px;
+  border-top: 1px solid #dbe3ee;
+}
+
+.reminderChoice h3 {
+  margin: 0 0 10px;
+  color: #0f172a;
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.reminderLabel {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.reminderLabel input {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  margin: 2px 0 0;
+  accent-color: #6d28d9;
+}
+
+.reminderChoice p {
+  margin: 8px 0 0 26px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .paymentForm :global(.checkout-pay-cta) {
   min-height: 54px;
   margin-top: 18px;

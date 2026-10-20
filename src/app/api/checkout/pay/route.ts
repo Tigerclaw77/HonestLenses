@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { POSTHOG_EVENTS } from "../../../../lib/posthog/events";
 import {
@@ -16,6 +16,7 @@ import {
 } from "@/lib/order-access";
 import { getCheckoutAmountCents } from "@/lib/payments/checkoutAmount";
 import { getTrustedSiteOrigin } from "@/lib/security/siteOrigin";
+import { REMINDER_PERMISSION_VERSION } from "@/lib/reorder/permissionCopy";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -125,6 +126,11 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => null);
     const orderId = body?.orderId ?? body?.order_id ?? null;
+    const reminderRequested = typeof body?.reminderRequested === "boolean"
+      ? body.reminderRequested as boolean : null;
+    const initialReminderMetadata: Record<string, string> =
+      reminderRequested === true
+        ? { checkout_reminder_request: REMINDER_PERMISSION_VERSION } : {};
 
     if (!orderId || typeof orderId !== "string") {
       return NextResponse.json(
@@ -267,6 +273,20 @@ export async function POST(req: Request) {
           const paymentMethodsChanged = !(
             existing.excluded_payment_method_types ?? []
           ).includes("amazon_pay");
+          const reminderMetadata: Record<string, string> = reminderRequested === null ? {}
+            : { checkout_reminder_request: reminderRequested
+                ? REMINDER_PERMISSION_VERSION : "" };
+          const reminderChanged = reminderRequested !== null &&
+            (existing.metadata?.checkout_reminder_request ?? "") !==
+              (reminderRequested ? REMINDER_PERMISSION_VERSION : "");
+          if (reminderChanged &&
+              !["requires_payment_method", "requires_confirmation"].includes(existing.status) &&
+              !(amountChanged && existing.status === "requires_capture")) {
+            return NextResponse.json(
+              { error: "Payment is already in progress. Reminder choice cannot be changed." },
+              { status: 409 },
+            );
+          }
           if (amountChanged || receiptChanged || paymentMethodsChanged) {
             if (amountChanged && existing.status === "requires_capture") {
               await stripe.paymentIntents.cancel(
@@ -320,21 +340,29 @@ export async function POST(req: Request) {
                     subtotal_cents: String(order.subtotal_cents),
                     right_box_count: String(order.right_box_count),
                     left_box_count: String(order.left_box_count),
+                    ...reminderMetadata,
                   },
                 },
                 {
-                  idempotencyKey:
-                    `legacy:${order.id}:update:${existing.id}:${amountDueCents}:` +
-                    createHash("sha256")
-                      .update(receiptEmail)
-                      .digest("hex")
-                      .slice(0, 24) + ":amazon-pay-disabled",
+                  idempotencyKey: reminderChanged
+                    ? `legacy:${order.id}:reminder-choice:${randomUUID()}`
+                    : `legacy:${order.id}:update:${existing.id}:${amountDueCents}:` +
+                      createHash("sha256")
+                        .update(receiptEmail)
+                        .digest("hex")
+                        .slice(0, 24) + ":amazon-pay-disabled",
                 },
               );
 
               return NextResponse.json(paymentResponse(order, updated));
             }
           } else {
+            if (reminderChanged) {
+              const updated = await stripe.paymentIntents.update(existing.id, {
+                metadata: reminderMetadata,
+              });
+              return NextResponse.json(paymentResponse(order, updated));
+            }
             return NextResponse.json(paymentResponse(order, existing));
           }
         }
@@ -374,6 +402,7 @@ export async function POST(req: Request) {
           payment_attempt_generation: String(
             order.payment_attempt_generation,
           ),
+          ...initialReminderMetadata,
         },
       },
       {

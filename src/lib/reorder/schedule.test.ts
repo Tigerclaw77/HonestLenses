@@ -37,6 +37,8 @@ async function main() {
           ? newerOrder ? { id: "newer" } : null : order
         : table === "commercial_email_suppressions" ? suppressed ? { email_hash: "hash" } : null
         : table === "reorder_reminder_preferences" ? existing ? { order_id: order.id, stopped_at: null } : null
+        : table === "customer_reminder_choices" ? { customer_email: order.shipping_email,
+          decision: "requested" }
         : table === "order_events" ? evidence ? { id: "evidence" } : null
         : table === "reorder_reminder_events" ? customerControl ? { id: "control" } : null
         : table === "reorder_reminder_control_tokens" ? null : null, error: null }),

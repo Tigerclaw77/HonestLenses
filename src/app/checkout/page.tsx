@@ -30,6 +30,8 @@ import {
   normalizeFeedbackCreditCents,
 } from "@/lib/abandonmentFeedback";
 import styles from "./checkout.module.css";
+import { REMINDER_CHECKBOX, REMINDER_HEADING, REMINDER_SUPPORTING } from
+  "@/lib/reorder/permissionCopy";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!,
@@ -116,6 +118,8 @@ type CheckoutFormProps = {
   mode: "uploaded" | "passive";
   onQuoteChanged: (quote: CheckoutPayResponse) => void;
   onPaymentComplete: () => void;
+  reminderRequested: boolean;
+  onReminderRequestedChange: (value: boolean) => void;
 };
 
 /* =========================
@@ -163,6 +167,8 @@ function CheckoutForm({
   mode,
   onQuoteChanged,
   onPaymentComplete,
+  reminderRequested,
+  onReminderRequestedChange,
 }: CheckoutFormProps) {
   const stripe = useStripe();
   const elements = useElements();
@@ -189,7 +195,7 @@ function CheckoutForm({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ orderId: order.id }),
+        body: JSON.stringify({ orderId: order.id, reminderRequested }),
       }, session?.access_token ?? null);
       const quote: CheckoutPayResponse = await quoteRes.json().catch(() => ({}));
 
@@ -356,6 +362,16 @@ function CheckoutForm({
       <div className={styles.paymentSurface}>
         <PaymentElement options={paymentElementOptions} />
       </div>
+      <section className={styles.reminderChoice} aria-labelledby="reminder-heading">
+        <h3 id="reminder-heading">{REMINDER_HEADING}</h3>
+        <label className={styles.reminderLabel}>
+          <input type="checkbox" checked={reminderRequested}
+            onChange={(event) => onReminderRequestedChange(event.target.checked)}
+            disabled={submitting} />
+          <span>{REMINDER_CHECKBOX}</span>
+        </label>
+        <p>{REMINDER_SUPPORTING}</p>
+      </section>
 
       {error && (
         <p
@@ -399,6 +415,7 @@ function CheckoutInner() {
   const [order, setOrder] = useState<Order | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [mode, setMode] = useState<"uploaded" | "passive">("passive");
+  const [reminderRequested, setReminderRequested] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -696,6 +713,8 @@ function CheckoutInner() {
                 order={order}
                 clientSecret={clientSecret}
                 mode={mode}
+                reminderRequested={reminderRequested}
+                onReminderRequestedChange={setReminderRequested}
                 onQuoteChanged={(quote) => {
                   if (
                     !quote.clientSecret ||
