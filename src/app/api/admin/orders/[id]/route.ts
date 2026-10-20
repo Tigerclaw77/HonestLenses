@@ -275,6 +275,13 @@ export async function PATCH(
         orderId: id,
         error: eventError.message,
       });
+    } else if (transition.targetStatus === "delivered") {
+      try {
+        const { scheduleReorderReminder } = await import("@/lib/reorder/schedule");
+        await scheduleReorderReminder(id, { refreshDelivery: true });
+      } catch (reminderError) {
+        console.warn("Delivery reminder refresh failed", { orderId: id, error: reminderError });
+      }
     }
   }
 

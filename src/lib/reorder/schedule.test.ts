@@ -11,7 +11,11 @@ async function main() {
     created_at: new Date().toISOString(), shipping_email: "sample@honestlenses.com",
     shipping_first_name: "Sample", shipping_last_name: "Customer",
     sku: "PRECISION1_30", right_box_count: 1, left_box_count: 2,
-    rx: { expires: "2027-05-27" }, rx_expiration_date: "2027-05-27",
+    adjusted_right_box_count: null as number | null,
+    adjusted_left_box_count: null as number | null,
+    adjusted_total_box_count: null as number | null,
+    rx: { expires: "2027-05-27", right: { sphere: -2.75 },
+      left: { sphere: -3.25 } }, rx_expiration_date: "2027-05-27",
     verification_status: "verified", verification_passed: true,
     verification_completed_at: new Date().toISOString(),
     patient_first_name: "Sample", patient_last_name: "Patient", patient_dob: "1990-01-01" };
@@ -19,23 +23,30 @@ async function main() {
   let suppressed = false;
   let existing = false;
   let evidence = true;
+  let customerControl = false;
+  let deliveredAt: string | null = null;
+  let newerOrder = false;
   const writes: { table: string; operation: string; value: Record<string, unknown> }[] = [];
   supabaseServer.from = ((table: string) => {
     let previous = false;
     let action = "";
     const query = {
       select: () => query, eq: () => query, neq: () => { previous = true; return query; },
-      is: () => query, in: () => query, order: () => query, limit: () => query,
-      maybeSingle: async () => ({ data: table === "orders" ? previous ? null : order
+      gt: () => query, is: () => query, in: () => query, order: () => query, limit: () => query,
+      maybeSingle: async () => ({ data: table === "orders" ? previous
+          ? newerOrder ? { id: "newer" } : null : order
         : table === "commercial_email_suppressions" ? suppressed ? { email_hash: "hash" } : null
         : table === "reorder_reminder_preferences" ? existing ? { order_id: order.id, stopped_at: null } : null
         : table === "order_events" ? evidence ? { id: "evidence" } : null
+        : table === "reorder_reminder_events" ? customerControl ? { id: "control" } : null
         : table === "reorder_reminder_control_tokens" ? null : null, error: null }),
       update: (value: Record<string, unknown>) => { action = "update";
         writes.push({ table, operation: action, value }); return query; },
       upsert: async (value: Record<string, unknown>) => { writes.push({ table,
         operation: "upsert", value }); return { error: null }; },
-      then: (resolve: (value: { error: null }) => unknown) => resolve({ error: null }),
+      then: (resolve: (value: { error: null; data: unknown[] }) => unknown) =>
+        resolve({ error: null, data: table === "order_events" && deliveredAt
+          ? [{ created_at: deliveredAt, after: { fulfillment_status: "delivered" } }] : [] }),
     };
     return query;
   }) as unknown as typeof supabaseServer.from;
@@ -48,10 +59,33 @@ async function main() {
   assert.equal(typeof scheduled.value.next_reminder_at, "string");
   assert.ok(writes.some(write => write.table === "reorder_reminder_events" &&
     (write.value.details as { expiration_scheduled: boolean }).expiration_scheduled));
+  assert.equal((writes.find(write => write.table === "reorder_reminder_events" &&
+    write.operation === "upsert")?.value.details as { estimated_supply_days: number })
+    .estimated_supply_days, 30);
+  writes.length = 0;
+  order = { ...source, adjusted_right_box_count: 2,
+    adjusted_left_box_count: 2, adjusted_total_box_count: 4 };
+  await scheduleReorderReminder(order.id);
+  assert.equal((writes.find(write => write.table === "reorder_reminder_events" &&
+    write.operation === "upsert")?.value.details as { estimated_supply_days: number })
+    .estimated_supply_days, 60, "Adjusted captured quantities define purchased supply");
+  writes.length = 0; newerOrder = true;
+  await scheduleReorderReminder(order.id);
+  assert.equal(writes.length, 0, "An older capture cannot supersede a later purchase");
+  newerOrder = false; order = { ...source };
 
   writes.length = 0; existing = true;
   await scheduleReorderReminder(order.id);
   assert.equal(writes.length, 0, "Webhook replay must not reset the schedule");
+  deliveredAt = new Date(Date.now() + 3 * 86_400_000).toISOString();
+  await scheduleReorderReminder(order.id, { refreshDelivery: true });
+  assert.ok(writes.some(write => write.table === "reorder_reminder_preferences" &&
+    write.operation === "update" && typeof write.value.next_reminder_at === "string"),
+  "Confirmed delivery refreshes only the existing reminder");
+  writes.length = 0; customerControl = true;
+  await scheduleReorderReminder(order.id, { refreshDelivery: true });
+  assert.equal(writes.length, 0, "Customer-selected reminder date must be preserved");
+  customerControl = false; deliveredAt = null;
   existing = false; suppressed = true;
   await scheduleReorderReminder(order.id);
   assert.equal(writes.length, 0, "Opted-out recipient must not be scheduled");
@@ -60,6 +94,13 @@ async function main() {
   assert.equal(writes.find(write => write.table === "reorder_reminder_preferences" &&
     write.operation === "upsert")?.value.next_expiration_at, null,
   "Unverified expiration must not be scheduled");
+  writes.length = 0; order = { ...source, sku: "UNKNOWN" };
+  await scheduleReorderReminder(order.id);
+  assert.ok(writes.some(write => write.table === "reorder_reminder_preferences" &&
+    write.operation === "update"));
+  assert.ok(!writes.some(write => write.table === "reorder_reminder_preferences" &&
+    write.operation === "upsert"),
+  "Unknown supply invalidates an older purchase schedule without inventing a new date");
   writes.length = 0; evidence = true; order = { ...source, shipping_email: "test@example.com" };
   await scheduleReorderReminder(order.id);
   assert.equal(writes.length, 0, "Synthetic identity must be skipped");

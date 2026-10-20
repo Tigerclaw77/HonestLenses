@@ -100,7 +100,8 @@ export async function evaluateRecall(preference: Preference, now = Date.now(), d
   if (claim.error) throw claim.error;
   const policyInput = { optedOut: Boolean(suppressed.data), bounced: facts.bounced,
     recentPurchase: facts.recent_purchase, pendingReorder: facts.pending_reorder,
-    newerOrder: facts.newer_order, captured: ["captured", "fulfilled"].includes(order.status),
+    newerOrder: facts.newer_order, captured: ["captured", "fulfilled"].includes(order.status) &&
+      order.fulfillment_status !== "cancelled",
     synthetic: isExplicitDraftOrTest(order),
     lastClaimedAt: claim.data?.claimed_at, claimStatus: claim.data?.status, now };
   const preliminary = suppressionReason({ ...policyInput, paymentValid: true });
