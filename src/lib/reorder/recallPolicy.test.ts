@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { chooseRecall, documentedExpiration, expirationReminderAt,
-  nextEligibleAt, requiresJurisdictionReview, suppressionReason } from "./recallPolicy";
+  nextEligibleAt, requiresJurisdictionReview, sameNamedRecipientAndPatient,
+  suppressionReason } from "./recallPolicy";
 
 const day = 86_400_000;
 const now = Date.parse("2026-10-20T12:00:00Z");
@@ -55,6 +56,16 @@ assert.equal(requiresJurisdictionReview("WA"), true);
 assert.equal(requiresJurisdictionReview("ct"), true);
 assert.equal(requiresJurisdictionReview(null), true);
 assert.equal(requiresJurisdictionReview("TX"), false);
+assert.equal(requiresJurisdictionReview(" Texas "), false);
+for (const state of ["CA", "CO", "NY", "WA", "CT", "", "T.X."]) {
+  assert.equal(requiresJurisdictionReview(state), true, `${state} must be held`);
+}
+assert.equal(sameNamedRecipientAndPatient({ shipping_first_name: " Alex ",
+  shipping_last_name: "Smith", patient_first_name: "alex", patient_last_name: "SMITH" }), true);
+assert.equal(sameNamedRecipientAndPatient({ shipping_first_name: "Alex",
+  shipping_last_name: "Smith", patient_first_name: "Alex", patient_last_name: "Jones" }), false);
+assert.equal(sameNamedRecipientAndPatient({ shipping_first_name: "Alex",
+  shipping_last_name: "Smith", patient_first_name: "Alex" }), false);
 
 process.env.ORDER_RESUME_TOKEN_SECRET = "unit-test-only-recall-secret";
 process.env.NEXT_PUBLIC_SITE_URL = "https://example.test";

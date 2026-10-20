@@ -73,8 +73,8 @@ export default function PrivacyPage() {
             renewal reminders. If you choose this option, we may use that order&apos;s
             lens supply and documented prescription expiration to estimate when
             a reminder may be useful. Prescription renewal alerts require your
-            confirmation that you are the patient or are authorized to manage
-            reminders for that patient. Reminder emails do not include prescription
+            confirmation that you are the patient and that the patient and
+            shipping names on the order match. Reminder emails do not include prescription
             details. You can postpone or stop reminders at any time. This choice
             does not enroll customers from earlier orders or authorize unrelated
             marketing.

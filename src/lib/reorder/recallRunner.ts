@@ -6,7 +6,8 @@ import { captureServerEvent } from "@/lib/posthog/server";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { supabaseServer as db } from "@/lib/supabase-server";
 import { ensureReorderEntry } from "./entry";
-import { chooseRecall, documentedExpiration, nextEligibleAt, requiresJurisdictionReview, suppressionReason,
+import { chooseRecall, documentedExpiration, nextEligibleAt, requiresJurisdictionReview,
+  sameNamedRecipientAndPatient, suppressionReason,
   type RecallKind, type SuppressionReason } from "./recallPolicy";
 import { buildReorderReminder } from "./reminders";
 import { hasConfirmedManualInvoicePurchase } from "./invoiceSuppression";
@@ -74,7 +75,8 @@ async function sourcePayment(paymentIntentId: string | null): Promise<{
     stripe };
 }
 
-export async function evaluateRecall(preference: Preference, now = Date.now(), dueBy = now): Promise<{
+export async function evaluateRecall(preference: Preference, now = Date.now(), dueBy = now,
+  activeClaimKey?: string): Promise<{
   order: { id: string; shipping_email: string; shipping_first_name: string | null } | null;
   kind: RecallKind | null; scheduledFor: string | null;
   reason: SuppressionReason | "not_due" | "historical" | "recipient_mismatch" | null;
@@ -107,7 +109,8 @@ export async function evaluateRecall(preference: Preference, now = Date.now(), d
   }
   const expiration = documentedExpiration(order, now);
   const verifiedExpiration = await isVerifiedExpiration(order, expiration);
-  const patientAuthority = await hasPrescriptionReminderAuthority(order.id, order.shipping_email);
+  const patientAuthority = sameNamedRecipientAndPatient(order) &&
+    await hasPrescriptionReminderAuthority(order.id, order.shipping_email);
   const selected = chooseRecall({
     replenishmentAt: preference.next_reminder_at,
     expirationAt: patientAuthority && verifiedExpiration ? preference.next_expiration_at : null,
@@ -126,14 +129,17 @@ export async function evaluateRecall(preference: Preference, now = Date.now(), d
   const facts = (Array.isArray(activity.data) ? activity.data[0] : activity.data) as Activity | null;
   if (!facts) throw new Error("Recipient activity unavailable");
   const claim = await db.from("reorder_recall_recipient_claims")
-    .select("claimed_at,status").eq("email_hash", preference.email_hash).maybeSingle();
+    .select("claimed_at,status,claim_key").eq("email_hash", preference.email_hash).maybeSingle();
   if (claim.error) throw claim.error;
+  const ownClaim = Boolean(activeClaimKey && claim.data?.claim_key === activeClaimKey &&
+    claim.data.status === "claimed");
   const policyInput = { optedOut: Boolean(suppressed.data), bounced: facts.bounced,
     recentPurchase: facts.recent_purchase, pendingReorder: facts.pending_reorder,
     newerOrder: facts.newer_order, captured: ["captured", "fulfilled"].includes(order.status) &&
       order.fulfillment_status !== "cancelled",
     synthetic: isExplicitDraftOrTest(order),
-    lastClaimedAt: claim.data?.claimed_at, claimStatus: claim.data?.status, now };
+    lastClaimedAt: ownClaim ? null : claim.data?.claimed_at,
+    claimStatus: ownClaim ? null : claim.data?.status, now };
   const preliminary = suppressionReason({ ...policyInput, paymentValid: true });
   const payment = preliminary ? null : await sourcePayment(order.payment_intent_id);
   let reason: SuppressionReason | null = preliminary ?? suppressionReason({ ...policyInput,
@@ -266,10 +272,48 @@ export async function runReorderReminders(): Promise<{ enabled: boolean; examine
       const reorderUrl = await ensureReorderEntry(preference.order_id);
       const copyVariant = await recallCopyVariant(preference.order_id,
         result.kind, result.scheduledFor);
+      // Re-read the preference and every eligibility guard after link preparation,
+      // immediately before handing the email to the provider.
+      const latestControl = await db.from("order_operations_control")
+        .select("reorder_reminders_enabled,reorder_recall_live_from,reorder_recall_compliance_approved_at,postal_address")
+        .eq("id", true).single();
+      if (latestControl.error || !latestControl.data) throw new Error("Reminder control unavailable");
+      const current = await db.from("reorder_reminder_preferences")
+        .select("order_id,email_hash,next_reminder_at,next_expiration_at,send_count,stopped_at")
+        .eq("order_id", preference.order_id).maybeSingle();
+      if (current.error) throw current.error;
+      const final = current.data && !current.data.stopped_at &&
+        current.data.email_hash === preference.email_hash
+        ? await evaluateRecall(current.data as Preference, Date.now(), Date.now(), key)
+        : null;
+      const activationReady = latestControl.data.reorder_reminders_enabled &&
+        latestControl.data.reorder_recall_compliance_approved_at &&
+        latestControl.data.reorder_recall_live_from &&
+        latestControl.data.postal_address?.trim().length >= 10 &&
+        Date.parse(result.scheduledFor) >= Date.parse(latestControl.data.reorder_recall_live_from);
+      if (!activationReady || !final || final.reason || final.kind !== result.kind ||
+          final.scheduledFor !== result.scheduledFor ||
+          final.order?.shipping_email !== result.order.shipping_email) {
+        const reason = !activationReady ? "activation_paused"
+          : current.data?.stopped_at ? "opted_out"
+          : final?.reason ?? "not_due";
+        const rejected = await db.from("reorder_reminder_attempts")
+          .update({ status: "rejected", completed_at: new Date().toISOString(),
+            error_code: "ELIGIBILITY_CHANGED" })
+          .eq("order_id", preference.order_id).eq("scheduled_for", result.scheduledFor)
+          .eq("status", "claimed");
+        if (rejected.error) throw rejected.error;
+        const released = await db.from("reorder_recall_recipient_claims").delete()
+          .eq("email_hash", preference.email_hash).eq("claim_key", key).eq("status", "claimed");
+        if (released.error) throw released.error;
+        await recordEvent(preference.order_id, "suppressed",
+          `pre-send:${key}:${reason}`, { reason });
+        continue;
+      }
       const message = buildReorderReminder({ orderId: preference.order_id,
-        firstName: result.order.shipping_first_name || "there", reorderUrl,
-        postalAddress: control.postal_address, copyVariant });
-      const sent = await sendEmail({ to: result.order.shipping_email, ...message,
+        firstName: final.order.shipping_first_name || "there", reorderUrl,
+        postalAddress: latestControl.data.postal_address, copyVariant });
+      const sent = await sendEmail({ to: final.order.shipping_email, ...message,
         tracking: { orderId: preference.order_id, emailType: "reorder_reminder", updateOrderSummary: false },
         idempotencyKey: key, redactProviderErrorLog: true });
       if (!sent.data?.id) throw new Error("Provider acceptance unconfirmed");

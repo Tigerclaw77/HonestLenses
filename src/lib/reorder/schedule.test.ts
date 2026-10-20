@@ -7,6 +7,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = "unit-test-only";
 async function main() {
   const { supabaseServer } = await import("@/lib/supabase-server");
   const { scheduleReorderReminder } = await import("./schedule");
+  const { PATIENT_AUTHORITY_VERSION } = await import("./permissionCopy");
   const source = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "captured",
     created_at: new Date().toISOString(), shipping_email: "sample@honestlenses.com",
     shipping_first_name: "Sample", shipping_last_name: "Customer",
@@ -18,7 +19,7 @@ async function main() {
       left: { sphere: -3.25 } }, rx_expiration_date: "2027-05-27",
     verification_status: "verified", verification_passed: true,
     verification_completed_at: new Date().toISOString(),
-    patient_first_name: "Sample", patient_last_name: "Patient", patient_dob: "1990-01-01" };
+    patient_first_name: "Sample", patient_last_name: "Customer", patient_dob: "1990-01-01" };
   let order = { ...source };
   let suppressed = false;
   let existing = false;
@@ -41,7 +42,7 @@ async function main() {
         : table === "customer_reminder_choices" ? { customer_email: order.shipping_email,
           decision: "requested", categories: patientAuthority
             ? ["replenishment", "prescription_expiration"] : ["replenishment"],
-          patient_authority_version: patientAuthority ? "2026-10-20.v1" : null }
+          patient_authority_version: patientAuthority ? PATIENT_AUTHORITY_VERSION : null }
         : table === "order_events" ? evidence ? { id: "evidence" } : null
         : table === "reorder_reminder_events" ? customerControl ? { id: "control" } : null
         : table === "reorder_reminder_control_tokens" ? null : null, error: null }),
@@ -73,6 +74,12 @@ async function main() {
     write.operation === "upsert")?.value.next_expiration_at, null,
   "Patient-specific expiration is absent without authority evidence");
   patientAuthority = true;
+  writes.length = 0;
+  order = { ...source, patient_last_name: "Different" };
+  await scheduleReorderReminder(order.id);
+  assert.equal(writes.find(write => write.table === "reorder_reminder_preferences" &&
+    write.operation === "upsert")?.value.next_expiration_at, null,
+  "A proxy purchase cannot schedule a patient-specific alert");
   writes.length = 0;
   order = { ...source, adjusted_right_box_count: 2,
     adjusted_left_box_count: 2, adjusted_total_box_count: 4 };

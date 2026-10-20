@@ -1,7 +1,7 @@
 import { commercialEmailHash } from "@/lib/orderOperations";
 import { supabaseServer } from "@/lib/supabase-server";
 import { estimateReplenishment } from "./estimate";
-import { documentedExpiration, expirationReminderAt } from "./recallPolicy";
+import { documentedExpiration, expirationReminderAt, sameNamedRecipientAndPatient } from "./recallPolicy";
 import { isExplicitDraftOrTest } from "@/lib/orders/operationalQueue";
 import { getAuthoritativeOrderQuantity } from "@/lib/orders/orderQuantity";
 import { hasPrescriptionReminderAuthority, reminderPermissionState } from "./permission";
@@ -96,7 +96,8 @@ export async function scheduleReorderReminder(
 
   let expirationAt: string | null = null;
   const expiration = documentedExpiration(order);
-  if (expiration && await hasPrescriptionReminderAuthority(orderId, order.shipping_email)) {
+  if (expiration && sameNamedRecipientAndPatient(order) &&
+      await hasPrescriptionReminderAuthority(orderId, order.shipping_email)) {
     const { data: evidence, error: evidenceError } = await supabaseServer.from("order_events")
       .select("id").eq("order_id", orderId)
       .in("event_type", ["admin_prescription_accepted", "admin_verification_override",

@@ -94,6 +94,9 @@ async function main() {
   assert.equal(await hasPrescriptionReminderAuthority(second, email), true);
   assert.equal(choices.get(second)?.patient_authority_version, PATIENT_AUTHORITY_VERSION);
   assert.match(String(choices.get(second)?.wording), new RegExp(PATIENT_AUTHORITY_WORDING));
+  choices.get(second)!.patient_authority_version = "2026-10-20.v1";
+  assert.equal(await hasPrescriptionReminderAuthority(second, email), false,
+    "The former proxy attestation cannot authorize self-patient alerts");
 
   console.log("Checkout permission state, payment gate, retry, unsubscribe, shared-email and reorder fixtures passed. No email or payment sent.");
 }

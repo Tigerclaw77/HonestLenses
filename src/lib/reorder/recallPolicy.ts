@@ -3,10 +3,24 @@ export const RECALL_COOLDOWN_DAYS = 30;
 
 export type RecallKind = "replenishment" | "expiration" | "combined";
 
-/** These states require a separate health-data/privacy review before recall. */
+/** The prospective launch is Texas-only; all other jurisdictions stay held. */
 export function requiresJurisdictionReview(state: string | null | undefined): boolean {
   const normalized = (state ?? "").trim().toUpperCase();
-  return !normalized || ["WA", "WASHINGTON", "CT", "CONNECTICUT"].includes(normalized);
+  return normalized !== "TX" && normalized !== "TEXAS";
+}
+
+/** A self-patient declaration is accepted only when the order names agree. */
+export function sameNamedRecipientAndPatient(order: {
+  shipping_first_name?: string | null; shipping_last_name?: string | null;
+  patient_first_name?: string | null; patient_last_name?: string | null;
+}): boolean {
+  const normalize = (name: string | null | undefined) =>
+    (name ?? "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+  const shippingFirst = normalize(order.shipping_first_name);
+  const shippingLast = normalize(order.shipping_last_name);
+  return Boolean(shippingFirst && shippingLast &&
+    shippingFirst === normalize(order.patient_first_name) &&
+    shippingLast === normalize(order.patient_last_name));
 }
 
 export function documentedExpiration(order: {
