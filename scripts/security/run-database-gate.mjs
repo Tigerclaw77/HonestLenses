@@ -1527,9 +1527,9 @@ async function runGate(client, connectionConfig) {
     connectionConfig,
   );
 
-  const reorderMigration = "20261020134815_reorder_links_and_reminder_preferences.sql";
+  const reorderMigration = "20261020142223_reorder_links_and_reminder_preferences.sql";
   applied.push(await applySqlFile(client, path.join(migrationDirectory, reorderMigration), {
-    version: "20261020134815",
+    version: "20261020142223",
     name: "reorder_links_and_reminder_preferences",
   }));
   const reorderTables = [
