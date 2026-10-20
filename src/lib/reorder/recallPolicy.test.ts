@@ -61,16 +61,18 @@ async function testEmail() {
 const { buildReorderReminder } = await import("./reminders");
 const common = { orderId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   firstName: "Internal", reorderUrl: "https://example.test/reorder/entry",
-  postalAddress: "Honest Lenses, 100 Main Street, Austin, TX 78701" };
-for (const kind of ["replenishment", "expiration", "combined"] as const) {
-  const message = buildReorderReminder({ ...common, kind });
-  assert.match(message.text, /Reorder My Contacts/);
-  assert.match(message.text, /Stop Reminders/);
-  assert.match(message.text, /Remind Me in 30 Days/);
-  assert.match(message.html, /100 Main Street/);
-  assert.doesNotMatch(message.text, /1990-01-01|2027-01-15/);
-  if (kind !== "replenishment") assert.match(message.subject, /prescription expires soon/);
-}
+  postalAddress: "1401 Lake Plaza Dr, Suite 200-102, Spring, TX 77389" };
+const message = buildReorderReminder(common);
+assert.equal(message.subject, "A friendly reminder from Honest Lenses");
+assert.match(message.text, /Just checking in! If you need more contact lenses, reordering is quick and easy\./);
+assert.match(message.text, /Reorder My Contacts/);
+assert.match(message.text, /Remind Me Later/);
+assert.match(message.text, /Stop Reminders/);
+assert.match(message.html, /1401 Lake Plaza Dr, Suite 200-102, Spring, TX 77389/);
+assert.match(message.html, /display:inline-block/);
+assert.doesNotMatch(message.subject + message.text + message.html,
+  /prescription|patient|expires|depletion|1990-01-01|2027-01-15/i);
+assert.doesNotMatch(message.text, /Remind Me in 60 Days|Choose a Reminder Date/);
 console.log("Recall timing, coordination, suppression, controls, and private email copy passed. No email sent.");
 }
 void testEmail().catch(error => { console.error(error); process.exitCode = 1; });

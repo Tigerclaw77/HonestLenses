@@ -235,7 +235,7 @@ export async function runReorderReminders(): Promise<{ enabled: boolean; examine
       const reorderUrl = await ensureReorderEntry(preference.order_id);
       const message = buildReorderReminder({ orderId: preference.order_id,
         firstName: result.order.shipping_first_name || "there", reorderUrl,
-        postalAddress: control.postal_address, kind: result.kind });
+        postalAddress: control.postal_address });
       const sent = await sendEmail({ to: result.order.shipping_email, ...message,
         tracking: { orderId: preference.order_id, emailType: "reorder_reminder", updateOrderSummary: false },
         idempotencyKey: key, redactProviderErrorLog: true });
