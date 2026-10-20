@@ -2,7 +2,8 @@ import "server-only";
 import Stripe from "stripe";
 import { supabaseServer } from "@/lib/supabase-server";
 import {
-  centralDayBounds, linkPaymentToOrder, type InvestigationEvent, type InvestigationInput,
+  centralDayBounds, groupInvoicePayments, linkPaymentToOrder, netPaid, paymentCategory,
+  type InvestigationEvent, type InvestigationInput,
   type InvestigationOrder, type InvestigationPayment, type InvestigationResult,
 } from "./investigationModel";
 
@@ -175,7 +176,8 @@ function publicOrder(row: OrderRow, events: EventRow[], items: ItemRow[]): Inves
     quantity: adjustedQuantity
       ? `${originalRight} right / ${originalLeft} left → ${right} right / ${left} left boxes`
       : itemQuantity ?? `${right} right / ${left} left box${right + left === 1 ? "" : "es"}`,
-    amountCents: row.total_amount_cents, shipping: address || null,
+    amountCents: row.total_amount_cents, capturedCents: null, refundedCents: null,
+    netPaidCents: null, authorizedCents: null, shipping: address || null,
     paymentIntentId: row.payment_intent_id,
     timeline: timeline.sort((a, b) => timeKey(a).localeCompare(timeKey(b))),
     url: `/admin/investigate?order=${encodeURIComponent(row.id)}`,
@@ -199,6 +201,16 @@ async function stripeCandidates(stripe: Stripe, input: InvestigationInput,
 
   if (input.kind === "intent") addIntent(await stripe.paymentIntents.retrieve(input.query,
     { expand: ["latest_charge", "latest_charge.balance_transaction"] }));
+  if (input.kind === "intent") {
+    const invoicePayments = await stripe.invoicePayments.list({
+      payment: { type: "payment_intent", payment_intent: input.query }, limit: 10,
+    });
+    if (invoicePayments.has_more) limited = true;
+    for (const payment of invoicePayments.data) {
+      const id = ref(payment.invoice);
+      if (id) addInvoice(await stripe.invoices.retrieve(id));
+    }
+  }
   if (input.kind === "charge") addCharge(await stripe.charges.retrieve(input.query,
     { expand: ["balance_transaction"] }));
   if (input.kind === "invoice") addInvoice(await stripe.invoices.retrieve(input.query));
@@ -274,9 +286,18 @@ async function stripeCandidates(stripe: Stripe, input: InvestigationInput,
     if (id && !intents.has(id)) addIntent(await stripe.paymentIntents.retrieve(id));
   }
   for (const invoice of invoices.values()) {
-    const id = invoiceIntentId(invoice);
-    if (id && !intents.has(id)) addIntent(await stripe.paymentIntents.retrieve(id,
-      { expand: ["latest_charge", "latest_charge.balance_transaction"] }));
+    for (const id of invoiceIntentIds(invoice)) {
+      if (!intents.has(id)) addIntent(await stripe.paymentIntents.retrieve(id,
+        { expand: ["latest_charge", "latest_charge.balance_transaction"] }));
+    }
+    for (const id of invoiceDirectChargeIds(invoice)) {
+      if (!charges.has(id)) addCharge(await stripe.charges.retrieve(id,
+        { expand: ["balance_transaction"] }));
+    }
+  }
+  for (const intent of intents.values()) {
+    if (intent.latest_charge && typeof intent.latest_charge !== "string")
+      addCharge(intent.latest_charge);
   }
   if (input.kind === "text" || input.kind === "email") {
     // Recent invoices cover manually emailed invoices without a Stripe Customer search hit.
@@ -288,6 +309,34 @@ async function stripeCandidates(stripe: Stripe, input: InvestigationInput,
       if (haystack.includes(needle) || emails.has(invoice.customer_email?.toLowerCase() ?? ""))
         addInvoice(invoice);
     }
+  }
+  const invoicesWithoutPayments = [...invoices.values()]
+    .filter(invoice => invoice.status === "paid" && !invoice.payments &&
+      !invoiceIntentIds(invoice).length);
+  for (let index = 0; index < invoicesWithoutPayments.length; index += 5) {
+    await Promise.all(invoicesWithoutPayments.slice(index, index + 5).map(async invoice => {
+      invoice.payments = await stripe.invoicePayments.list({ invoice: invoice.id, limit: 10 });
+      if (invoice.payments.has_more) limited = true;
+    }));
+  }
+  // Invoices discovered by the recent-name fallback must receive the same
+  // PaymentIntent/charge expansion as invoices found by ID or amount.
+  for (const invoice of invoices.values()) {
+    for (const id of invoiceIntentIds(invoice)) {
+      if (!intents.has(id)) addIntent(await stripe.paymentIntents.retrieve(id,
+        { expand: ["latest_charge", "latest_charge.balance_transaction"] }));
+    }
+    for (const id of invoiceDirectChargeIds(invoice)) {
+      if (!charges.has(id)) addCharge(await stripe.charges.retrieve(id,
+        { expand: ["balance_transaction"] }));
+    }
+  }
+  for (const intent of intents.values()) {
+    if (intent.latest_charge && typeof intent.latest_charge !== "string")
+      addCharge(intent.latest_charge);
+    else if (typeof intent.latest_charge === "string" && !charges.has(intent.latest_charge))
+      addCharge(await stripe.charges.retrieve(intent.latest_charge,
+        { expand: ["balance_transaction"] }));
   }
   return { intents: [...intents.values()], charges: [...charges.values()],
     invoices: [...invoices.values()], captureEvents, limited };
@@ -311,7 +360,7 @@ async function associatedOrderRows(found: StripeFound, existing: OrderRow[]): Pr
     collect(charge.metadata, charge.billing_details.email);
   }
   for (const invoice of found.invoices) {
-    const id = invoiceIntentId(invoice); if (id) intentIds.add(id);
+    for (const id of invoiceIntentIds(invoice)) intentIds.add(id);
     collect(invoice.metadata, invoice.customer_email);
   }
   const add = async (query: PromiseLike<{ data: unknown; error: { message: string } | null }>) => {
@@ -332,15 +381,27 @@ async function associatedOrderRows(found: StripeFound, existing: OrderRow[]): Pr
   return [...rows.values()].slice(0, MAX_ORDERS);
 }
 
-function invoiceIntentId(invoice: Stripe.Invoice): string | null {
+function invoiceIntentIds(invoice: Stripe.Invoice): string[] {
+  const ids = new Set<string>();
   const legacy = invoice as unknown as { payment_intent?: string | { id: string } | null };
-  if (legacy.payment_intent) return ref(legacy.payment_intent);
+  if (legacy.payment_intent) {
+    const id = ref(legacy.payment_intent);
+    if (id) ids.add(id);
+  }
   const payments = invoice.payments?.data ?? [];
   for (const item of payments) {
     const payment = item.payment as { payment_intent?: string | { id: string } | null } | null;
-    if (payment?.payment_intent) return ref(payment.payment_intent);
+    if (payment?.payment_intent) {
+      const id = ref(payment.payment_intent);
+      if (id) ids.add(id);
+    }
   }
-  return null;
+  return [...ids];
+}
+
+function invoiceDirectChargeIds(invoice: Stripe.Invoice): string[] {
+  return [...new Set((invoice.payments?.data ?? []).map(item => ref(item.payment?.charge))
+    .filter((id): id is string => Boolean(id)))];
 }
 
 async function publicPayments(stripe: Stripe, found: StripeFound,
@@ -375,10 +436,18 @@ async function publicPayments(stripe: Stripe, found: StripeFound,
     if (charge?.amount_refunded) timeline.push({ label: "Payment refunded (date unavailable)",
       at: null, source: "Stripe" });
     result.push({ id: intent.id, kind: "PaymentIntent", amountCents: intent.amount,
+      authorizedCents: intent.amount,
+      capturedCents: charge?.captured ? charge.amount_captured :
+        intent.status === "succeeded" ? intent.amount_received : null,
+      netPaidCents: netPaid(charge?.captured ? charge.amount_captured :
+        intent.status === "succeeded" ? intent.amount_received : null,
+      charge?.amount_refunded ?? 0),
       currency: intent.currency, status: intent.status, email, createdAt: asIso(intent.created)!,
       paidAt: captureAt ?? fundsAt, refundedCents: charge?.amount_refunded ?? 0,
       intentId: intent.id, chargeId: charge?.id ?? ref(intent.latest_charge), invoiceId: null,
-      orderId: match.orderId, confidence: match.confidence, reason: match.reason,
+      relatedIntentIds: [intent.id], relatedChargeIds: charge ? [charge.id] : [],
+      orderId: match.orderId, confidence: match.confidence,
+      category: paymentCategory("PaymentIntent", match), reason: match.reason,
       url: dashboardUrl("payments", intent.id, intent.livemode), timeline });
   }
   for (const charge of found.charges) {
@@ -390,11 +459,15 @@ async function publicPayments(stripe: Stripe, found: StripeFound,
     const captureAt = found.captureEvents.get(charge.id) ?? null;
     const fundsAt = await postedAt(charge);
     result.push({ id: charge.id, kind: "Charge", amountCents: charge.amount,
+      authorizedCents: charge.amount, capturedCents: charge.captured ? charge.amount_captured : null,
+      netPaidCents: netPaid(charge.captured ? charge.amount_captured : null, charge.amount_refunded),
       currency: charge.currency, status: charge.captured ? "captured" : charge.status,
       email: charge.billing_details.email, createdAt: asIso(charge.created)!,
       paidAt: captureAt ?? fundsAt,
       refundedCents: charge.amount_refunded, intentId, chargeId: charge.id, invoiceId: null,
-      orderId: match.orderId, confidence: match.confidence, reason: match.reason,
+      relatedIntentIds: intentId ? [intentId] : [], relatedChargeIds: [charge.id],
+      orderId: match.orderId, confidence: match.confidence,
+      category: paymentCategory("Charge", match), reason: match.reason,
       url: dashboardUrl("payments", charge.id, charge.livemode),
       timeline: [{ label: "Charge created / authorization", at: asIso(charge.created), source: "Stripe" },
         ...(charge.captured ? [{ label: captureAt ? "Payment captured" :
@@ -405,22 +478,52 @@ async function publicPayments(stripe: Stripe, found: StripeFound,
           at: null, source: "Stripe" as const }] : [])] });
   }
   for (const invoice of found.invoices) {
-    const intentId = invoiceIntentId(invoice);
-    const match = linkPaymentToOrder({ intentId,
+    const intentIds = invoiceIntentIds(invoice);
+    const directChargeIds = invoiceDirectChargeIds(invoice);
+    const intents = intentIds.map(id => found.intents.find(value => value.id === id))
+      .filter((value): value is Stripe.PaymentIntent => Boolean(value));
+    const charges = [...new Map([
+      ...intents.map(intent => chargeByIntent.get(intent.id)),
+      ...directChargeIds.map(id => found.charges.find(charge => charge.id === id)),
+    ].filter((value): value is Stripe.Charge => Boolean(value))
+      .map(charge => [charge.id, charge] as const)).values()];
+    const captures = intents.map(intent => {
+      const charge = chargeByIntent.get(intent.id);
+      return charge?.captured ? charge.amount_captured :
+        intent.status === "succeeded" ? intent.amount_received : null;
+    });
+    for (const id of directChargeIds) {
+      const charge = found.charges.find(value => value.id === id);
+      captures.push(charge?.captured ? charge.amount_captured : null);
+    }
+    const capturedCents = captures.length && captures.every(value => value !== null)
+      ? captures.reduce<number>((sum, value) => sum + (value ?? 0), 0) : null;
+    const refundedCents = charges.reduce((sum, charge) => sum + charge.amount_refunded, 0);
+    const matches = (intentIds.length ? intentIds : [null]).map(intentId =>
+      linkPaymentToOrder({ intentId,
       metadataOrderId: invoice.metadata?.order_id ?? invoice.metadata?.orderId,
-      email: invoice.customer_email, amountCents: invoice.total }, refs);
+      email: invoice.customer_email, amountCents: invoice.total }, refs));
+    const match = matches.find(value => value.confidence === "Confirmed") ??
+      matches.find(value => value.confidence === "Probable") ?? matches[0];
     result.push({ id: invoice.id, kind: "Invoice", amountCents: invoice.total,
+      authorizedCents: intents.length ? intents.reduce((sum, intent) => sum + intent.amount, 0) : null,
+      capturedCents, netPaidCents: netPaid(capturedCents, refundedCents),
       currency: invoice.currency, status: invoice.status ?? "unknown",
       email: invoice.customer_email, createdAt: asIso(invoice.created)!,
-      paidAt: asIso(invoice.status_transitions?.paid_at), refundedCents: 0,
-      intentId, chargeId: null, invoiceId: invoice.id,
-      orderId: match.orderId, confidence: match.confidence, reason: match.reason,
+      paidAt: asIso(invoice.status_transitions?.paid_at),
+      refundedCents,
+      intentId: intentIds[0] ?? null, chargeId: charges[0]?.id ?? null,
+      relatedIntentIds: intentIds, relatedChargeIds: charges.map(charge => charge.id),
+      invoiceId: invoice.id,
+      orderId: match.orderId, confidence: match.confidence,
+      category: paymentCategory("Invoice", match, invoice.status ?? "unknown"),
+      reason: match.reason,
       url: dashboardUrl("invoices", invoice.id, invoice.livemode),
       timeline: [{ label: "Invoice created", at: asIso(invoice.created), source: "Stripe" },
         ...(invoice.status_transitions?.paid_at ? [{ label: "Invoice paid",
           at: asIso(invoice.status_transitions.paid_at), source: "Stripe" as const }] : [])] });
   }
-  return result.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return groupInvoicePayments(result).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function investigate(input: InvestigationInput): Promise<InvestigationResult> {
@@ -438,12 +541,20 @@ export async function investigate(input: InvestigationInput): Promise<Investigat
   const items = await orderItems(rows.map(o => o.id));
   const orders = rows.map(o => publicOrder(o, events.get(o.id) ?? [], items.get(o.id) ?? []));
   let payments = await publicPayments(stripe, stripeFound, orders);
-  if (input.mode === "unmatched") payments = payments.filter(p => p.confidence !== "Confirmed" &&
+  for (const order of orders) {
+    const payment = payments.find(p => p.orderId === order.id && p.confidence === "Confirmed");
+    if (!payment) continue;
+    order.authorizedCents = payment.authorizedCents;
+    order.capturedCents = payment.capturedCents;
+    order.refundedCents = payment.capturedCents === null ? null : payment.refundedCents;
+    order.netPaidCents = payment.netPaidCents;
+  }
+  if (input.mode === "unmatched") payments = payments.filter(p => p.category !== "LINKED TO ORDER" &&
     (p.kind !== "Invoice" || p.status === "paid") &&
     (p.kind === "Invoice" || p.status === "succeeded" || p.status === "captured"));
   const notice = ["Stripe search can lag recent activity; exact IDs use direct retrieval."];
   if (input.kind === "date") notice.push("Date boundaries use America/Chicago time. Order creation, updates, events, Stripe payments, and invoice activity are searched separately.");
-  if (input.mode === "unmatched") notice.push("Showing recent 30 days of paid records with no confirmed storefront ID. Probable matches need manual review.");
+  if (input.mode === "unmatched") notice.push("Showing recent paid Stripe transactions without a confirmed storefront link. Invoices are labeled as manual Stripe payments; other origins need investigation.");
   if (local.limited || stripeFound.limited) notice.push("Result limit reached. Narrow the search by ID, email, amount, or date.");
   return { orders: input.mode === "unmatched" ? [] : orders,
     payments, notice, limited: local.limited || stripeFound.limited };

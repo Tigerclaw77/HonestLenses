@@ -1,5 +1,6 @@
 export type InvestigationMode = "search" | "payment" | "history" | "unmatched" | "date";
 export type MatchConfidence = "Confirmed" | "Probable" | "Unmatched";
+export type PaymentCategory = "LINKED TO ORDER" | "MANUAL STRIPE PAYMENT" | "NEEDS INVESTIGATION";
 
 export type InvestigationInput = {
   mode: InvestigationMode;
@@ -27,6 +28,10 @@ export type InvestigationOrder = {
   sku: string | null;
   quantity: string;
   amountCents: number;
+  capturedCents: number | null;
+  refundedCents: number | null;
+  netPaidCents: number | null;
+  authorizedCents: number | null;
   shipping: string | null;
   paymentIntentId: string | null;
   timeline: InvestigationEvent[];
@@ -37,6 +42,9 @@ export type InvestigationPayment = {
   id: string;
   kind: "PaymentIntent" | "Charge" | "Invoice";
   amountCents: number;
+  capturedCents: number | null;
+  authorizedCents: number | null;
+  netPaidCents: number | null;
   currency: string;
   status: string;
   email: string | null;
@@ -45,9 +53,12 @@ export type InvestigationPayment = {
   refundedCents: number;
   intentId: string | null;
   chargeId: string | null;
+  relatedIntentIds: string[];
+  relatedChargeIds: string[];
   invoiceId: string | null;
   orderId: string | null;
   confidence: MatchConfidence;
+  category: PaymentCategory;
   reason: string;
   url: string;
   timeline: InvestigationEvent[];
@@ -123,4 +134,33 @@ export function linkPaymentToOrder(
   if (probable?.length === 1) return { orderId: probable[0].id,
     confidence: "Probable", reason: "Same email and amount; no shared payment ID" };
   return { orderId: null, confidence: "Unmatched", reason: "No stable storefront order link found" };
+}
+
+export function paymentCategory(kind: InvestigationPayment["kind"],
+  match: { confidence: MatchConfidence }, status?: string): PaymentCategory {
+  if (match.confidence === "Confirmed") return "LINKED TO ORDER";
+  // The invoice is positive evidence of a payment collected outside the storefront.
+  if (kind === "Invoice" && status === "paid") return "MANUAL STRIPE PAYMENT";
+  return "NEEDS INVESTIGATION";
+}
+
+export function netPaid(captured: number | null, refunded: number): number | null {
+  return captured === null ? null : Math.max(0, captured - refunded);
+}
+
+export function orderPrimaryAmount(order: Pick<InvestigationOrder,
+  "status" | "amountCents" | "capturedCents" | "netPaidCents">): number | null {
+  if (order.capturedCents !== null) return order.capturedCents;
+  return ["captured", "paid", "shipped", "completed"].includes(order.status)
+    ? null : order.amountCents;
+}
+
+export function groupInvoicePayments(payments: InvestigationPayment[]): InvestigationPayment[] {
+  const invoiceIntentIds = new Set(payments.filter(p => p.kind === "Invoice")
+    .flatMap(p => p.relatedIntentIds.length ? p.relatedIntentIds : p.intentId ? [p.intentId] : []));
+  const invoiceChargeIds = new Set(payments.filter(p => p.kind === "Invoice")
+    .flatMap(p => p.relatedChargeIds.length ? p.relatedChargeIds : p.chargeId ? [p.chargeId] : []));
+  return payments.filter(p =>
+    (p.kind !== "PaymentIntent" || !invoiceIntentIds.has(p.id)) &&
+    (p.kind !== "Charge" || !invoiceChargeIds.has(p.id)));
 }
