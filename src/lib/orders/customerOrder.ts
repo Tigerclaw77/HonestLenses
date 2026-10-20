@@ -176,10 +176,10 @@ export function buildCustomerOrderEmail({
 }): { subject: string; html: string; text: string; orderUrl: string } {
   const orderUrl = getCustomerOrderUrl(orderId, siteUrl);
   const reorderHtml = reorderUrl
-    ? `<p>Need more contacts? <a href="${escapeHtml(reorderUrl)}">Reorder My Contacts</a></p>`
+    ? `<p>Need more contacts?</p><p>Reorder your previous lenses quickly and securely, without creating an account.</p><p><a href="${escapeHtml(reorderUrl)}">Reorder My Contacts</a></p>`
     : "";
   const reorderText = reorderUrl
-    ? `\n\nNeed more contacts? Reorder My Contacts: ${reorderUrl}`
+    ? `\n\nNeed more contacts?\nReorder your previous lenses quickly and securely, without creating an account.\nReorder My Contacts: ${reorderUrl}`
     : "";
   if (paidReceiptSummary) return {
     subject: "Your receipt — Honest Lenses", orderUrl,

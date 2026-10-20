@@ -1579,6 +1579,67 @@ async function runGate(client, connectionConfig) {
   assert(reminderSwitch.rows[0]?.reorder_reminders_enabled === false,
     "Reorder reminder sending must default to disabled");
 
+  const recallMigration = "20261020170000_coordinate_reorder_recall.sql";
+  applied.push(await applySqlFile(client, path.join(migrationDirectory, recallMigration), {
+    version: "20261020170000", name: "coordinate_reorder_recall",
+  }));
+  const recallTable = await client.query(`select relrowsecurity as rls
+    from pg_class where oid = 'public.reorder_recall_recipient_claims'::regclass`);
+  assert(recallTable.rows[0]?.rls, "Recipient claims must have RLS");
+  await expectDenied(client, "anon", "select * from public.reorder_recall_recipient_claims");
+  await expectDenied(client, "authenticated", "select * from public.reorder_recall_recipient_claims");
+  await expectDenied(client, "anon",
+    `select public.claim_reorder_recall_recipient('${"f".repeat(64)}','bad',$1)`, [fixtureOrder]);
+  const recipientHash = "f".repeat(64);
+  const recallFirstClaim = await executeAs(client, "service_role",
+    `select public.claim_reorder_recall_recipient($1,$2,$3) as claimed`,
+    [recipientHash, "recall:first", fixtureOrder]);
+  assert(recallFirstClaim.rows[0]?.claimed === true, "First recipient claim must succeed");
+  const recallRepeatClaim = await executeAs(client, "service_role",
+    `select public.claim_reorder_recall_recipient($1,$2,$3) as claimed`,
+    [recipientHash, "recall:second", fixtureOrder]);
+  assert(recallRepeatClaim.rows[0]?.claimed === false, "Recipient cooldown must reject a second claim");
+  await client.query(`update public.reorder_recall_recipient_claims
+    set status='accepted',claimed_at=now()-interval '31 days' where email_hash=$1`, [recipientHash]);
+  const recallLaterClaim = await executeAs(client, "service_role",
+    `select public.claim_reorder_recall_recipient($1,$2,$3) as claimed`,
+    [recipientHash, "recall:later", fixtureOrder]);
+  assert(recallLaterClaim.rows[0]?.claimed === true, "Claim must reopen after the rolling cooldown");
+  await client.query(`update public.reorder_recall_recipient_claims
+    set status='unknown',claimed_at=now()-interval '31 days' where email_hash=$1`, [recipientHash]);
+  const unknownClaim = await executeAs(client, "service_role",
+    `select public.claim_reorder_recall_recipient($1,$2,$3) as claimed`,
+    [recipientHash, "recall:unknown-retry", fixtureOrder]);
+  assert(unknownClaim.rows[0]?.claimed === false,
+    "Unknown provider outcome must stay blocked until operator review");
+  const concurrentHash = "1".repeat(64);
+  const claimantA = new Client(connectionConfig);
+  const claimantB = new Client(connectionConfig);
+  await Promise.all([claimantA.connect(), claimantB.connect()]);
+  try {
+    await Promise.all([claimantA.query("set role service_role"), claimantB.query("set role service_role")]);
+    const concurrent = await Promise.all([
+      claimantA.query(`select public.claim_reorder_recall_recipient($1,$2,$3) as claimed`,
+        [concurrentHash, "recall:concurrent-a", fixtureOrder]),
+      claimantB.query(`select public.claim_reorder_recall_recipient($1,$2,$3) as claimed`,
+        [concurrentHash, "recall:concurrent-b", fixtureOrder]),
+    ]);
+    assert(concurrent.filter(result => result.rows[0]?.claimed === true).length === 1,
+      "Concurrent recipient claims must yield exactly one winner");
+  } finally {
+    await Promise.all([claimantA.end(), claimantB.end()]);
+  }
+  const recallControl = await client.query(`select reorder_reminders_enabled,
+    reorder_recall_live_from,reorder_recall_compliance_approved_at
+    from public.order_operations_control where id=true`);
+  assert(recallControl.rows[0]?.reorder_reminders_enabled === false &&
+    recallControl.rows[0]?.reorder_recall_live_from === null &&
+    recallControl.rows[0]?.reorder_recall_compliance_approved_at === null,
+    "New recall controls must remain inert by default");
+  const recallMetrics = await queryAs(client, "service_role",
+    "select * from public.reorder_recall_metrics()");
+  assert(recallMetrics.rows.length === 1, "Recall metrics must be service-readable");
+
   return {
     applied,
     preRemediationExploit: {
@@ -1627,6 +1688,10 @@ async function runGate(client, connectionConfig) {
       commerceRollback,
     },
     prescriptionHandoff,
+    reorderRecall: { recipientCooldown: true, concurrentClaimsYieldOneWinner: true,
+      unknownOutcomesBlockAutomaticRetry: true,
+      browserDirectAccessRejected: true,
+      senderDisabledByDefault: true, metricsReadableByService: true },
   };
 }
 

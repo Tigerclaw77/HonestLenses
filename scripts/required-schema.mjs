@@ -28,8 +28,11 @@ export const REQUIRED_SCHEMA = {
   order_resume_tokens: "order_id,token_hash,expires_at,used_at",
   cart_save_tokens: "order_id,token_hash,expires_at",
   recovery_touch_drafts: "order_id,touch_hours,email,token_hash,activity_at,expires_at,state,first_attempt_at,last_attempt_at,provider_id,sent_at,ignored_at,reviewed_at,reviewed_by",
-  order_operations_control: "id,recovery_enabled,postal_address,lease_id,last_succeeded_at,last_error",
+  order_operations_control: "id,recovery_enabled,postal_address,lease_id,last_succeeded_at,last_error,reorder_reminders_enabled,reorder_recall_live_from,reorder_recall_compliance_approved_at",
   commercial_email_suppressions: "email_hash,created_at",
+  reorder_reminder_preferences: "order_id,email_hash,next_reminder_at,next_expiration_at,stopped_at,last_sent_at",
+  reorder_reminder_attempts: "order_id,scheduled_for,status,provider_id",
+  reorder_recall_recipient_claims: "email_hash,claim_key,claimed_at,status",
   order_stuck_alerts: "order_id,state_key,state_since,active,acknowledged_until,notification_claimed_at,notified_at",
 };
 

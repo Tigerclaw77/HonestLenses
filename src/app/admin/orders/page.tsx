@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import { createQueueRefresh, isQueuePayload } from "@/lib/admin/queueRefresh";
 import ReceiptActions from "./ReceiptActions";
+import RecallStatus from "./RecallStatus";
 import type { CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase-client";
 import { getLensDisplayName } from "@/lib/cart/display";
@@ -3693,6 +3694,7 @@ export default function AdminOrdersPage() {
       <a href="/admin/investigate" style={{ color: "#7dd3fc", display: "inline-block", marginBottom: 16 }}>
         Investigate historical orders and Stripe payments ↗
       </a>
+      <RecallStatus authHeaders={authHeaders} />
 
       {isLoading && (
         <div role="status" style={{ marginBottom: 12, color: "#bae6fd" }}>

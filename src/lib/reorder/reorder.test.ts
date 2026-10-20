@@ -85,6 +85,8 @@ const receipt = buildCustomerOrderEmail({ orderId: sourceId,
   customerOrderNumber: "HL-2026-TEST", receiptUrl: "https://example.test/receipt/token",
   reorderUrl: getReorderEntryUrl(sourceId), isUploaded: false });
 assert.match(receipt.text, /Reorder My Contacts/);
+assert.match(receipt.text, /Need more contacts\?/);
+assert.match(receipt.text, /Reorder your previous lenses quickly and securely, without creating an account\./);
 assert.match(receipt.html, /Open secure receipt/);
 assert.ok(!receipt.text.includes("Test Patient"));
 console.log("Reorder token, conservative estimate, evidence reuse, and receipt checks passed. No email or payment sent.");

@@ -1,6 +1,8 @@
 import { commercialEmailHash } from "@/lib/orderOperations";
 import { supabaseServer } from "@/lib/supabase-server";
 import { estimateReplenishment } from "./estimate";
+import { documentedExpiration, expirationReminderAt } from "./recallPolicy";
+import { isExplicitDraftOrTest } from "@/lib/orders/operationalQueue";
 import { createReminderControlToken, hashReorderToken, REMINDER_ACTIONS } from "./tokens";
 
 export async function ensureReminderControls(orderId: string): Promise<void> {
@@ -23,10 +25,11 @@ export async function ensureReminderControls(orderId: string): Promise<void> {
 /** Creates an inert schedule; the live sender has a separate disabled-by-default gate. */
 export async function scheduleReorderReminder(orderId: string): Promise<void> {
   const { data: order, error: orderError } = await supabaseServer.from("orders")
-    .select("id,status,created_at,shipping_email,sku,right_box_count,left_box_count")
+    .select("id,status,created_at,shipping_email,shipping_first_name,shipping_last_name,patient_name,patient_full_name,fulfillment_status,admin_notes,sku,right_box_count,left_box_count,rx,rx_expiration_date,verification_status,verification_passed,verification_completed_at,patient_first_name,patient_last_name,patient_dob,rx_patient_name,rx_dob")
     .eq("id", orderId).maybeSingle();
   if (orderError || !order) throw new Error("Reminder order unavailable");
   if (!order.shipping_email || !["captured", "paid", "shipped", "completed"].includes(order.status)) return;
+  if (isExplicitDraftOrTest(order)) return;
   const emailHash = commercialEmailHash(order.shipping_email);
   const { data: suppression, error: suppressionError } = await supabaseServer
     .from("commercial_email_suppressions").select("email_hash")
@@ -53,20 +56,34 @@ export async function scheduleReorderReminder(orderId: string): Promise<void> {
   });
   if (!estimate) return;
 
+  let expirationAt: string | null = null;
+  const expiration = documentedExpiration(order);
+  if (expiration) {
+    const { data: evidence, error: evidenceError } = await supabaseServer.from("order_events")
+      .select("id").eq("order_id", orderId)
+      .in("event_type", ["admin_prescription_accepted", "admin_verification_override",
+        "verification_verified", "verification_passive_auto",
+        "verification_passive_already_captured", "verification_uploaded_auto"])
+      .limit(1).maybeSingle();
+    if (evidenceError) throw evidenceError;
+    if (evidence) expirationAt = expirationReminderAt(expiration);
+  }
+
   const { error: cancelError } = await supabaseServer.from("reorder_reminder_preferences")
-    .update({ next_reminder_at: null, updated_at: new Date().toISOString() })
+    .update({ next_reminder_at: null, next_expiration_at: null, updated_at: new Date().toISOString() })
     .eq("email_hash", emailHash).neq("order_id", orderId).is("stopped_at", null);
   if (cancelError) throw cancelError;
   const { error: insertError } = await supabaseServer.from("reorder_reminder_preferences")
     .upsert({ order_id: orderId, email_hash: emailHash,
-      next_reminder_at: estimate.reminderAt },
+      next_reminder_at: estimate.reminderAt, next_expiration_at: expirationAt },
       { onConflict: "order_id", ignoreDuplicates: true });
   if (insertError) throw insertError;
   await ensureReminderControls(orderId);
   const { error: eventError } = await supabaseServer.from("reorder_reminder_events")
     .upsert({ order_id: orderId, event_type: "scheduled",
       event_key: `scheduled:${orderId}`,
-      details: { basis: estimate.basis, estimated_supply_days: estimate.estimatedSupplyDays } },
+      details: { basis: estimate.basis, estimated_supply_days: estimate.estimatedSupplyDays,
+        expiration_scheduled: Boolean(expirationAt) } },
       { onConflict: "event_key", ignoreDuplicates: true });
   if (eventError) throw eventError;
 }

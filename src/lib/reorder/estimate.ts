@@ -42,7 +42,7 @@ export function estimateReplenishment(input: ReplenishmentInput): ReplenishmentE
       : schedule === "1M" ? minBoxes * packSize * 30
       : null;
     if (supplyDays && supplyDays >= 35) return {
-      reminderAt: new Date(start + Math.max(21, supplyDays - 25) * DAY).toISOString(),
+      reminderAt: new Date(start + Math.max(21, supplyDays - 21) * DAY).toISOString(),
       estimatedSupplyDays: supplyDays,
       basis: "wear_frequency",
     };
@@ -50,7 +50,7 @@ export function estimateReplenishment(input: ReplenishmentInput): ReplenishmentE
   const previous = input.previousOrderAt ? Date.parse(input.previousOrderAt) : NaN;
   const intervalDays = Number.isFinite(previous) ? Math.round((orderTime - previous) / DAY) : 0;
   if (intervalDays >= 45 && intervalDays <= 540) return {
-    reminderAt: new Date(start + Math.max(30, intervalDays - 25) * DAY).toISOString(),
+    reminderAt: new Date(start + Math.max(30, intervalDays - 21) * DAY).toISOString(),
     estimatedSupplyDays: null,
     basis: "purchase_history",
   };

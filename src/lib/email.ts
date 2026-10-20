@@ -11,7 +11,7 @@ const resend = new Resend(process.env.RESEND_API_KEY!);
 
 export class EmailSendError extends Error {
   readonly definitivelyRejected: boolean;
-  constructor(statusCode: number | null) {
+  constructor(readonly statusCode: number | null) {
     super("Email send failed");
     this.name = "EmailSendError";
     this.definitivelyRejected = statusCode !== null && [400, 401, 403, 404, 422, 429].includes(statusCode);

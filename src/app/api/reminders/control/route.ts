@@ -8,6 +8,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { captureServerEvent } from "@/lib/posthog/server";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { hashReorderToken, isReorderToken, REMINDER_ACTIONS, type ReminderAction } from "@/lib/reorder/tokens";
+import { nextEligibleAt } from "@/lib/reorder/recallPolicy";
 
 export async function POST(request: Request) {
   if (!hasTrustedMutationOrigin(request)) return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
@@ -27,7 +28,7 @@ export async function POST(request: Request) {
   if (controlError) return NextResponse.json({ error: "Reminder controls unavailable." }, { status: 503 });
   if (!control) return NextResponse.json({ error: "This reminder link is unavailable." }, { status: 410 });
   const { data: preference, error: preferenceError } = await supabaseServer
-    .from("reorder_reminder_preferences").select("order_id,email_hash,stopped_at")
+    .from("reorder_reminder_preferences").select("order_id,email_hash,stopped_at,next_expiration_at")
     .eq("order_id", control.order_id).maybeSingle();
   if (preferenceError || !preference) {
     return NextResponse.json({ error: "Reminder preference unavailable." }, { status: 503 });
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
         { onConflict: "email_hash", ignoreDuplicates: true });
     if (suppressionError) return NextResponse.json({ error: "Unable to stop reminders." }, { status: 503 });
     const { error: stopError } = await supabaseServer.from("reorder_reminder_preferences")
-      .update({ stopped_at: now, next_reminder_at: null, updated_at: now })
+      .update({ stopped_at: now, next_reminder_at: null, next_expiration_at: null, updated_at: now })
       .eq("email_hash", preference.email_hash);
     if (stopError) return NextResponse.json({ error: "Unable to stop reminders." }, { status: 503 });
   } else {
@@ -69,20 +70,43 @@ export async function POST(request: Request) {
     } else {
       next = now + Number(action.slice(-2)) * 86_400_000;
     }
+    const { data: claim, error: claimError } = await supabaseServer
+      .from("reorder_recall_recipient_claims").select("claimed_at,status")
+      .eq("email_hash", preference.email_hash).maybeSingle();
+    if (claimError) return NextResponse.json({ error: "Reminder controls unavailable." }, { status: 503 });
+    const eligible = claim?.status === "accepted" ? nextEligibleAt(claim.claimed_at) : null;
+    const effective = Math.max(next, eligible ? Date.parse(eligible) : 0);
+    const existingExpiration = preference.next_expiration_at
+      ? Date.parse(preference.next_expiration_at) : NaN;
     const { error: updateError } = await supabaseServer.from("reorder_reminder_preferences")
-      .update({ next_reminder_at: new Date(next).toISOString(), updated_at: new Date(now).toISOString() })
+      .update({ next_reminder_at: new Date(effective).toISOString(),
+        next_expiration_at: Number.isFinite(existingExpiration)
+          ? new Date(Math.max(existingExpiration, effective)).toISOString() : null,
+        updated_at: new Date(now).toISOString() })
       .eq("order_id", control.order_id).is("stopped_at", null);
     if (updateError) return NextResponse.json({ error: "Unable to postpone reminder." }, { status: 503 });
+    const responseMessage = claim && claim.status !== "accepted"
+      ? "Reminder saved. Sending is paused pending review of an earlier delivery."
+      : effective > next
+      ? `Reminder saved. The next eligible date is ${new Date(effective).toLocaleDateString("en-US", { timeZone: "UTC", month: "long", day: "numeric", year: "numeric" })} because of the 30-day email limit.`
+      : "Reminder date updated.";
+    const { error: auditError } = await supabaseServer.from("reorder_reminder_events").insert({
+      order_id: control.order_id, event_type: "postponed", event_key: `control:${randomUUID()}`,
+      details: { action, effective_at: new Date(effective).toISOString() },
+    });
+    if (auditError) return NextResponse.json({ error: "Preference saved; audit is temporarily unavailable." }, { status: 503 });
+    await captureServerEvent({ event: POSTHOG_EVENTS.REMINDER_POSTPONED, request, properties: { action } });
+    return NextResponse.json({ ok: true, message: responseMessage,
+      nextEligibleAt: new Date(effective).toISOString() });
   }
   const { error: auditError } = await supabaseServer.from("reorder_reminder_events").insert({
     order_id: control.order_id,
-    event_type: action === "stop" ? "stopped" : "postponed",
+    event_type: "stopped",
     event_key: `control:${randomUUID()}`,
     details: { action },
   });
   if (auditError) return NextResponse.json({ error: "Preference saved; audit is temporarily unavailable." }, { status: 503 });
-  await captureServerEvent({ event: action === "stop"
-    ? POSTHOG_EVENTS.REMINDER_UNSUBSCRIBED : POSTHOG_EVENTS.REMINDER_POSTPONED,
+  await captureServerEvent({ event: POSTHOG_EVENTS.REMINDER_UNSUBSCRIBED,
     request, properties: { action } });
-  return NextResponse.json({ ok: true, message: action === "stop" ? "Reminders stopped." : "Reminder date updated." });
+  return NextResponse.json({ ok: true, message: "Reminders stopped." });
 }
