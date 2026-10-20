@@ -30,7 +30,7 @@ import {
   normalizeFeedbackCreditCents,
 } from "@/lib/abandonmentFeedback";
 import styles from "./checkout.module.css";
-import { REMINDER_CHECKBOX, REMINDER_HEADING, REMINDER_SUPPORTING } from
+import { PATIENT_AUTHORITY_WORDING, REMINDER_CHECKBOX, REMINDER_HEADING, REMINDER_SUPPORTING } from
   "@/lib/reorder/permissionCopy";
 
 const stripePromise = loadStripe(
@@ -120,6 +120,8 @@ type CheckoutFormProps = {
   onPaymentComplete: () => void;
   reminderRequested: boolean;
   onReminderRequestedChange: (value: boolean) => void;
+  patientAuthorityConfirmed: boolean;
+  onPatientAuthorityChange: (value: boolean) => void;
 };
 
 /* =========================
@@ -169,6 +171,8 @@ function CheckoutForm({
   onPaymentComplete,
   reminderRequested,
   onReminderRequestedChange,
+  patientAuthorityConfirmed,
+  onPatientAuthorityChange,
 }: CheckoutFormProps) {
   const stripe = useStripe();
   const elements = useElements();
@@ -195,7 +199,8 @@ function CheckoutForm({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ orderId: order.id, reminderRequested }),
+        body: JSON.stringify({ orderId: order.id, reminderRequested,
+          patientAuthorityConfirmed: reminderRequested && patientAuthorityConfirmed }),
       }, session?.access_token ?? null);
       const quote: CheckoutPayResponse = await quoteRes.json().catch(() => ({}));
 
@@ -370,6 +375,14 @@ function CheckoutForm({
             disabled={submitting} />
           <span>{REMINDER_CHECKBOX}</span>
         </label>
+        {reminderRequested && (
+          <label className={styles.reminderLabel}>
+            <input type="checkbox" checked={patientAuthorityConfirmed}
+              onChange={(event) => onPatientAuthorityChange(event.target.checked)}
+              disabled={submitting} />
+            <span>{PATIENT_AUTHORITY_WORDING}</span>
+          </label>
+        )}
         <p>{REMINDER_SUPPORTING}</p>
       </section>
 
@@ -416,6 +429,7 @@ function CheckoutInner() {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [mode, setMode] = useState<"uploaded" | "passive">("passive");
   const [reminderRequested, setReminderRequested] = useState(false);
+  const [patientAuthorityConfirmed, setPatientAuthorityConfirmed] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -714,7 +728,12 @@ function CheckoutInner() {
                 clientSecret={clientSecret}
                 mode={mode}
                 reminderRequested={reminderRequested}
-                onReminderRequestedChange={setReminderRequested}
+                onReminderRequestedChange={(value) => {
+                  setReminderRequested(value);
+                  if (!value) setPatientAuthorityConfirmed(false);
+                }}
+                patientAuthorityConfirmed={patientAuthorityConfirmed}
+                onPatientAuthorityChange={setPatientAuthorityConfirmed}
                 onQuoteChanged={(quote) => {
                   if (
                     !quote.clientSecret ||

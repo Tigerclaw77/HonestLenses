@@ -72,7 +72,9 @@ export default function PrivacyPage() {
             checkout to request occasional contact lens reorder and prescription
             renewal reminders. If you choose this option, we may use that order&apos;s
             lens supply and documented prescription expiration to estimate when
-            a reminder may be useful. Reminder emails do not include prescription
+            a reminder may be useful. Prescription renewal alerts require your
+            confirmation that you are the patient or are authorized to manage
+            reminders for that patient. Reminder emails do not include prescription
             details. You can postpone or stop reminders at any time. This choice
             does not enroll customers from earlier orders or authorize unrelated
             marketing.

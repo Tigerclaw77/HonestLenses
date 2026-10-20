@@ -131,6 +131,11 @@
   cursor: pointer;
 }
 
+.reminderLabel + .reminderLabel {
+  margin-top: 9px;
+  margin-left: 26px;
+}
+
 .reminderLabel input {
   flex: none;
   width: 17px;

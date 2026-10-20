@@ -16,7 +16,7 @@ import {
 } from "@/lib/order-access";
 import { getCheckoutAmountCents } from "@/lib/payments/checkoutAmount";
 import { getTrustedSiteOrigin } from "@/lib/security/siteOrigin";
-import { REMINDER_PERMISSION_VERSION } from "@/lib/reorder/permissionCopy";
+import { PATIENT_AUTHORITY_VERSION, REMINDER_PERMISSION_VERSION } from "@/lib/reorder/permissionCopy";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -128,9 +128,13 @@ export async function POST(req: Request) {
     const orderId = body?.orderId ?? body?.order_id ?? null;
     const reminderRequested = typeof body?.reminderRequested === "boolean"
       ? body.reminderRequested as boolean : null;
+    const patientAuthorityConfirmed = reminderRequested === true &&
+      body?.patientAuthorityConfirmed === true;
     const initialReminderMetadata: Record<string, string> =
       reminderRequested === true
-        ? { checkout_reminder_request: REMINDER_PERMISSION_VERSION } : {};
+        ? { checkout_reminder_request: REMINDER_PERMISSION_VERSION,
+            checkout_patient_authority: patientAuthorityConfirmed
+              ? PATIENT_AUTHORITY_VERSION : "" } : {};
 
     if (!orderId || typeof orderId !== "string") {
       return NextResponse.json(
@@ -275,10 +279,14 @@ export async function POST(req: Request) {
           ).includes("amazon_pay");
           const reminderMetadata: Record<string, string> = reminderRequested === null ? {}
             : { checkout_reminder_request: reminderRequested
-                ? REMINDER_PERMISSION_VERSION : "" };
+                ? REMINDER_PERMISSION_VERSION : "",
+                checkout_patient_authority: patientAuthorityConfirmed
+                  ? PATIENT_AUTHORITY_VERSION : "" };
           const reminderChanged = reminderRequested !== null &&
-            (existing.metadata?.checkout_reminder_request ?? "") !==
-              (reminderRequested ? REMINDER_PERMISSION_VERSION : "");
+            ((existing.metadata?.checkout_reminder_request ?? "") !==
+              (reminderRequested ? REMINDER_PERMISSION_VERSION : "") ||
+              (existing.metadata?.checkout_patient_authority ?? "") !==
+                (patientAuthorityConfirmed ? PATIENT_AUTHORITY_VERSION : ""));
           if (reminderChanged &&
               !["requires_payment_method", "requires_confirmation"].includes(existing.status) &&
               !(amountChanged && existing.status === "requires_capture")) {

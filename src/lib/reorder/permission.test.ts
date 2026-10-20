@@ -7,10 +7,12 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = "unit-test-only";
 
 async function main() {
   const { supabaseServer } = await import("@/lib/supabase-server");
-  const { recordCheckoutReminderPermission, reminderPermissionState } =
+  const { recordCheckoutReminderPermission, reminderPermissionState,
+    hasPrescriptionReminderAuthority } =
     await import("./permission");
   const { REMINDER_PERMISSION_VERSION, REMINDER_PERMISSION_WORDING,
-    REMINDER_PRIVACY_POLICY_VERSION } = await import("./permissionCopy");
+    REMINDER_PRIVACY_POLICY_VERSION, PATIENT_AUTHORITY_VERSION,
+    PATIENT_AUTHORITY_WORDING } = await import("./permissionCopy");
 
   const email = "shared@example.test";
   const first = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -39,10 +41,11 @@ async function main() {
   }) as unknown as typeof supabaseServer.from;
 
   const intent = (status: Stripe.PaymentIntent.Status, orderId = first,
-    selected = true): Stripe.PaymentIntent => ({
+    selected = true, authority = false): Stripe.PaymentIntent => ({
       id: "pi_unit_only", status,
       metadata: { order_id: orderId,
-        ...(selected ? { checkout_reminder_request: REMINDER_PERMISSION_VERSION } : {}) },
+        ...(selected ? { checkout_reminder_request: REMINDER_PERMISSION_VERSION } : {}),
+        ...(authority ? { checkout_patient_authority: PATIENT_AUTHORITY_VERSION } : {}) },
     }) as unknown as Stripe.PaymentIntent;
   const order = { id: first, payment_intent_id: "pi_unit_only",
     shipping_email: email, status: "authorized" };
@@ -68,7 +71,9 @@ async function main() {
   assert.equal(saved.wording_version, REMINDER_PERMISSION_VERSION);
   assert.equal(saved.privacy_policy_version, REMINDER_PRIVACY_POLICY_VERSION);
   assert.equal(saved.source, "checkout");
-  assert.deepEqual(saved.categories, ["replenishment", "prescription_expiration"]);
+  assert.deepEqual(saved.categories, ["replenishment"]);
+  assert.equal(saved.patient_authority_version, null);
+  assert.equal(await hasPrescriptionReminderAuthority(first, email), false);
   assert.ok(Number.isFinite(Date.parse(String(saved.recorded_at))));
   assert.equal(await reminderPermissionState(first, email), "affirmatively_requested");
   assert.equal(await reminderPermissionState(second, email), "no_recorded_preference",
@@ -83,9 +88,12 @@ async function main() {
   choices.delete(second);
   assert.equal(await recordCheckoutReminderPermission(
     { ...order, id: second, status: "captured" },
-    intent("succeeded", second)), true);
+    intent("succeeded", second, true, true)), true);
   assert.equal(await reminderPermissionState(second, email), "affirmatively_requested",
     "A later reorder requires its own affirmative selection");
+  assert.equal(await hasPrescriptionReminderAuthority(second, email), true);
+  assert.equal(choices.get(second)?.patient_authority_version, PATIENT_AUTHORITY_VERSION);
+  assert.match(String(choices.get(second)?.wording), new RegExp(PATIENT_AUTHORITY_WORDING));
 
   console.log("Checkout permission state, payment gate, retry, unsubscribe, shared-email and reorder fixtures passed. No email or payment sent.");
 }

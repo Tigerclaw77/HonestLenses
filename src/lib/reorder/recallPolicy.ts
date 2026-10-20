@@ -3,6 +3,12 @@ export const RECALL_COOLDOWN_DAYS = 30;
 
 export type RecallKind = "replenishment" | "expiration" | "combined";
 
+/** These states require a separate health-data/privacy review before recall. */
+export function requiresJurisdictionReview(state: string | null | undefined): boolean {
+  const normalized = (state ?? "").trim().toUpperCase();
+  return !normalized || ["WA", "WASHINGTON", "CT", "CONNECTICUT"].includes(normalized);
+}
+
 export function documentedExpiration(order: {
   rx?: unknown; rx_expiration_date?: string | null;
   verification_status?: string | null; verification_passed?: boolean | null;
@@ -57,6 +63,7 @@ export function chooseRecall(input: {
 
 export type SuppressionReason = "opted_out" | "bounced" | "recent_purchase" |
   "no_lawful_basis" | "explicitly_declined" |
+  "unverified_patient_authority" | "jurisdiction_review" |
   "manual_invoice_purchase" |
   "pending_reorder" | "newer_order" | "inactive_order" | "synthetic_test" |
   "unreliable_prescription" | "cooldown" | "refunded_or_unverified_payment" |

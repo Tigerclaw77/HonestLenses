@@ -8,3 +8,6 @@ export const REMINDER_SUPPORTING =
 export const REMINDER_PERMISSION_WORDING =
   `${REMINDER_HEADING}\n${REMINDER_CHECKBOX}\n${REMINDER_SUPPORTING}`;
 export const REMINDER_CATEGORIES = ["replenishment", "prescription_expiration"] as const;
+export const PATIENT_AUTHORITY_WORDING =
+  "I am the patient or am authorized to manage contact lens reminders for this patient.";
+export const PATIENT_AUTHORITY_VERSION = "2026-10-20.v1";

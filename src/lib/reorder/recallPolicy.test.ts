@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { chooseRecall, documentedExpiration, expirationReminderAt,
-  nextEligibleAt, suppressionReason } from "./recallPolicy";
+  nextEligibleAt, requiresJurisdictionReview, suppressionReason } from "./recallPolicy";
 
 const day = 86_400_000;
 const now = Date.parse("2026-10-20T12:00:00Z");
@@ -51,6 +51,10 @@ assert.equal(suppressionReason({ ...base, lastClaimedAt: at(-30) }), null);
 assert.equal(suppressionReason({ ...base, lastClaimedAt: at(-31), claimStatus: "unknown" }),
   "delivery_review");
 assert.equal(nextEligibleAt(at(0)), at(30));
+assert.equal(requiresJurisdictionReview("WA"), true);
+assert.equal(requiresJurisdictionReview("ct"), true);
+assert.equal(requiresJurisdictionReview(null), true);
+assert.equal(requiresJurisdictionReview("TX"), false);
 
 process.env.ORDER_RESUME_TOKEN_SECRET = "unit-test-only-recall-secret";
 process.env.NEXT_PUBLIC_SITE_URL = "https://example.test";
@@ -73,6 +77,12 @@ assert.match(message.html, /display:inline-block/);
 assert.doesNotMatch(message.subject + message.text + message.html,
   /prescription|patient|expires|depletion|1990-01-01|2027-01-15/i);
 assert.doesNotMatch(message.text, /Remind Me in 60 Days|Choose a Reminder Date/);
+assert.match(buildReorderReminder({ ...common, copyVariant: "reliable" }).text,
+  /you may be getting close to needing more contacts/);
+assert.match(buildReorderReminder({ ...common, copyVariant: "uncertain" }).text,
+  /It's been a little while since your last order/);
+assert.match(buildReorderReminder({ ...common, copyVariant: "follow_up" }).text,
+  /You asked us to check back around now/);
 console.log("Recall timing, coordination, suppression, controls, and private email copy passed. No email sent.");
 }
 void testEmail().catch(error => { console.error(error); process.exitCode = 1; });

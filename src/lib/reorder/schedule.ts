@@ -4,7 +4,7 @@ import { estimateReplenishment } from "./estimate";
 import { documentedExpiration, expirationReminderAt } from "./recallPolicy";
 import { isExplicitDraftOrTest } from "@/lib/orders/operationalQueue";
 import { getAuthoritativeOrderQuantity } from "@/lib/orders/orderQuantity";
-import { reminderPermissionState } from "./permission";
+import { hasPrescriptionReminderAuthority, reminderPermissionState } from "./permission";
 import { createReminderControlToken, hashReorderToken, REMINDER_ACTIONS } from "./tokens";
 
 export async function ensureReminderControls(orderId: string): Promise<void> {
@@ -96,7 +96,7 @@ export async function scheduleReorderReminder(
 
   let expirationAt: string | null = null;
   const expiration = documentedExpiration(order);
-  if (expiration) {
+  if (expiration && await hasPrescriptionReminderAuthority(orderId, order.shipping_email)) {
     const { data: evidence, error: evidenceError } = await supabaseServer.from("order_events")
       .select("id").eq("order_id", orderId)
       .in("event_type", ["admin_prescription_accepted", "admin_verification_override",

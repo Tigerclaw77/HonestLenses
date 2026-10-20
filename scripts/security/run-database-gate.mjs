@@ -1669,6 +1669,19 @@ async function runGate(client, connectionConfig) {
     savedChoice.rows[0]?.source === "checkout" &&
     savedChoice.rows[0]?.categories?.length === 2,
     "Checkout permission audit row must be service-readable");
+  const authorityMigration = "20261020210344_patient_reminder_authority.sql";
+  applied.push(await applySqlFile(client, path.join(migrationDirectory, authorityMigration), {
+    version: "20261020210344", name: "patient_reminder_authority",
+  }));
+  await client.query(`update public.customer_reminder_choices
+    set categories=array['replenishment']::text[],patient_authority_version=null
+    where order_id=$1`, [fixtureOrder]);
+  const narrowerChoice = await queryAs(client, "service_role", `select categories,
+    patient_authority_version from public.customer_reminder_choices where order_id=$1`,
+    [fixtureOrder]);
+  assert(narrowerChoice.rows[0]?.categories?.length === 1 &&
+    narrowerChoice.rows[0]?.patient_authority_version === null,
+    "Purchaser consent alone must support a reorder-only category");
 
   return {
     applied,
@@ -1723,7 +1736,8 @@ async function runGate(client, connectionConfig) {
       browserDirectAccessRejected: true,
       senderDisabledByDefault: true, metricsReadableByService: true },
     checkoutReminderPermission: { browserDirectAccessRejected: true,
-      serviceInsert: true, duplicateOrderIgnored: true },
+      serviceInsert: true, duplicateOrderIgnored: true,
+      reorderOnlyWithoutPatientAuthority: true },
   };
 }
 

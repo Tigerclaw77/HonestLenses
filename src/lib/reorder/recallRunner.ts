@@ -6,11 +6,11 @@ import { captureServerEvent } from "@/lib/posthog/server";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { supabaseServer as db } from "@/lib/supabase-server";
 import { ensureReorderEntry } from "./entry";
-import { chooseRecall, documentedExpiration, nextEligibleAt, suppressionReason,
+import { chooseRecall, documentedExpiration, nextEligibleAt, requiresJurisdictionReview, suppressionReason,
   type RecallKind, type SuppressionReason } from "./recallPolicy";
 import { buildReorderReminder } from "./reminders";
 import { hasConfirmedManualInvoicePurchase } from "./invoiceSuppression";
-import { reminderPermissionState } from "./permission";
+import { hasPrescriptionReminderAuthority, reminderPermissionState } from "./permission";
 
 type Preference = {
   order_id: string; email_hash: string; next_reminder_at: string | null;
@@ -24,6 +24,21 @@ async function recordEvent(orderId: string, eventType: string, key: string, deta
     order_id: orderId, event_type: eventType, event_key: key, details,
   }, { onConflict: "event_key", ignoreDuplicates: true });
   if (error) throw error;
+}
+
+async function recallCopyVariant(orderId: string, kind: RecallKind,
+  scheduledFor: string): Promise<"reliable" | "uncertain" | "follow_up" | undefined> {
+  const { data, error } = await db.from("reorder_reminder_events")
+    .select("event_type,details").eq("order_id", orderId)
+    .in("event_type", ["postponed", "scheduled"])
+    .order("occurred_at", { ascending: false }).limit(20);
+  if (error) throw error;
+  const events = (data ?? []) as { event_type: string; details: Record<string, unknown> | null }[];
+  if (events.some(event => event.event_type === "postponed" &&
+      event.details?.effective_at === scheduledFor)) return "follow_up";
+  if (kind === "expiration") return undefined;
+  const scheduled = events.find(event => event.event_type === "scheduled");
+  return scheduled?.details?.confidence === "high" ? "reliable" : "uncertain";
 }
 
 async function isVerifiedExpiration(order: Record<string, unknown>, expiration: string | null) {
@@ -66,7 +81,7 @@ export async function evaluateRecall(preference: Preference, now = Date.now(), d
   nextEligible: string | null;
 }> {
   const loaded = await db.from("orders").select(`id,status,created_at,updated_at,
-    shipping_email,shipping_first_name,shipping_last_name,patient_name,patient_full_name,
+    shipping_email,shipping_first_name,shipping_last_name,shipping_state,patient_name,patient_full_name,
     patient_first_name,patient_last_name,patient_dob,rx_patient_name,rx_dob,fulfillment_status,admin_notes,
     rx,rx_expiration_date,verification_status,verification_passed,verification_completed_at,
     payment_intent_id`)
@@ -79,23 +94,30 @@ export async function evaluateRecall(preference: Preference, now = Date.now(), d
   }
   const safeOrder = { id: order.id, shipping_email: order.shipping_email,
     shipping_first_name: order.shipping_first_name };
-  const expiration = documentedExpiration(order, now);
-  const verifiedExpiration = await isVerifiedExpiration(order, expiration);
-  const selected = chooseRecall({
-    replenishmentAt: preference.next_reminder_at,
-    expirationAt: verifiedExpiration ? preference.next_expiration_at : null,
-    expirationDate: verifiedExpiration ? expiration : null, now, dueBy,
-  });
-  if (!selected) return { order: safeOrder, kind: null, scheduledFor: null,
-    reason: preference.next_expiration_at && Date.parse(preference.next_expiration_at) <= now &&
-      !verifiedExpiration ? "unreliable_prescription" : "not_due", nextEligible: null };
   const permissionState = await reminderPermissionState(order.id, order.shipping_email);
   if (permissionState !== "affirmatively_requested") {
-    return { order: safeOrder, kind: selected.kind, scheduledFor: selected.scheduledFor,
+    return { order: safeOrder, kind: null, scheduledFor: null,
       reason: permissionState === "unsubscribed" ? "opted_out"
         : permissionState === "explicitly_declined" ? "explicitly_declined"
         : "no_lawful_basis", nextEligible: null };
   }
+  if (requiresJurisdictionReview(order.shipping_state)) {
+    return { order: safeOrder, kind: null, scheduledFor: null,
+      reason: "jurisdiction_review", nextEligible: null };
+  }
+  const expiration = documentedExpiration(order, now);
+  const verifiedExpiration = await isVerifiedExpiration(order, expiration);
+  const patientAuthority = await hasPrescriptionReminderAuthority(order.id, order.shipping_email);
+  const selected = chooseRecall({
+    replenishmentAt: preference.next_reminder_at,
+    expirationAt: patientAuthority && verifiedExpiration ? preference.next_expiration_at : null,
+    expirationDate: patientAuthority && verifiedExpiration ? expiration : null, now, dueBy,
+  });
+  if (!selected) return { order: safeOrder, kind: null, scheduledFor: null,
+    reason: preference.next_expiration_at && Date.parse(preference.next_expiration_at) <= dueBy
+      ? !patientAuthority ? "unverified_patient_authority"
+        : !verifiedExpiration ? "unreliable_prescription" : "not_due"
+      : "not_due", nextEligible: null };
   const suppressed = await db.from("commercial_email_suppressions").select("email_hash")
     .eq("email_hash", preference.email_hash).maybeSingle();
   if (suppressed.error) throw suppressed.error;
@@ -242,9 +264,11 @@ export async function runReorderReminders(): Promise<{ enabled: boolean; examine
     await recordEvent(preference.order_id, "queued", `queued:${key}`, { kind: result.kind });
     try {
       const reorderUrl = await ensureReorderEntry(preference.order_id);
+      const copyVariant = await recallCopyVariant(preference.order_id,
+        result.kind, result.scheduledFor);
       const message = buildReorderReminder({ orderId: preference.order_id,
         firstName: result.order.shipping_first_name || "there", reorderUrl,
-        postalAddress: control.postal_address });
+        postalAddress: control.postal_address, copyVariant });
       const sent = await sendEmail({ to: result.order.shipping_email, ...message,
         tracking: { orderId: preference.order_id, emailType: "reorder_reminder", updateOrderSummary: false },
         idempotencyKey: key, redactProviderErrorLog: true });

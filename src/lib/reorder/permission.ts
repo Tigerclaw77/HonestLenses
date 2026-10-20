@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 import { commercialEmailHash } from "@/lib/orderOperations";
 import { supabaseServer } from "@/lib/supabase-server";
 import {
+  PATIENT_AUTHORITY_VERSION, PATIENT_AUTHORITY_WORDING,
   REMINDER_CATEGORIES, REMINDER_PERMISSION_VERSION, REMINDER_PERMISSION_WORDING,
   REMINDER_PRIVACY_POLICY_VERSION,
 } from "./permissionCopy";
@@ -25,17 +26,35 @@ export async function recordCheckoutReminderPermission(order: {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new Error("Reminder request has no valid checkout email.");
   }
+  const patientAuthority = intent.metadata.checkout_patient_authority === PATIENT_AUTHORITY_VERSION;
   const { error } = await supabaseServer.from("customer_reminder_choices").upsert({
     order_id: order.id, customer_email: email, email_hash: commercialEmailHash(email),
     decision: "requested", recorded_at: new Date().toISOString(),
-    wording: REMINDER_PERMISSION_WORDING,
+    wording: patientAuthority
+      ? `${REMINDER_PERMISSION_WORDING}\n${PATIENT_AUTHORITY_WORDING}`
+      : REMINDER_PERMISSION_WORDING,
     wording_version: REMINDER_PERMISSION_VERSION,
+    patient_authority_version: patientAuthority ? PATIENT_AUTHORITY_VERSION : null,
     privacy_policy_version: REMINDER_PRIVACY_POLICY_VERSION,
-    source: "checkout", categories: [...REMINDER_CATEGORIES],
+    source: "checkout", categories: patientAuthority
+      ? [...REMINDER_CATEGORIES] : ["replenishment"],
     payment_intent_id: intent.id,
   }, { onConflict: "order_id", ignoreDuplicates: true });
   if (error) throw error;
   return true;
+}
+
+export async function hasPrescriptionReminderAuthority(
+  orderId: string, email: string,
+): Promise<boolean> {
+  const { data, error } = await supabaseServer.from("customer_reminder_choices")
+    .select("customer_email,categories,patient_authority_version").eq("order_id", orderId)
+    .eq("email_hash", commercialEmailHash(email)).maybeSingle();
+  if (error) throw error;
+  return data?.customer_email === email.trim().toLowerCase() &&
+    data.patient_authority_version === PATIENT_AUTHORITY_VERSION &&
+    Array.isArray(data.categories) &&
+    data.categories.includes("prescription_expiration");
 }
 
 export async function recordCapturedCheckoutReminderPermission(

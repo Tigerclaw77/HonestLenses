@@ -23,6 +23,7 @@ async function main() {
   let suppressed = false;
   let existing = false;
   let evidence = true;
+  let patientAuthority = true;
   let customerControl = false;
   let deliveredAt: string | null = null;
   let newerOrder = false;
@@ -38,7 +39,9 @@ async function main() {
         : table === "commercial_email_suppressions" ? suppressed ? { email_hash: "hash" } : null
         : table === "reorder_reminder_preferences" ? existing ? { order_id: order.id, stopped_at: null } : null
         : table === "customer_reminder_choices" ? { customer_email: order.shipping_email,
-          decision: "requested" }
+          decision: "requested", categories: patientAuthority
+            ? ["replenishment", "prescription_expiration"] : ["replenishment"],
+          patient_authority_version: patientAuthority ? "2026-10-20.v1" : null }
         : table === "order_events" ? evidence ? { id: "evidence" } : null
         : table === "reorder_reminder_events" ? customerControl ? { id: "control" } : null
         : table === "reorder_reminder_control_tokens" ? null : null, error: null }),
@@ -64,6 +67,12 @@ async function main() {
   assert.equal((writes.find(write => write.table === "reorder_reminder_events" &&
     write.operation === "upsert")?.value.details as { estimated_supply_days: number })
     .estimated_supply_days, 30);
+  writes.length = 0; patientAuthority = false;
+  await scheduleReorderReminder(order.id);
+  assert.equal(writes.find(write => write.table === "reorder_reminder_preferences" &&
+    write.operation === "upsert")?.value.next_expiration_at, null,
+  "Patient-specific expiration is absent without authority evidence");
+  patientAuthority = true;
   writes.length = 0;
   order = { ...source, adjusted_right_box_count: 2,
     adjusted_left_box_count: 2, adjusted_total_box_count: 4 };
