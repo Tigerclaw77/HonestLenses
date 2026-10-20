@@ -162,6 +162,7 @@ export function buildCustomerOrderEmail({
   isUploaded,
   uploadedVerificationComplete = false,
   paidReceiptSummary,
+  reorderUrl,
   siteUrl,
 }: {
   orderId: string;
@@ -170,16 +171,25 @@ export function buildCustomerOrderEmail({
   isUploaded: boolean;
   uploadedVerificationComplete?: boolean;
   paidReceiptSummary?: string[];
+  reorderUrl?: string;
   siteUrl?: string;
 }): { subject: string; html: string; text: string; orderUrl: string } {
   const orderUrl = getCustomerOrderUrl(orderId, siteUrl);
+  const reorderHtml = reorderUrl
+    ? `<p>Need more contacts? <a href="${escapeHtml(reorderUrl)}">Reorder My Contacts</a></p>`
+    : "";
+  const reorderText = reorderUrl
+    ? `\n\nNeed more contacts? Reorder My Contacts: ${reorderUrl}`
+    : "";
   if (paidReceiptSummary) return {
     subject: "Your receipt — Honest Lenses", orderUrl,
-    html: `<div style="font-family:Arial,sans-serif;color:#172033;max-width:640px;margin:auto;padding:24px"><h2>Honest Lenses — Order receipt</h2><p>Thank you for your purchase. Here is your receipt for the completed payment.</p>${paidReceiptSummary.map(line => `<p>${escapeHtml(line)}</p>`).join("")}<p><a href="${escapeHtml(orderUrl)}">View Your Order</a></p><p>Questions? Reply to this email or contact support@honestlenses.com.</p></div>`,
-    text: `Honest Lenses — Order receipt\n\nThank you for your purchase.\n${paidReceiptSummary.join("\n")}\n\nView Your Order: ${orderUrl}\n\nQuestions? support@honestlenses.com`,
+    html: `<div style="font-family:Arial,sans-serif;color:#172033;max-width:640px;margin:auto;padding:24px"><h2>Honest Lenses — Order receipt</h2><p>Thank you for your purchase. Here is your receipt for the completed payment.</p>${paidReceiptSummary.map(line => `<p>${escapeHtml(line)}</p>`).join("")}<p><a href="${escapeHtml(orderUrl)}">View Your Order</a></p>${reorderHtml}<p>Questions? Reply to this email or contact support@honestlenses.com.</p></div>`,
+    text: `Honest Lenses — Order receipt\n\nThank you for your purchase.\n${paidReceiptSummary.join("\n")}\n\nView Your Order: ${orderUrl}${reorderText}\n\nQuestions? support@honestlenses.com`,
   };
   const verificationMessage = uploadedVerificationComplete
-    ? "Your uploaded prescription was verified and your payment was completed."
+    ? isUploaded
+      ? "Your uploaded prescription was verified and your payment was completed."
+      : "Your valid prescription verification is on file."
     : isUploaded
       ? "Your prescription has been received and is awaiting required review."
     : "We will contact your doctor to verify your prescription before shipping.";
@@ -199,10 +209,11 @@ export function buildCustomerOrderEmail({
       <p>${escapeHtml(VISION_REIMBURSEMENT_MESSAGE)}</p>
       <p>Open your secure receipt link. Your itemized receipt is available there after payment is captured.</p>
       <p><a href="${escapeHtml(receiptUrl)}" style="display:inline-block;padding:12px 18px;background:#1d4ed8;color:#fff;text-decoration:none;border-radius:8px">Open secure receipt</a></p>
+      ${reorderHtml}
       <p>You will receive updates as your order progresses.</p>
       <p>- Honest Lenses</p>
     `,
-    text: `Thank you for your order.\n\nOrder number: ${customerOrderNumber}\n\n${verificationMessage}\n\nView Your Order: ${orderUrl}\nThis secure order link is valid for ${ORDER_ACCESS_TOKEN_TTL_DAYS} days. If it expires, use Find Your Order to request another.\n\nUsing HSA/FSA funds or requesting reimbursement?\n${VISION_REIMBURSEMENT_MESSAGE}\nOpen your secure receipt link. Your itemized receipt is available there after payment is captured.\nOpen secure receipt: ${receiptUrl}\n\n- Honest Lenses`,
+    text: `Thank you for your order.\n\nOrder number: ${customerOrderNumber}\n\n${verificationMessage}\n\nView Your Order: ${orderUrl}\nThis secure order link is valid for ${ORDER_ACCESS_TOKEN_TTL_DAYS} days. If it expires, use Find Your Order to request another.\n\nUsing HSA/FSA funds or requesting reimbursement?\n${VISION_REIMBURSEMENT_MESSAGE}\nOpen your secure receipt link. Your itemized receipt is available there after payment is captured.\nOpen secure receipt: ${receiptUrl}${reorderText}\n\n- Honest Lenses`,
   };
 }
 

@@ -51,7 +51,8 @@ export function reconcileAdminReceipt(order: AdminReceiptOrder, intent: Stripe.P
   return current;
 }
 
-export function buildAdminReceiptEmail(type: AdminReceiptType, order: AdminReceiptOrder, receipt: ReceiptSnapshot) {
+export function buildAdminReceiptEmail(type: AdminReceiptType, order: AdminReceiptOrder, receipt: ReceiptSnapshot,
+  reorderUrl?: string) {
   const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: receipt.currency }).format(cents / 100);
   const date = order.created_at && Number.isFinite(Date.parse(order.created_at))
     ? new Date(order.created_at).toISOString().slice(0, 10) : null;
@@ -62,7 +63,7 @@ export function buildAdminReceiptEmail(type: AdminReceiptType, order: AdminRecei
     `Total paid: ${money(receipt.amountPaidCents)}`,
   ];
   if (type === "receipt") return buildCustomerOrderEmail({ orderId: order.id,
-    customerOrderNumber: receipt.orderNumber, receiptUrl: "", isUploaded: false,
+    customerOrderNumber: receipt.orderNumber, receiptUrl: "", isUploaded: false, reorderUrl,
     paidReceiptSummary: summary });
 
   const rows: string[][] = [];

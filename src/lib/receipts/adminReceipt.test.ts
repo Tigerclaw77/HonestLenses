@@ -85,6 +85,7 @@ async function main() {
       const wasClaimed = claimed; claimed = true; return { data: { claimed: !wasClaimed }, error: null }; },
   } as unknown as typeof adminReceiptDependencies.db;
   const deps = { db, stripe: () => ({ paymentIntents: { retrieve: async () => intent } }) as unknown as Stripe,
+    reorderEntry: async () => "https://example.test/reorder/test-only-token",
     send: async (params: Parameters<typeof adminReceiptDependencies.send>[0]) => {
       sends++; assert.equal(params.to, order.shipping_email); assert.equal(params.tracking?.updateOrderSummary, false);
       assert.match(params.idempotencyKey!, /admin-receipt:/);

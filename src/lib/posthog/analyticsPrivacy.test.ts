@@ -41,6 +41,7 @@ assert.deepEqual(errorToAnalyticsProperties(new Error("patient@example.com has a
   error_message: "[redacted]",
 });
 assert.equal(sanitizeAnalyticsPath("/receipt/secret-token"), "/receipt/[redacted]");
+assert.equal(sanitizeAnalyticsPath("/reorder/secret-token"), "/reorder/[redacted]");
 assert.equal(sanitizeAnalyticsPath("/g/session/secret-token"), "/g/session/[redacted]");
 
 assert.deepEqual(

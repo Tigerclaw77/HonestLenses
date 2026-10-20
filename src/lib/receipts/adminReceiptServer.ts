@@ -3,11 +3,13 @@ import { getAdminStripe } from "@/lib/payments/adminPaymentReconciliation";
 import { sendEmail, EmailSendError } from "@/lib/email";
 import { buildAdminReceiptEmail, reconcileAdminReceipt, type AdminReceiptType } from "./adminReceipt";
 import type { ReceiptSnapshot } from "./core";
+import { ensureReorderEntry } from "@/lib/reorder/entry";
 
 export const adminReceiptDependencies = {
   db: supabaseServer,
   stripe: getAdminStripe,
   send: sendEmail,
+  reorderEntry: ensureReorderEntry,
 };
 
 export async function sendAdminReceipt(orderId: string, type: AdminReceiptType, requestId: string,
@@ -22,7 +24,8 @@ export async function sendAdminReceipt(orderId: string, type: AdminReceiptType, 
   ]);
   if (stored.error) throw new Error("Receipt history unavailable.");
   const receipt = reconcileAdminReceipt(order, intent, stored.data?.snapshot as ReceiptSnapshot | null);
-  const message = buildAdminReceiptEmail(type, order, receipt);
+  const reorderUrl = type === "receipt" ? await deps.reorderEntry(orderId) : undefined;
+  const message = buildAdminReceiptEmail(type, order, receipt, reorderUrl);
   const claim = await deps.db.rpc("claim_admin_receipt_send", {
     p_order_id: orderId, p_request_id: requestId, p_receipt_type: type, p_actor: actor,
   });

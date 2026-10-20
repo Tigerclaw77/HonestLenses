@@ -425,6 +425,13 @@ export async function POST(req: Request) {
         stripe_intent_status: intent.status,
       },
     });
+    const { data: reorderDraft } = await supabaseServer.from("reorder_drafts")
+      .select("draft_order_id").eq("draft_order_id", order.id).maybeSingle();
+    if (reorderDraft) {
+      await captureServerEvent({ event: POSTHOG_EVENTS.REORDER_CHECKOUT_STARTED,
+        distinctId: access.distinctId, request: req,
+        properties: { order_value_cents: order.total_amount_cents } });
+    }
 
     return NextResponse.json(paymentResponse(order, intent));
 

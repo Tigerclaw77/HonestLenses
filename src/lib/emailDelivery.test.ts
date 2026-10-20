@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { Webhook } from "svix";
 
-import { handleResendWebhook } from "@/app/api/webhooks/resend/route";
+import { handleResendWebhook } from "@/lib/email/resendWebhookHandler";
 import {
   normalizeResendDeliveryEvent,
   verifyResendWebhook,

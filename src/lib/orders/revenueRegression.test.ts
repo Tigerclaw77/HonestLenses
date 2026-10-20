@@ -94,7 +94,7 @@ async function main() {
     shipping_email:"customer@example.test",confirmation_email_sent_at:null as string|null,
     right_box_count:1,left_box_count:1,total_box_count:2,total_amount_cents:19998,subtotal_cents:18598,shipping_cents:1400,tax_cents:0,
     price_reason:"flat_retail_v1",capture_amount_cents:null,feedback_credit_cents:null,verification_status:"verified"};
-  let captured=false; let captures=0; let snapshots=0; let ledger=false;
+  let captured=false; let captures=0; let snapshots=0; let ledger=false; let reorderHash:string|null=null;
   const intent=()=>({id:order.payment_intent_id,status:captured?"succeeded":"requires_capture",capture_method:"manual",currency:"usd",
     metadata:{order_id:id},amount:19998,amount_received:captured?19998:0,amount_capturable:captured?0:19998,receipt_email:order.shipping_email});
   assert.equal(checkoutAmountMatchesPaymentIntent(order,intent().amount),true,"Authorized amount equals selected cart");
@@ -112,8 +112,9 @@ async function main() {
   supabaseServer.from=((table:string)=>{
     const q={select:()=>q,eq:()=>q,is:()=>q,gt:()=>q,order:()=>q,
       limit:()=>table==="order_email_deliveries"?Promise.resolve({data:ledger?[{resend_email_id:"email_fixture"}]:[],error:null}):q,
-      single:async()=>({data:order,error:null}),maybeSingle:async()=>({data:table==="orders"?order:null,error:null}),
-      insert:async()=>({error:null})};return q;
+      single:async()=>({data:table==="reorder_entry_links"?{token_hash:reorderHash,revoked_at:null}:order,error:null}),
+      maybeSingle:async()=>({data:table==="orders"?order:table==="reorder_entry_links"&&reorderHash?{token_hash:reorderHash,revoked_at:null}:null,error:null}),
+      insert:async()=>({error:null}),upsert:async(row:{token_hash:string})=>{reorderHash=row.token_hash;return{error:null}}};return q;
   }) as unknown as typeof supabaseServer.from;
   supabaseServer.rpc=(async(name:string)=>{assert.equal(name,"record_transactional_email_send");ledger=true;return{data:true,error:null};}) as unknown as typeof supabaseServer.rpc;
   await ensureOrderConfirmation(id);

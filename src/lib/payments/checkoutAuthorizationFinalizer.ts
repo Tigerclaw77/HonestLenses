@@ -28,6 +28,8 @@ import {
   type PostAuthorizationNotificationOrder,
 } from "@/lib/orders/postAuthorizationNotifications";
 import { buildCustomerOrderEmail } from "@/lib/orders/customerOrder";
+import { ensureReorderEntry } from "@/lib/reorder/entry";
+import { findReusablePrescription, recordReusedPrescription } from "@/lib/reorder/verification";
 import {
   ensureCustomerOrderNumber,
   getReceiptUrl,
@@ -51,6 +53,7 @@ export type CheckoutAuthorizationResult = {
     | "uploaded_auto_verified"
     | "uploaded_pending_capture"
     | "uploaded_review"
+    | "reused_verified"
     | "passive"
     | "information_needed";
   idempotent: boolean;
@@ -143,11 +146,13 @@ async function sendNotifications({
     !(await hasTrackedEmail(order.id, "order_confirmation"))
   ) {
     const customerOrderNumber = await ensureCustomerOrderNumber(order.id);
+    const reorderUrl = await ensureReorderEntry(order.id);
     const receiptAccess = await issueReceiptAccessToken(order.id, "confirmation");
     const confirmation = buildCustomerOrderEmail({
       orderId: order.id,
       customerOrderNumber,
       receiptUrl: getReceiptUrl(receiptAccess.token),
+      reorderUrl,
       isUploaded,
       uploadedVerificationComplete: uploadedAutoVerified,
     });
@@ -232,6 +237,7 @@ export async function finalizeCheckoutAuthorization({
   }
 
   const isUploaded = Boolean(orderRaw.rx_upload_path);
+  const reusedPrescription = !isUploaded ? await findReusablePrescription(orderRaw) : null;
   let uploadedAutomation: UploadedRxAutomationDecision | null = null;
   let uploadedCapture: {
     paymentIntentId: string;
@@ -320,7 +326,9 @@ export async function finalizeCheckoutAuthorization({
         : uploadedNeedsCustomerInformation
           ? VERIFICATION_INFORMATION_NEEDED_STATUS
           : "requires_review"
-    : canEnterPendingVerification
+    : reusedPrescription
+      ? "verified"
+      : canEnterPendingVerification
       ? "pending"
       : VERIFICATION_INFORMATION_NEEDED_STATUS;
   const mode = isUploaded
@@ -329,7 +337,9 @@ export async function finalizeCheckoutAuthorization({
       : uploadedPendingCapture
         ? "uploaded_pending_capture"
         : "uploaded_review"
-    : canEnterPendingVerification
+    : reusedPrescription
+      ? "reused_verified"
+      : canEnterPendingVerification
       ? "passive"
       : "information_needed";
   const nextStatus =
@@ -354,12 +364,15 @@ export async function finalizeCheckoutAuthorization({
   } as PostAuthorizationNotificationOrder & UnknownRecord;
 
   if (orderStatus === nextStatus && verificationStatus === nextVerificationStatus) {
+    if (reusedPrescription) {
+      await recordReusedPrescription(orderId, reusedPrescription.sourceOrderId);
+    }
     try {
       await sendNotifications({
         order: effectiveOrder,
         customerEmail: customerEmail ?? null,
         isUploaded,
-        uploadedAutoVerified,
+        uploadedAutoVerified: uploadedAutoVerified || Boolean(reusedPrescription),
       });
     } catch (error) {
       console.error("Post-authorization notification retry failed", { orderId, error });
@@ -367,7 +380,7 @@ export async function finalizeCheckoutAuthorization({
     return {
       ok: true,
       orderId,
-      next: isUploaded ? "success" : "verification-details",
+      next: isUploaded || reusedPrescription ? "success" : "verification-details",
       mode,
       idempotent: true,
     };
@@ -376,6 +389,10 @@ export async function finalizeCheckoutAuthorization({
   const updatePayload: Record<string, unknown> = { status: nextStatus };
   if (!uploadedPendingCapture) {
     updatePayload.verification_status = nextVerificationStatus;
+  }
+  if (reusedPrescription) {
+    updatePayload.verification_passed = true;
+    updatePayload.verification_completed_at = reusedPrescription.verifiedAt;
   }
   if (
     isUploaded &&
@@ -475,12 +492,16 @@ export async function finalizeCheckoutAuthorization({
     }
   }
 
+  if (reusedPrescription) {
+    await recordReusedPrescription(orderId, reusedPrescription.sourceOrderId);
+  }
+
   try {
     await sendNotifications({
       order: effectiveOrder,
       customerEmail: customerEmail ?? null,
       isUploaded,
-      uploadedAutoVerified,
+      uploadedAutoVerified: uploadedAutoVerified || Boolean(reusedPrescription),
     });
   } catch (error) {
     console.error("Post-authorization notifications failed", { orderId, error });
@@ -503,7 +524,7 @@ export async function finalizeCheckoutAuthorization({
       has_payment_intent: true,
       stripe_intent_status: intent.status,
       captured_immediately: uploadedAutoVerified,
-      next_step: isUploaded ? "success" : "verification-details",
+      next_step: isUploaded || reusedPrescription ? "success" : "verification-details",
     },
   });
   await captureServerEvent({
@@ -522,7 +543,7 @@ export async function finalizeCheckoutAuthorization({
       has_uploaded_rx: isUploaded,
       has_payment_intent: true,
       stripe_intent_status: intent.status,
-      next_step: isUploaded ? "success" : "verification-details",
+      next_step: isUploaded || reusedPrescription ? "success" : "verification-details",
     },
   });
   if (uploadedAutoVerified) {
@@ -542,7 +563,7 @@ export async function finalizeCheckoutAuthorization({
   return {
     ok: true,
     orderId,
-    next: isUploaded ? "success" : "verification-details",
+    next: isUploaded || reusedPrescription ? "success" : "verification-details",
     mode,
     idempotent: false,
   };

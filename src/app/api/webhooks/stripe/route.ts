@@ -18,6 +18,7 @@ import {
 import { reconcileAuthorizedPaymentIntent } from "@/lib/payments/checkoutAuthorizationFinalizer";
 import { ensureReceiptSnapshotWithoutAffectingPayment } from "@/lib/receipts/server";
 import { ensureOrderConfirmation } from "@/lib/receipts/confirmation";
+import { scheduleReorderReminder } from "@/lib/reorder/schedule";
 import { POSTHOG_EVENTS } from "@/lib/posthog/events";
 import { captureServerEvent } from "@/lib/posthog/server";
 
@@ -125,6 +126,19 @@ export async function POST(request: Request) {
           },
         });
         await ensureOrderConfirmation(result.orderId);
+        await scheduleReorderReminder(result.orderId);
+        const { data: reorderDraft } = await supabaseServer.from("reorder_drafts")
+          .select("source_order_id").eq("draft_order_id", result.orderId).maybeSingle();
+        if (reorderDraft) {
+          await captureServerEvent({ event: POSTHOG_EVENTS.REORDER_CHECKOUT_COMPLETED,
+            request, properties: { amount_received_cents: intent.amount_received } });
+          const { data: sourceReminder } = await supabaseServer.from("reorder_reminder_preferences")
+            .select("last_sent_at").eq("order_id", reorderDraft.source_order_id).maybeSingle();
+          if (sourceReminder?.last_sent_at) {
+            await captureServerEvent({ event: POSTHOG_EVENTS.REMINDER_CONVERTED,
+              request, properties: { amount_received_cents: intent.amount_received } });
+          }
+        }
       }
       return NextResponse.json({
         received: true,

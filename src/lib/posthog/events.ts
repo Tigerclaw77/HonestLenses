@@ -61,6 +61,15 @@ export const POSTHOG_EVENTS = {
   ABANDONMENT_SURVEY_SUBMITTED: "abandonment_survey_submitted",
   ABANDONMENT_CREDIT_APPLIED: "abandonment_credit_applied",
   RECOVERY_EMAIL_DRAFTED: "recovery_email_drafted",
+  REORDER_ENTRY_OPENED: "reorder_entry_opened",
+  REORDER_AUTH_REQUESTED: "reorder_auth_requested",
+  REORDER_AUTH_COMPLETED: "reorder_auth_completed",
+  REORDER_CHECKOUT_STARTED: "reorder_checkout_started",
+  REORDER_CHECKOUT_COMPLETED: "reorder_checkout_completed",
+  REMINDER_SENT: "reorder_reminder_sent",
+  REMINDER_POSTPONED: "reorder_reminder_postponed",
+  REMINDER_UNSUBSCRIBED: "reorder_reminder_unsubscribed",
+  REMINDER_CONVERTED: "reorder_reminder_converted",
 
   API_ROUTE_FAILED: "api_route_failed",
   CLIENT_ERROR: "client_error",
@@ -132,7 +141,7 @@ export function sanitizeAnalyticsProperties(
 
 export function sanitizeAnalyticsPath(path: string): string {
   return path
-    .replace(/\/(g\/session|g|receipt|order-access)\/[^/?#]+/gi, "/$1/[redacted]")
+    .replace(/\/(g\/session|g|receipt|order-access|reorder)\/[^/?#]+/gi, "/$1/[redacted]")
     .replace(
       /\/(order|orders|prescription-handoffs|abandoned-checkouts)\/[^/?#]+/gi,
       "/$1/[redacted]",

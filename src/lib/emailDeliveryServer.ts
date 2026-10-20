@@ -101,5 +101,14 @@ export async function applyResendDeliveryEvent(
   );
 
   if (error) throw error;
-  return (data ?? {}) as DeliveryEventApplyResult;
+  const result = (data ?? {}) as DeliveryEventApplyResult;
+  if (event.emailType === "reorder_reminder" && result?.matched && event.orderId &&
+      ["delivered", "bounced", "suppressed", "failed"].includes(event.deliveryStatus)) {
+    const { error: reminderError } = await supabaseServer.from("reorder_reminder_events")
+      .upsert({ order_id: event.orderId, event_type: event.deliveryStatus,
+        event_key: `resend:${event.svixId}` },
+        { onConflict: "event_key", ignoreDuplicates: true });
+    if (reminderError) throw reminderError;
+  }
+  return result;
 }

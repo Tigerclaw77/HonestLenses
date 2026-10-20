@@ -1527,6 +1527,58 @@ async function runGate(client, connectionConfig) {
     connectionConfig,
   );
 
+  const reorderMigration = "20261020134815_reorder_links_and_reminder_preferences.sql";
+  applied.push(await applySqlFile(client, path.join(migrationDirectory, reorderMigration), {
+    version: "20261020134815",
+    name: "reorder_links_and_reminder_preferences",
+  }));
+  const reorderTables = [
+    "reorder_entry_links", "reorder_auth_tokens", "reorder_drafts",
+    "reorder_reminder_preferences", "reorder_reminder_events",
+    "reorder_reminder_control_tokens", "reorder_reminder_attempts",
+  ];
+  for (const name of reorderTables) {
+    const result = await client.query(`select relrowsecurity as rls
+      from pg_class where oid = $1::regclass`, [`public.${name}`]);
+    assert(result.rows[0]?.rls, `${name} must have RLS enabled`);
+    await expectDenied(client, "anon", `select * from public.${name}`);
+    await expectDenied(client, "authenticated", `select * from public.${name}`);
+  }
+  await expectDenied(client, "anon",
+    `select * from public.consume_reorder_auth_token('${"a".repeat(64)}')`);
+  const fixtureOrder = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  await client.query(`insert into public.reorder_entry_links(order_id,token_hash)
+    values ($1,$2)`, [fixtureOrder, "a".repeat(64)]);
+  await client.query(`insert into public.reorder_auth_tokens(order_id,token_hash,recipient_hash,expires_at)
+    values ($1,$2,$3,now()+interval '15 minutes')`,
+    [fixtureOrder, "b".repeat(64), "c".repeat(64)]);
+  const firstUse = await executeAs(client, "service_role",
+    `select * from public.consume_reorder_auth_token($1)`, ["b".repeat(64)]);
+  assert(firstUse.rows.length === 1 && firstUse.rows[0].order_id === fixtureOrder,
+    "A valid authorization token must identify only its source order");
+  const replay = await queryAs(client, "service_role",
+    `select * from public.consume_reorder_auth_token($1)`, ["b".repeat(64)]);
+  assert(replay.rows.length === 0, "Authorization token replay must fail");
+  await client.query(`insert into public.reorder_auth_tokens
+    (order_id,token_hash,recipient_hash,created_at,expires_at)
+    values ($1,$2,$3,now()-interval '20 minutes',now()-interval '5 minutes')`,
+    [fixtureOrder, "d".repeat(64), "c".repeat(64)]);
+  const expired = await queryAs(client, "service_role",
+    `select * from public.consume_reorder_auth_token($1)`, ["d".repeat(64)]);
+  assert(expired.rows.length === 0, "Expired authorization must fail");
+  await client.query(`insert into public.reorder_auth_tokens(order_id,token_hash,recipient_hash,expires_at)
+    values ($1,$2,$3,now()+interval '15 minutes')`,
+    [fixtureOrder, "e".repeat(64), "c".repeat(64)]);
+  await client.query(`update public.reorder_entry_links set revoked_at=now() where order_id=$1`,
+    [fixtureOrder]);
+  const revoked = await queryAs(client, "service_role",
+    `select * from public.consume_reorder_auth_token($1)`, ["e".repeat(64)]);
+  assert(revoked.rows.length === 0, "Revoked entry must invalidate authorization");
+  const reminderSwitch = await client.query(`select reorder_reminders_enabled
+    from public.order_operations_control where id = true`);
+  assert(reminderSwitch.rows[0]?.reorder_reminders_enabled === false,
+    "Reorder reminder sending must default to disabled");
+
   return {
     applied,
     preRemediationExploit: {
