@@ -56,6 +56,7 @@ export function chooseRecall(input: {
 }
 
 export type SuppressionReason = "opted_out" | "bounced" | "recent_purchase" |
+  "manual_invoice_purchase" |
   "pending_reorder" | "newer_order" | "inactive_order" | "synthetic_test" |
   "unreliable_prescription" | "cooldown" | "refunded_or_unverified_payment" |
   "delivery_review";

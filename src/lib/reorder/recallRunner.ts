@@ -9,6 +9,7 @@ import { ensureReorderEntry } from "./entry";
 import { chooseRecall, documentedExpiration, nextEligibleAt, suppressionReason,
   type RecallKind, type SuppressionReason } from "./recallPolicy";
 import { buildReorderReminder } from "./reminders";
+import { hasConfirmedManualInvoicePurchase } from "./invoiceSuppression";
 
 type Preference = {
   order_id: string; email_hash: string; next_reminder_at: string | null;
@@ -41,15 +42,20 @@ async function isVerifiedExpiration(order: Record<string, unknown>, expiration: 
   return !withdrawn.data;
 }
 
-async function sourcePaymentValid(paymentIntentId: string | null): Promise<boolean> {
+async function sourcePayment(paymentIntentId: string | null): Promise<{
+  valid: boolean; customerId: string | null; stripe: Stripe | null;
+}> {
   const key = process.env.STRIPE_SECRET_KEY?.trim();
-  if (!key || !paymentIntentId) return false;
-  const intent = await new Stripe(key).paymentIntents.retrieve(paymentIntentId,
+  if (!key || !paymentIntentId) return { valid: false, customerId: null, stripe: null };
+  const stripe = new Stripe(key);
+  const intent = await stripe.paymentIntents.retrieve(paymentIntentId,
     { expand: ["latest_charge"] });
   const charge = intent.latest_charge;
-  return intent.status === "succeeded" && intent.amount_received > 0 &&
+  return { valid: intent.status === "succeeded" && intent.amount_received > 0 &&
     Boolean(charge && typeof charge !== "string" && charge.captured &&
-      charge.amount_refunded === 0 && !charge.disputed);
+      charge.amount_refunded === 0 && !charge.disputed),
+    customerId: typeof intent.customer === "string" ? intent.customer : intent.customer?.id ?? null,
+    stripe };
 }
 
 export async function evaluateRecall(preference: Preference, now = Date.now(), dueBy = now): Promise<{
@@ -98,8 +104,14 @@ export async function evaluateRecall(preference: Preference, now = Date.now(), d
     synthetic: isExplicitDraftOrTest(order),
     lastClaimedAt: claim.data?.claimed_at, claimStatus: claim.data?.status, now };
   const preliminary = suppressionReason({ ...policyInput, paymentValid: true });
-  const reason = preliminary ?? suppressionReason({ ...policyInput,
-    paymentValid: await sourcePaymentValid(order.payment_intent_id) });
+  const payment = preliminary ? null : await sourcePayment(order.payment_intent_id);
+  let reason: SuppressionReason | null = preliminary ?? suppressionReason({ ...policyInput,
+    paymentValid: payment?.valid ?? false });
+  if (!reason && payment?.stripe && await hasConfirmedManualInvoicePurchase(payment.stripe, {
+    orderId: order.id, sourceIntentId: order.payment_intent_id,
+    customerId: payment.customerId, email: order.shipping_email,
+    createdAt: order.created_at,
+  }, now)) reason = "manual_invoice_purchase";
   return { order: safeOrder, kind: selected.kind, scheduledFor: selected.scheduledFor,
     reason, nextEligible: claim.data?.status === "accepted"
       ? nextEligibleAt(claim.data.claimed_at) : null };
