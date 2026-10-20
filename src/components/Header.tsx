@@ -26,14 +26,6 @@ export default function Header({
 
   const isHome = variant === "home";
   const isCommercial = variant === "commercial";
-  const showShop = variant !== "shop";
-  const showAbout = variant !== "about";
-
-  const handleOrderClick = () => {
-    setIsNavOpen(false);
-    router.push("/upload-prescription");
-  };
-
   const handleShopClick = (e: React.MouseEvent<HTMLElement>) => {
     setIsNavOpen(false);
 
@@ -92,16 +84,6 @@ export default function Header({
           isCommercial ? "header-commercial" : ""
         }`}
       >
-        {isHome && (
-          <div className="home-utility-bar">
-            <p>Authentic contact lenses. Valid prescription required.</p>
-            <nav aria-label="Helpful links">
-              <Link href="/guides">Lens guides</Link>
-              <Link href="/verification">Prescription help</Link>
-              <Link href="/contact">Contact</Link>
-            </nav>
-          </div>
-        )}
         <div className="header-inner">
           {/* LOGO */}
           <Link href="/" className="logo-link">
@@ -112,34 +94,17 @@ export default function Header({
           </Link>
 
           <div className="header-actions">
-            {isHome && (
-              <button
-                className="nav-toggle"
-                onClick={() => setIsNavOpen(true)}
-                aria-label="Open navigation"
-              >
-                <span aria-hidden="true">☰</span>
-              </button>
-            )}
-
             <button
-              className="header-order-btn header-cta"
-              onClick={handleOrderClick}
+              className="nav-toggle"
+              onClick={() => setIsNavOpen(true)}
+              aria-label="Open navigation"
             >
-              Order Contacts
+              <span aria-hidden="true">☰</span>
             </button>
 
-            <nav className="header-nav">
-              {showShop && (
-                <a href="/browse" onClick={handleShopClick}>
-                  Shop lenses
-                </a>
-              )}
-              <Link href="/contacts">All lens details</Link>
-              {isHome && <Link href="/contacts/daily-contact-lenses">Daily lenses</Link>}
-              {isHome && <Link href="/contacts/toric-contact-lenses">Astigmatism</Link>}
-              {isHome && <Link href="/contacts/multifocal-contact-lenses">Multifocal</Link>}
-              {showAbout && <Link href="/about">About</Link>}
+            <nav className="header-nav" aria-label="Primary navigation">
+              <a href="/browse" onClick={handleShopClick}>Shop Contacts</a>
+              <Link href="/about">About</Link>
             </nav>
 
             {/* ACCOUNT ICON */}
@@ -196,7 +161,7 @@ export default function Header({
         </div>
       </header>
 
-      {isHome && isNavOpen && (
+      {isNavOpen && (
         <>
           <div className="nav-drawer open">
             <button
@@ -206,20 +171,10 @@ export default function Header({
               ✕
             </button>
 
-            <nav className="drawer-nav">
-              <a href="/browse" onClick={handleShopClick}>
-                Shop
-              </a>
-              <Link href="/contacts">All lens details</Link>
-              <Link href="/contacts/daily-contact-lenses">Daily lenses</Link>
-              <Link href="/contacts/toric-contact-lenses">Astigmatism lenses</Link>
-              <Link href="/contacts/multifocal-contact-lenses">Multifocal lenses</Link>
-              <Link href="/about">About</Link>
+            <nav className="drawer-nav" aria-label="Mobile navigation">
+              <a href="/browse" onClick={handleShopClick}>Shop Contacts</a>
+              <Link href="/about" onClick={() => setIsNavOpen(false)}>About</Link>
             </nav>
-
-            <button className="drawer-cta" onClick={handleOrderClick}>
-              Order Contacts
-            </button>
           </div>
 
           <div

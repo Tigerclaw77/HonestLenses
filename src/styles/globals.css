@@ -3726,6 +3726,96 @@ body:has(.hl-overlay) {
     padding: 0 16px;
   }
 }
+
+/* Compact storefront navigation. Category discovery remains on shopping pages. */
+.header,
+.header.header-home {
+  height: 76px;
+  min-height: 76px;
+  padding: 0 clamp(20px, 4vw, 76px);
+}
+
+.header-inner {
+  max-width: 1600px;
+  margin: 0 auto;
+  flex-wrap: nowrap;
+}
+
+.header-home .header-inner {
+  min-height: 76px;
+}
+
+.logo-link,
+.logo,
+.header-actions,
+.header-nav {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.header-actions,
+.header-home .header-actions {
+  gap: 22px;
+}
+
+.header-nav,
+.header-home .header-nav {
+  gap: 30px;
+}
+
+.header-nav a,
+.header-home .header-nav a {
+  margin: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 899px) {
+  .header,
+  .header.header-home {
+    height: 68px;
+    min-height: 68px;
+    padding: 0 16px;
+  }
+
+  .header-inner,
+  .header-home .header-inner {
+    min-height: 68px;
+    flex-direction: row;
+  }
+
+  .logo,
+  .header-home .logo {
+    margin: 0;
+  }
+
+  .logo-honest,
+  .logo-lenses,
+  .header-home .logo-honest,
+  .header-home .logo-lenses {
+    font-size: clamp(15px, 2.6vw, 20px);
+    letter-spacing: .12em;
+  }
+
+  .header-nav,
+  .header-home .header-nav {
+    display: none;
+  }
+
+  .header-actions,
+  .header-home .header-actions {
+    width: auto;
+    gap: 14px;
+  }
+
+  .nav-toggle,
+  .header-home .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    margin: 0;
+    order: 3;
+    transform: none;
+  }
+}
 @media (max-width: 640px) {
   .admin-history-row {
     grid-template-columns: minmax(78px, 0.7fr) minmax(120px, 1.5fr) !important;
