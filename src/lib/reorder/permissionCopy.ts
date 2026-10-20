@@ -1,5 +1,5 @@
 export const REMINDER_PERMISSION_VERSION = "2026-10-20.v1";
-export const REMINDER_PRIVACY_POLICY_VERSION = "2026-10-20.v1";
+export const REMINDER_PRIVACY_POLICY_VERSION = "2026-10-20.v2";
 export const REMINDER_HEADING = "Never run out of contacts.";
 export const REMINDER_CHECKBOX =
   "Yes, remind me when it may be time to reorder or renew my prescription.";
